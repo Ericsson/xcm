@@ -11,8 +11,8 @@ if CTL
 lib_LTLIBRARIES += libxcmctl.la
 endif
 
-include_HEADERS = include/xcm.h include/xcm_addr.h include/xcm_addr_compat.h \
-	include/xcm_attr.h include/xcm_attr_types.h
+include_HEADERS = include/xcm.h include/xcm_compat.h include/xcm_addr.h \
+	include/xcm_addr_compat.h include/xcm_attr.h include/xcm_attr_types.h
 
 noinst_PROGRAMS = server client
 
@@ -28,7 +28,7 @@ check_PROGRAMS = xcmtest
 
 # For information on how to update these numbers, see:
 # https://www.gnu.org/software/libtool/manual/html_node/Libtool-versioning.html#Libtool-versioning
-XCM_VERSION_CURRENT=12
+XCM_VERSION_CURRENT=13
 XCM_VERSION_REVISION=0
 XCM_VERSION_AGE=$(XCM_VERSION_CURRENT)
 
@@ -36,10 +36,11 @@ XCMCTL_VERSION_CURRENT=1
 XCMCTL_VERSION_REVISION=0
 XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 
-LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_addr.c libxcm/xcm_addr_compat.c \
-	libxcm/xcm_tp_tcp.c libxcm/xcm_tp_ux.c libxcm/xcm_tp.c \
-	libxcm/common_tp.c libxcm/tcp_attr.c libxcm/log.c common/util.c \
-	libxcm/xcm_dns_glibc.c
+LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_compat.c libxcm/xcm_addr.c \
+	libxcm/xcm_addr_compat.c libxcm/xcm_tp.c libxcm/xcm_tp_ux.c \
+	libxcm/xcm_tp_tcp.c libxcm/common_tp.c libxcm/tcp_attr.c \
+	libxcm/log.c libxcm/xcm_dns_glibc.c libxcm/epoll_reg.c \
+	libxcm/epoll_reg_set.c libxcm/active_fd.c common/util.c
 
 if TLS
 LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/ctx_store.c \
@@ -71,7 +72,7 @@ libxcmctl_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libxcmctl/libxcmctl.vs \
 libxcmctl_la_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT -I$(srcdir)/libxcmctl
 endif
 
-xcmpong_SOURCES = tools/xcmpong.c tools/epoll_set.c common/util.c
+xcmpong_SOURCES = tools/xcmpong.c common/util.c
 # You might think of _CFLAGS setting as a no-op, but in fact this
 # makes 'xcmmon/util.c' to be built in a separate version for
 # 'umpong', which is needed since the other version is built by
@@ -125,8 +126,7 @@ xcmtest_LDFLAGS = -no-install
 
 doxygen: .doxygenerated
 
-.doxygenerated: doc/doxygen.conf include/xcm.h include/xcm_addr.h \
-	include/xcm_attr.h include/xcm_attr_types.h
+.doxygenerated: $(include_HEADERS)
 	doxygen doc/doxygen.conf && touch .doxygenerated
 	if [ -n "`command -v pdflatex`" ]; then \
 		make -C doc/latex; \
@@ -136,7 +136,7 @@ clean-local:
 	rm -rf doc/html
 	rm -rf doc/latex
 	rm -f common/*.d libxcm/*.d libxcmc/*.d example/*.d tools/*.d
-	rm -f .doxygenerated
+	rm -f .doxygenerated py-compile
 
 distclean-local:
 	rm -rf autom4te.cache m4

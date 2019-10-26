@@ -22,9 +22,9 @@
     log_debug_sock(s, "Unable to create UNIX domain socket at path \"%s\"; " \
 		   "errno %d (%s).", path, reason_errno, strerror(reason_errno))
 
-#define LOG_CTL_CREATED(s, path)					\
-    log_debug_sock(s, "Created control UNIX domain socket at path \"%s\".", \
-		   path)
+#define LOG_CTL_CREATED(s, path, fd)					\
+    log_debug_sock(s, "Created control UNIX domain socket with fd %d at " \
+		   "path \"%s\".", fd, path)
 
 #define LOG_CTL_ACCEPT_ERROR(s, reason_errno)		       \
     log_debug_sock(s, "Error accepting new client on control socket; "	\
@@ -55,13 +55,5 @@
 
 #define LOG_CLIENT_GET_ALL_ATTR(s, name)				\
     log_debug_sock(s, "Control client attempting retrieve all attributes.")
-
-#define LOG_CTL_CLIENT_WANT(s, ctl_client_fd, ctl_client_fd_events)	\
-    log_debug_sock(s, "Control client wants to wait for fd %d to become %s.", \
-		   ctl_client_fd, tp_fd_events_name(ctl_client_fd_events))
-
-#define LOG_CTL_SERVER_WANT(s, server_fd, server_fd_events)		\
-    log_debug_sock(s, "Control server socket wants to wait for fd %d to " \
-		   "become %s.", server_fd, tp_fd_events_name(server_fd_events))
 
 #endif

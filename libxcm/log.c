@@ -10,6 +10,7 @@
 #include <string.h>
 #include <libgen.h>
 #include <limits.h>
+#include <inttypes.h>
 
 #include "xcm_tp.h"
 

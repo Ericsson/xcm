@@ -8,8 +8,6 @@
 #include "util.h"
 #include "ctl.h"
 
-#include <string.h>
-
 #define MAX_PROTOS (8)
 static struct xcm_tp_proto protos[MAX_PROTOS];
 static size_t num_protos = 0;

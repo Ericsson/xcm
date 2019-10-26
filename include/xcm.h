@@ -18,10 +18,11 @@ extern "C" {
  *
  * XCM consists of of three parts; the core API in xcm.h, an address
  * helper library API in xcm_addr.h, and the attribute access API in
- * xcm_attr.h.
+ * xcm_attr.h. Obsolete, but still present, functions are available
+ * in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.12
+ * @version 0.13
  *
  * The low version number is purely a result of all XCM releases being
  * backward compatible, and thus left the major version at 0. It's not
@@ -31,12 +32,14 @@ extern "C" {
  * @section overview Overview
  *
  * XCM provides a connection-oriented, reliable messaging service with
- * in-order delivery. The design goal is to allow a straight-off
- * mapping to TCP and TLS, but also allow more efficient transport for
- * local communication.
+ * in-order delivery. The design goal is to allow for a straight
+ * forward mapping to TCP and TLS, but also supporting efficient
+ * inter-process commmunication (IPC) mechanisms for local
+ * communication.
  *
- * XCM reuses much of the terminology (and semantics) of the BSD
- * Sockets API.
+ * XCM reuses much of the terminology of the BSD Sockets API. Unlike
+ * the BSD Socket API, XCM has uniform semantics across all underlying
+ * transports.
  *
  * @section semantics Overall Service Semantics
  *
@@ -48,15 +51,15 @@ extern "C" {
  * (returned from xcm_accept()), and one of the client side (returned
  * from xcm_connect()). Thus, a server serving multiple clients will
  * have multiple sockets; one server socket and N connection sockets,
- * one each for every client. A client will have one connection socket
- * for each server it is connected to.
+ * one each for every client. A client will typically have one
+ * connection socket for each server it is connected to.
  *
  * Messages are always sent and received on a particular connection
  * socket (and never on a server socket).
  *
  * @subsection ordering Ordering Guarantees
  *
- * In-order delivery - that messages arrive at the receiver in the
+ * In-order delivery - that messages arrive at the recipient in the
  * same order they were sent by the sender side - is guaranteed, but
  * only for messages sent on the same connection.
  *
@@ -70,8 +73,8 @@ extern "C" {
  * oppose to signaling traffic), xcm_send() blocking because of slow
  * network or a slow receiver should be rare indeed in practice. TCP,
  * TLS, and UNIX domain socket transports all have large enough
- * windows and socket buffers to allow a very large amount of
- * outstanding data.
+ * windows and socket buffers to allow a large amount of outstanding
+ * data.
  *
  * @section addressing Addressing and Transport Selection
  *
@@ -128,7 +131,7 @@ extern "C" {
  * For transports allowing a DNS domain name as a part of the address,
  * the transport will attempt resoĺv the name to an IP address. A DNS
  * domain name may resolv to zero or more IPv4 addresses and/or zero
- * or more IPv6 addresses. XCM relies on the system's configuration to
+ * or more IPv6 addresses. XCM relies on the operating system to
  * prioritize between IPv4 and IPv6.
  *
  * @subsubsection ip_addr_format IPv4 Address Format
@@ -193,37 +196,54 @@ extern "C" {
  * handles multiple clients (and thus multiple XCM connection sockets)
  * and the task of accepting new clients on the XCM server socket
  * concurrently (although not in parallel). To wait for events from
- * multiple sources, an I/O multiplexing facility such as select(2) or
- * poll(2) is used.
+ * multiple sources, an I/O multiplexing facility such as select(2),
+ * poll(2) or epoll(2) is used.
  *
- * XCM supports this programming model. However, due to the extensive
- * user space state/buffering required for some XCM transports, and
- * the weak correlation between fd read/write state and actual
- * XCM-level message send/receive that follows, XCM is forced to
- * deviate from the BSD Sockets semantics in this regard.
+ * Each XCM socket is represented by a single fd, retrieved with
+ * xcm_fd(). The fd number and underlying file object is stable across
+ * the life-time of the socket.
+ *
+ * On BSD Sockets, the socket fd being readable means it's likely that
+ * the application can successfully read data from the
+ * socket. Similarily, a fd marked writable by, for example, poll()
+ * means that the application is likely to be able to write data to
+ * the BSD Sockets fd. For an application using XCM going into
+ * select(), it must @a always wait for all the fds its XCM sockets to
+ * become readable (e.g. being in the @p readfds in the select()
+ * call), regardless what are their target conditions. Thus, even if
+ * the application is waiting for an opportunity to try to send a
+ * message on a XCM socket, or it doesn't want to do anything with the
+ * socket, it must wait for the socket @a fd to become readable. Not
+ * wanting to do nothing here means that the application has the
+ * xcm_await() @p condition set to 0, and is neither interested in
+ * waiting to call xcm_send(), xcm_receive(), nor xcm_accept() on the
+ * socket. An application may never leave a XCM socket unattended in
+ * the sense its fd is not in the set of fds passed to select() and/or
+ * xcm_send(), xcm_receive(), xcm_accept() or xcm_finish() are not
+ * called.
  *
  * @subsection select_variants Supported I/O Multiplexing Facilities
  *
- * XCM allows the application to use select() and poll() by direct
- * calls, or using any of the many event-loop libraries. For
- * simplicity, being the most well-known of options, select() is used
- * in this documentation to denote the whole family of POSIX I/O
- * multiplexing facilities.
+ * XCM is oblivious to what I/O multiplexing mechanism employed by the
+ * application. It may call select(), poll() or epoll_wait() directly,
+ * or make use of any of the many available event loop libraries (such
+ * as libevent). For simplicity, select() is used in this
+ * documentation to denote the whole family of Linux I/O multiplexing
+ * facilities.
  *
  * @subsection non_blocking_ops Non-blocking Operation
  *
- * An event-driven application will set the XCM sockets it handles
- * into non-blocking mode (xcm_set_blocking() or the XCM_NONBLOCK flag
- * to xcm_connect()).
+ * An event-driven application needs to set the XCM sockets it handles
+ * into non-blocking mode, by calling xcm_set_blocking() or setting
+ * the XCM_NONBLOCK flag in xcm_connect().
  *
  * For XCM sockets in non-blocking mode, all potentially blocking API
- * calls related to XCM connections, calls - xcm_connect(),
- * xcm_accept(), xcm_send(), and xcm_receive() - finish immediately.
+ * calls related to XCM connections - xcm_connect(), xcm_accept(),
+ * xcm_send(), and xcm_receive() - finish immediately.
  *
- * Many such potentially blocking calls will finish immediately and
- * with success. For xcm_send(), xcm_connect() and xcm_accept(), XCM
- * signaling success means that the XCM layer has accepted the
- * request. It may or may not have completed the request.
+ * For xcm_send(), xcm_connect() and xcm_accept(), XCM signaling
+ * success means that the XCM layer has accepted the request. It may
+ * or may not have completed the operation.
  *
  * @subsubsection non_blocking_connect Non-blocking Connection Establishment
  *
@@ -238,192 +258,115 @@ extern "C" {
  * The application may attempt to send or receive messages on such
  * semi-operational connections.
  *
- * There are ways for an application wishing to know when connection
- * establishment or the task of accepting a new client have finished to
- * do so. See @ref outstanding_tasks for more information.
+ * There are ways for an application to determine when connection
+ * establishment or the task of accepting a new client have
+ * completed. See @ref outstanding_tasks for more information.
  *
  * @subsubsection non_blocking_send_receive Non-blocking Send and Receive
  *
  * To receive a message on a XCM connection socket in non-blocking
- * mode, the application may wait for the right conditions to arise,
- * by means of calling xcm_want() with the @ref XCM_SO_RECEIVABLE flag
- * set.  When select() signals that these conditions are true, the
- * application should issue xcm_receive() to attempt to retrieve a
- * message.
+ * mode, the application may need to wait for the right conditions to
+ * arise (i.e. a message being available). The application needs to
+ * inform the socket that it wants to receive by calling xcm_await()
+ * with the @p XCM_SO_RECEIVABLE bit in the @p condition bit mask set.
+ * It will pass the fd it received from xcm_fd() into select(), asking
+ * to get notified when the fd becomes readable. When select() marks
+ * the socket fd as readable, the application should issue
+ * xcm_receive() to attempt to retrieve a message.
  *
- * xcm_receive() may also called on speculation, prior to any
- * xcm_want() call, to poll the socket for incoming messages.
+ * xcm_receive() may also called on speculation, prior to any select()
+ * call, to poll the socket for incoming messages.
  *
- * A XCM connection socket may buffer a number of messages, and thus
- * the application should, for optimal performance, repeat
+ * A XCM connection socket may have a number of messages buffered, and
+ * applications should generally, for optimal performance, repeat
  * xcm_receive() until it returns an error, and errno is set to
- * EAGAIN. However, an application may choose to call xcm_want() with
- * @ref XCM_SO_RECEIVABLE set, but in that case, if there are buffered
- * messages, the xcm_want() call will return 0, signaling that the
- * socket doesn't have to do anything in order for the application to
- * receive a message.
+ * EAGAIN.
  *
- * Similar to receiving a message, an application may use xcm_want()
- * to wait for the right conditions to occur to allow the transmission
- * of a message. Just like with xcm_receive(), it may also choose to
- * issue a xcm_send() call on speculation, falling back to xcm_want()
- * and select() only in the face of XCM being unable to accept a new
- * message. XCM will signal that this is the case by having
- * xcm_send() returning an error with errno to EAGAIN.
+ * Similarly to receiving a message, an application may set the @p
+ * XCM_SO_SENDABLE bit in the @p condition bit mask, if it wants to
+ * wait for a socket state where it's likely it can successfully send
+ * a message. When select() marks the socket fd as @a readable, the
+ * application should attempt to send a message.
+ *
+ * Just like with xcm_receive(), it may also choose to issue a
+ * xcm_send() call on speculation (i.e. without going into select()),
+ * which is often a good idea for performance reasons.
  *
  * For send operations on non-blocking connection sockets, XCM may
  * buffer whole or part of the message before transmission to the
  * lower layer. This may be due to socket output buffer underrun, or
- * the need for some in-band signaling, like security keys exchange,
- * to happen before the transmission of the complete message may
- * finish. The XCM layer will (re-)attempt to hand the message over to
- * the lower layer at a future call to xcm_finish(), xcm_send(), or
- * xcm_receive().
+ * the need for some in-band signaling, like cryptographic key
+ * exchange, to happen before the transmission of the complete message
+ * may finish. The XCM layer will (re-)attempt to hand the message
+ * over to the lower layer at a future call to xcm_finish(),
+ * xcm_send(), or xcm_receive().
  *
- * An application should never attempt to draw any conclusions
- * directly based the state of the fd or fds used by the XCM
- * socket. The fds may be readable, and yet there may be no message to
- * read from XCM, or it may not be readable, but yet there might be
- * one or several messages buffered in the XCM layer. The same lack of
- * correlation holds true also for xcm_send() and the fd
- * writable/non-writable fd state. In addition, XCM may also used
- * file descriptor for other purposes.
- *
- * For applications wishing to know when any outstanding message
- * transmission has finished, it may use xcm_finish() to do
- * so. Normally, applications aren't expected to require this kind of
- * control. Please also not that the fact a message has left the XCM
- * layer doesn't necessarily mean it has successfully been delivered
- * to the recipient.
+ * For applications wishing to determine when all buffered messages
+ * have successfully be deliver to the lower layer, they may use
+ * xcm_finish() to do so. Normally, applications aren't expected to
+ * require this kind of control. Please also note that the fact a
+ * message has left the XCM layer doesn't necessarily mean it has
+ * successfully been delivered to the recipient.
  *
  * @subsubsection outstanding_tasks Finishing Outstanding Tasks
  *
- * xcm_connect(), xcm_accept(), xcm_send() may all leave the
- * connection in a state where work is initiated, but not
- * completed. In addition, the transport may also busy with an
- * internal tasks, such filling its internal buffer with incoming
- * messages, being involved in a key exchange operation (TLS hand
- * shake) or keep alive message transmission or reception.
+ * xcm_connect(), xcm_accept(), xcm_send() may all leave the socket in
+ * a state where work is initiated, but not completed. In addition,
+ * the socket may have pending internal tasks, such flushing the
+ * output buffer into the TCP/IP stack, processing XCM control
+ * interface messages, or finishing the TLS hand shake procedure.
  *
- * Prior to the select() call, the application must query any XCM
- * connection or server socket it has in non-blocking mode, asking it
- * what events it is waiting for, and on what file descriptor. This is
- * true even if the application neither wants to send or receive (on a
- * connection socket), or accept incoming connections (on a server
- * socket).
- *
- * The file descriptor, and the type of event, may change if the
- * application issues any xcm_* calls on that connection. Easiest for
- * the application is likely to query the connection socket
- * immediately prior to each and every select() call.
- *
- * After waking up from a select() call, where the conditions required
- * by a non-blocking XCM socket are met, the application must, if no
- * xcm_send(), xcm_receive() or xcm_accept() calls are to be made,
- * call xcm_finish().  This is to allow the socket to finish any
- * outstanding tasks, even in the face of an application having no
- * immediate further use of the socket.
- *
- * The query is made with xcm_want(), and it returns an array of file
- * descriptors and, for each fd, the event type(s) the socket is
- * interested in for that fd.
- *
- * In case the XCM socket has any such needs, the application should
- * wait until the conditions are met (by means of select()).  Upon the
- * conditions are met, the application may continue to use the socket.
+ * After waking up from a select() call, where a particular XCM
+ * non-blocking socket's fd is marked readable, the application must,
+ * if no xcm_send(), xcm_receive() or xcm_accept() calls are to be
+ * made, call xcm_finish(). This is to allow the socket to finish any
+ * outstanding tasks, even in the case the application has no
+ * immediate plans for the socket.
  *
  * Prior to changing a socket from non-blocking to blocking mode, any
- * outstanding tasks must be finished.
+ * outstanding tasks should be finished, or otherwise the switch might
+ * cause xcm_set_blocking() to return -1 and set errno to EAGAIN.
  *
  * @subsection might_block Ready Status Semantics
  *
- * There might be situations that the fd or the fds tied to a XCM
- * connection is marked (by select()) with the appropriate ready
- * status (typically, but not always, write) for a xcm_send()
- * operation to success, but a send may still block (or fail with
- * EAGAIN, if in non-blocking mode). One such may be that the are
- * indeed socket buffer space, but not enough to fit the complete
- * message.
+ * For example, if a server socket's desired condition has been set
+ * (with xcm_await()) to @p XCM_SO_ACCEPTABLE, and the application
+ * wakes up from select() with the socket's fd marked readable, a call
+ * to xcm_accept() may still not produce a new connection socket.
  *
- * The same situation may arise for xcm_receive(). Even though the fd
- * tied to a XCM connection is marked with the appropriate ready
- * status for a message to be received, a xcm_receive() may fail,
- * since the complete message has not yet arrived.
- *
- * Thus, an application may never trust that a xcm_send() or
- * xcm_receive() in blocking mode won't block, and similarly may never
- * trust a send or receive operation to never fail and return EAGAIN,
- * regardless of fd status.
- *
- * See @ref io_waiting for other reasons that a send or receive may
- * always potentially block.
- *
- * @subsection io_waiting Waiting for Read May Mean Waiting for Write
- *
- * XCM is designed to allow transports where all the processing is
- * done in the application's thread of control (i.e. no separate OS
- * threads or processes for a connection to do whatever in-band
- * signaling is required for handling retransmission, dead peer
- * detection, key exchange etc). One transport involving a lot of this
- * kind of processing is the @ref tls_transport.
- *
- * For sockets in blocking mode, this complexity is hidden from the
- * application (except in the form of message reception or
- * transmission latency jitter).
- *
- * For event-driven applications, with their XCM connections in
- * non-blocking mode, this has a non-obvious effect; in order to
- * receive a message, the XCM transport may ask the application to
- * have its thread wait (with select()) for the connection's fd to be
- * marked writable. This is because in order to receive the message,
- * the transport may need to complete some in-band signaling. For
- * example, it may require some new keys for encrypting the outgoing
- * message, since the old have expired.
- *
- * The other way around may also be true; that in order to write a
- * message, the transport may need to have the application to wait for
- * the fd to become readable (since it needs to receive some signaling
- * message from the remote peer in order to proceed).
- *
- * The same holds true also for accept operation on server sockets; in
- * order to accept an incoming request, the transport may ask the
- * application to wait for the fd to be come writable.
+ * The same holds true when reaching @p XCM_SO_RECEIVABLE and a
+ * xcm_receive() call is made, and @p XCM_SO_SENDABLE and calls to
+ * xcm_send().
  *
  * @subsection nb_examples Non-blocking Example Sequences
  *
  * @subsubsection nb_connect_and_send Connect and Send Message
  *
- * In this example, the application connects and immediately tries to
- * send a message. This may fail (for example, in case TCP and/or
+ * In this example, the application connects and tries to send a
+ * message, before knowing if the connection is actually
+ * established. This may fail (for example, in case TCP and/or
  * TLS-level connection establishement has not yet been completed), in
  * which case the application will fall back and wait with the use of
- * xcm_want() and select().
+ * xcm_await(), xcm_fd() and select().
  *
  * @startuml{nb_connect_and_send.png}
  * client -> libxcm: xcm_connect("tls:192.168.1.42:4711", XCM_NONBLOCK);
  * libxcm -> client: conn_socket
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
- * libxcm -> client: 2, fds=[99, 17], events=[XCM_FD_READABLE, XCM_FD_READABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(100, [99, 17, ...], [...], [...], NULL);
+ * client -> libxcm: xcm_send(conn_socket, "hello world", 11);
+ * libxcm -> client: -1, errno=EAGAIN
+ * client -> libxcm: xcm_fd(conn_socket);
+ * libxcm -> client: 42
+ * client -> libxcm: xcm_await(conn_socket, XCM_SO_SENDABLE);
+ * libxcm -> client: 0
+ * client -> libc: select(17, [42, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
- * client -> libxcm: xcm_send(conn_socket, "hello world", 10);
+ * client -> libxcm: xcm_send(conn_socket, "hello world", 11);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
- * libxcm -> client: 2, fds=[99, 17], events=[XCM_FD_READABLE, XCM_FD_WRITABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(100, [99, ...], [17, ...], [...], NULL);
- * libc -> client: 1
- * client -> libxcm: xcm_send(conn_socket, "hello world", 10);
- * libxcm -> client: -1, errno=EAGAIN
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
- * libxcm -> client: 2, fds=[99, 17], events=[XCM_FD_READABLE, XCM_FD_READABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(100, [99, 17, ...], [...], [...], NULL);
+ * client -> libc: select(17, [42, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
- * client -> libxcm: xcm_send(conn_socket, "hello world", 10);
+ * client -> libxcm: xcm_send(conn_socket, "hello world", 11);
  * libxcm -> client: 0
  * @enduml
  *
@@ -436,25 +379,21 @@ extern "C" {
  * @startuml{nb_connect_explicit.png}
  * client -> libxcm: xcm_connect("tls:192.168.1.42:4711", XCM_NONBLOCK);
  * libxcm -> client: conn_socket
- * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
- * libxcm -> client: 1, fds=[42], events=[XCM_FD_READABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(43, [42, ...], [...], [...], NULL);
+ * client -> libxcm: xcm_fd(conn_socket);
+ * libxcm -> client: 99
+ * client -> libxcm: xcm_await(conn_socket, 0);
+ * libxcm -> client: 0
+ * client -> libc: select(88, [99, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
- * libxcm -> client: 1, fds=[42], events=[XCM_FD_WRITABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(43, [...], [42, ...], [...], NULL);
+ * client -> libc: select(88, [...], [99, ...], [...], NULL);
+ * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
- * libxcm -> client: 1, fds=[42], events=[XCM_FD_READABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(43, [42, ...], [...], [...], NULL);
+ * client -> libc: select(88, [...], [99, ...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
@@ -481,38 +420,17 @@ extern "C" {
  * @startuml{nb_delayed_connection_refused.png}
  * client -> libxcm: xcm_connect("utls:192.168.1.17:17", XCM_NONBLOCK);
  * libxcm -> client: conn_socket
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
- * libxcm -> client: 1, fds=[42], events=[XCM_FD_READABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(43, [42, ...], [...], [...], NULL);
+ * client -> libxcm: xcm_fd(conn_socket);
+ * libxcm -> client: 100
+ * client -> libxcm: xcm_await(conn_socket, XCM_SO_SENDABLE);
+ * libxcm -> client: 0
+ * client -> libc: select(50, [100, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_send(conn_socket, "Greetings from the North", 25);
  * libxcm -> client: -1, errno=ECONNREFUSED
  * client -> libxcm: xcm_close(conn_socket);
  * libxcm -> client: 0
- * @enduml
- *
- * @subsubsection nb_buffering Receiving Buffering
- *
- * In this example, the application runs into a situation where the
- * operation requested may be perfomed immediately (since XCM already
- * have a buffered message).
- *
- * @startuml{nb_buffering.png}
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_RECEIVABLE, fds, events, 8);
- * libxcm -> client: 2, fds=[17, 42], events=[XCM_FD_READABLE, XCM_FD_READABLE]
- * client -> libc: select(43, [17, 42, ...], [...], [...], NULL);
- * |||
- * libc -> client: 1
- * client -> libxcm: xcm_receive(conn_socket, buf, 1024);
- * libxcm -> client: 100
- * client -> client: handle_request(buf, 100);
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_RECEIVABLE, fds, events, 8);
- * libxcm -> client: 0
- * client -> libxcm: xcm_receive(conn_socket, buf, 1024);
- * libxcm -> client: 98
- * client -> client: handle_request(buf, 98);
  * @enduml
  *
  * @subsubsection nb_flush_buffers_before_close Buffer Flush Before Close
@@ -526,10 +444,11 @@ extern "C" {
  * libxcm -> client: 0
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
- * libxcm -> client: 1, fds=[12], events=[XCM_FD_WRITABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(13, [...], [12, ...], [...], NULL);
+ * client -> libxcm: xcm_fd(conn_socket);
+ * libxcm -> client: 12
+ * client -> libxcm: xcm_await(conn_socket, 0);
+ * libxcm -> client: 0
+ * client -> libc: select(13, [12, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
@@ -549,21 +468,23 @@ extern "C" {
  * libxcm -> client: server_socket
  * client -> libxcm: xcm_set_blocking(server_socket, false);
  * libxcm -> client: 0
- * client -> libxcm: xcm_want(server_socket, XCM_SO_ACCEPTABLE, fds, events, 8);
- * libxcm -> client: 3, fds=[4, 8, 9], events=[XCM_FD_READABLE, XCM_FD_READABLE, XCM_FD_READABLE]
- * client -> client: build_fd_sets(...);
- * client -> libc: select(10, [4, 8, 9, ...], [...], [...], NULL);
+ * client -> libxcm: xcm_fd(server_socket);
+ * libxcm -> client: 4
+ * client -> libxcm: xcm_await(server_socket, XCM_SO_ACCEPTABLE);
+ * libxcm -> client: 0
+ * client -> libc: select(3, [4, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_accept(server_socket);
  * libxcm -> client: conn_socket
- * client -> libxcm: xcm_want(server_socket, XCM_SO_ACCEPTABLE, fds, events, 8);
- * libxcm -> client: 3, fds=[4, 8, 9], events=[XCM_FD_READABLE, XCM_FD_READABLE, XCM_FD_READABLE]
- * client -> libxcm: xcm_want(conn_socket, XCM_SO_RECEIVABLE, fds, events, 8);
- * libxcm -> client: 1, fds=[11], events=[XCM_FD_READABLE]
- * client -> libc: select(12, [4, 8, 9, 11, ...], [...], [...], NULL);
+ * client -> libxcm: xcm_fd(conn_socket);
+ * libxcm -> client: 5
+ * client -> libxcm: xcm_await(conn_socket, XCM_SO_RECEIVABLE);
+ * libxcm -> client: 0
+ * client -> libc: select(3, [4, 5, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
+ * client -> client: map_active_fd_to_xcm_socket()
  * client -> libxcm: xcm_receive(conn_socket, buf, 1024);
  * libxcm -> client: 100
  * client -> client: handle_request(buf, 100);
@@ -682,23 +603,6 @@ extern "C" {
  * all other XCM-using processes also are using this non-default
  * directory).
  *
- * @subsection ctl_fds Additional File Descriptors
- *
- * The XCM socket state the control interface allows access to
- * (i.e. the attributes) is owned by the various processes is the
- * system using the XCM library. Thus, to avoid synchronization
- * issues, the control interface is driven by the application's
- * thread(s), although the application is kept unaware of this fact.
- *
- * If the control interface is enabled, some of the file descriptors
- * returned to the application (in xcm_want()) will are not tied to
- * the data interface (i.e. xcm.h and the messaging I/O), but rather
- * the control interface.
- *
- * The control interface is using one file descriptor for the a UNIX
- * domain server socket, and zero or more fds for any control
- * interface clients attached.
- *
  * @subsection ctl_errors Control Interface Error Handling
  *
  * Generally, since the application is left unaware (from an API
@@ -732,13 +636,15 @@ extern "C" {
  * in the same process, although it might provide difficult in
  * practice since a thread in a blocking XCM function will continue to
  * hold the lock, and thus preventing other threads from accessing the
- * socket at all. For non-blocking sockets, the contract of xcm_want()
- * may be broken in so far the conditions on which a thread is waiting
- * for may be change, if another thread calls into that connection
- * socket.
+ * socket at all.
  *
- * It is however safe to "give away" a XCM socket from one thread to
- * another, provided the appropriate memory fences are used.
+ * For non-blocking sockets, threads sharing a socket need to agree on
+ * what is the appropriate socket @p condition to wait for. When this
+ * condition is met, all threads are woken up, returning from
+ * select().
+ *
+ * It is safe to "give away" a XCM socket from one thread to another,
+ * provided the appropriate memory fences are used.
  *
  * These limitations (compared to BSD Sockets) are in place to allow
  * socket state outside the kernel (which is required for TCP framing
@@ -763,12 +669,11 @@ extern "C" {
  * @section transports Transports
  *
  * The core XCM API functions are oblivious to the transports
- * used. However, the support for building, and parsing addresses
- * (which some applications are expected to do) are available only for
- * a set of pre-defined set of transports. There is nothing preventing
- * xcm_addr.h from being extended, and also nothing prevents an
- * alternative XCM implementation to include more transports without
- * touching the address helper API.
+ * used. However, the support for building, and parsing addresses are
+ * available only for a set of pre-defined set of transports. There is
+ * nothing preventing xcm_addr.h from being extended, and also nothing
+ * prevents an alternative XCM implementation to include more
+ * transports without extending the address helper API.
  *
  * @subsection ux_transport UX Transport
  *
@@ -961,12 +866,6 @@ extern "C" {
  * both). XCM connections to a particular UTLS server socket may be a
  * mix of the two different types.
  *
- * In the UTLS transport, xcm_want() will return at least two file
- * descriptors; one for the TCP BSD socket file descriptor utilized
- * for TLS, and one for the UNIX domain socket. However, the
- * applications should not depend on this (or the fact that other
- * transports might return fewer).
- *
  * For an UTLS server socket with the address <tt>utls:<ip>:<port></tt>,
  * two underlying addresses will be allocated;
  * <tt>tls:<ip>:<port></tt> and <tt>ux:<ip>:<port></tt>.
@@ -1080,10 +979,9 @@ struct xcm_socket;
  * See @ref select for an overview how non-blocking mode is used.
  *
  * For non-blocking connection establishment attempts, the application
- * may use xcm_finish() the query the result. It should use xcm_want()
- * to retrieve the needed information to be able to wait the
- * appropriate time to make the xcm_finish() call (although it may be
- * called at any point).
+ * may use xcm_finish() the query the result. It should use xcm_fd()
+ * and select() to wait for the appropriate time to make the
+ * xcm_finish() call (although it may be called at any point).
  *
  * xcm_connect() with the XCM_NONBLOCK flag set will leave the
  * connection in non-blocking mode (see xcm_set_blocking() for
@@ -1251,13 +1149,6 @@ int xcm_send(struct xcm_socket *conn_socket, const void *buf, size_t len);
  */
 int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity);
 
-/** Flag bit denoting a readable fd event in xcm_want(). */
-#define XCM_FD_READABLE (1<<0)
-/** Flag bit denoting a writable fd event. */
-#define XCM_FD_WRITABLE (1<<1)
-/** Flag bit denoting a exception fd event. */
-#define XCM_FD_EXCEPTION (1<<2)
-
 /** Flag bit denoting a socket where the application likely can
     receive a message. */
 #define XCM_SO_RECEIVABLE (1<<0)
@@ -1267,28 +1158,34 @@ int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity);
 /** Flag bit denoting a socket with a pending incoming connection. */
 #define XCM_SO_ACCEPTABLE (1<<2)
 
-/** Query the socket what events on which file descriptors it's
- * waiting for.
+/** Inform socket of which operations the application is waiting to
+ *  perform.
  *
  * This function is only used by event-driven application and with XCM
  * sockets in non-blocking mode. For an overview on this subject, see
  * @ref select.
  *
- * With xcm_want(), the application will inform the XCM socket what
- * condition it's waiting for (i.e. what XCM operation it wants to
- * perform), and in return the XCM socket will provide a set of file
- * descriptors and, for each fd, information on what type of event on
- * that fd it require to make progress. Progress can mean both
- * progress toward the goal of reaching the application's desired
- * socket condition, or finishing any outstanding task the XCM socket
- * has.
+ * Using xcm_await(), the application informs the XCM socket what
+ * conditions it's waiting for (i.e. what XCM operations it wants to
+ * perform). These conditions are stored in the socket, and won't
+ * change until the application calls xcm_await() again.
+ *
+ * The @p condition parameter is a bitmask, with the valid bits being
+ * @ref XCM_SO_RECEIVABLE or @ref XCM_SO_SENDABLE (for connection
+ * socket) or @ref XCM_SO_ACCEPTABLE (for server sockets). If no bits
+ * are set, the application is not interested in anything beyond the
+ * XCM socket to finish any outstanding tasks.
+ *
+ * Typically, the application would call xcm_await() when an XCM
+ * operation (such as xcm_receive()) has failed with errno set to
+ * EAGAIN. However, the application may also call xcm_await() even
+ * though neither xcm_send(), xcm_receive(), nor xcm_finish() has
+ * failed in such a manner.
  *
  * In case any of the conditions the application is asking for are
- * believed to be already met, the xcm_want() call will return 0.
- *
- * In case the XCM socket has no outstanding tasks, and the
- * application is not asking for any operation that the XCM socket
- * believes it can't immediate fulfill, the call will return 0.
+ * believed to be met already at the time of the xcm_await() call, the
+ * XCM socket fd (see xcm_fd() for details) will be marked as ready to
+ * be read.
  *
  * The conditions specified by the application are future operation it
  * wishes to perform on a socket (as opposed to finishing operations
@@ -1300,64 +1197,71 @@ int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity);
  * message to the lower layer is performed by XCM regardless of the
  * conditions specified.
  *
- * Note that XCM may ask the application to wait for the connection's
- * fd or fds to become writable, even if the application is waiting to
- * receive a message. It may also ask the application to wait for the
- * connection's fd to become readable, even if the application is
- * attemting to send a messaging. For the quirks of xcm_want(), see
- * @ref io_waiting.
+ * Even though XCM socket fd is marked readable (by select()), and
+ * thus the application-specified conditions for a particular
+ * connection socket are likely met, there's no guarantee that the API
+ * operation (i.e. xcm_send(), xcm_receive() or xcm_accept()) will
+ * succeed.
  *
- * Even though the conditions for a particular connection socket are
- * met (fd is becoming writable, for example), there's no guarantee
- * that the xcm_send() or xcm_receive() won't block (or in case of
- * non-blocking mode, won't fail and set EAGAIN).
- *
- * The XCM socket fds may only be used with select(). Supplying this
- * fd to any other OS calls (such as setsockopt(2), read(2) etc) is
- * prohibited.
- *
- * The information received on which fd to use, and what events on
- * that fd are relevant for the connection socket in its current
- * state, are only valid until more xcm_* calls are made on this
- * socket. See @ref outstanding_tasks for more information.
- *
- * The fd is an positive integer, unique within this process.
- *
- * The condition parameter is a bitmask, with the bits being @ref
- * XCM_SO_RECEIVABLE, @ref XCM_SO_SENDABLE, and/or @ref
- * XCM_SO_ACCEPTABLE. If no bits are set, the application is not
- * interested in anything beyond this XCM socket to finish any
- * outstanding task.
- *
- * Each element in the events array is an int used as a bitmask.  The
- * bitmask at position N in the events array represents the file
- * descriptor events the XCM transport is waiting for, for fd at
- * position N in the fds array. The bits are @ref XCM_FD_READABLE,
- * @ref XCM_FD_WRITABLE and/or @ref XCM_FD_EXCEPTION. At least one bit
- * is always set.
- *
- * If a socket is waiting for multiple events (for example, both
- * readable and writable on the same fd, or readable on one fd, and
- * writeable on another), the condition is met whenever any of the
- * events occur (as oppose to all events).
+ * If an application is waiting for both XCM_SO_SENDABLE and
+ * XCM_SO_RECEIVABLE, is should try both to send and receive when the
+ * socket fd is marked readable.
  *
  * @param[in] socket The XCM socket.
  * @param[in] condition The condition the application is waiting for.
- * @param[out] fds An user-supplied array to store the fds.
- * @param[out] events An user-supplied array of int to store the bitmask of each of the fds in the fds array.
- * @param[in] capacity The length of the fds and events arrays.
  *
- * @return Returns the number (>=0) of fds, or -1 if an error occured
- *         (in which case errno is set).
+ * @return Returns the XCM socket fd on success, or -1 if an error
+ *         occured (in which case errno is set).
  *
  * errno        | Description
  * -------------|------------
- * EOVERFLOW    | The user-supplied buffer was too small to fit the socket's fds.
- * EINVAL       | The socket is not in blocking mode, or the condition bits are invalid.
+ * EINVAL       | The socket is not in non-blocking mode, or the condition bits are invalid.
  */
 
-int xcm_want(struct xcm_socket *socket, int condition, int *fds, int *events,
-	     size_t capacity);
+int xcm_await(struct xcm_socket *socket, int condition);
+
+/** Returns XCM socket fd.
+ *
+ * This call retrieves the XCM socket fd for a XCM socket non-blocking
+ * mode.
+ *
+ * When this fd becomes readable, the XCM socket is ready to make
+ * progress.
+ *
+ * Progress can mean both progress toward the goal of reaching the
+ * application's desired socket condition (see xcm_await() for
+ * details), or finishing any outstanding task the XCM socket has.
+ *
+ * Please note that the XCM socket fd is @b only ever marked readable
+ * (as opposed to writable). This is true even if the application is
+ * waiting to send a message on the socket. Marked readable means that
+ * the fd is, for example, marked with EPOLLIN, in case epoll_wait()
+ * is used, or has its bit set in the @p readfs fd_set, in case
+ * select() is used.
+ *
+ * When the XCM socket fd becomes readable, an application would
+ * typically perform the actions it specified in xcm_await()'s @ref
+ * condition parameter. It is not forced to do so, but may choose to
+ * perform other API operations instead. However, if neither
+ * xcm_send() nor xcm_receive() is called, the application must call
+ * xcm_finish(). The xcm_finish() call must be made, even though the
+ * @p condition parameter was set to zero. This is to allow the socket
+ * make progress on its background tasks. See @ref outstanding_tasks
+ * for details.
+ *
+ * @param[in] socket The connection or server socket.
+ *
+ * @return Returns the XCM socket fd on success, or -1 if an error
+ *         occured (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EINVAL       | The socket is not in non-blocking mode.
+ *
+ * @see xcm_await
+ */
+
+int xcm_fd(struct xcm_socket *socket);
 
 /** Attempts to finish an ongoing non-blocking background operation.
  *
@@ -1367,8 +1271,9 @@ int xcm_want(struct xcm_socket *socket, int condition, int *fds, int *events,
  * outstanding processing related to that operation, to know if it
  * succeeded or not.
  *
- * In addition, xcm_finish() must be called if the conditions set by
- * xcm_want() are met (as signaled by select(), unless the application
+ * In addition, xcm_finish() must be called if the conditions on a
+ * non-blocking socket are met (as signaled by select() marking the
+ * socket fd returned by xcm_fd() as readable), unless the application
  * calls xcm_send(), xcm_receive() or xcm_accept() on that socket. See
  * @ref outstanding_tasks for details.
  *
@@ -1477,6 +1382,8 @@ const char *xcm_remote_addr(struct xcm_socket *conn_socket);
  *         occurred (in which case errno is set).
  */
 const char *xcm_local_addr(struct xcm_socket *socket);
+
+#include <xcm_compat.h>
 
 #ifdef __cplusplus
 }

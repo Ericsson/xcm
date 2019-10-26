@@ -13,11 +13,10 @@
 
 struct xcm_dns_query;
 
-struct xcm_dns_query *xcm_dns_resolve(struct xcm_socket *conn_socket,
-                                      const char *domain_name);
+struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
+                                      int epoll_fd, void *log_ref);
 
-int xcm_dns_query_want(struct xcm_dns_query *query, int *fds, int *events,
-                       size_t capacity);
+bool xcm_dns_query_completed(struct xcm_dns_query *query);
 
 void xcm_dns_query_process(struct xcm_dns_query *query);
 
@@ -26,7 +25,6 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 
 void xcm_dns_query_free(struct xcm_dns_query *query);
 
-int xcm_dns_resolve_sync(struct xcm_socket *conn_socket,
-                         struct xcm_addr_host *host);
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref);
 
 #endif

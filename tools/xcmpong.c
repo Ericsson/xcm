@@ -10,7 +10,6 @@
 #include "xcm_attr.h"
 
 #include "util.h"
-#include "epoll_set.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +22,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/epoll.h>
 #include <signal.h>
 #include <limits.h>
 
@@ -104,27 +104,21 @@ static uint64_t get_cpu_ns()
     return timeval_to_ns(&(usage.ru_utime)) + timeval_to_ns(&(usage.ru_stime));
 }
 
-#define MAX_FDS (8)
-
-static void wait_for_xcm(struct epoll_set *epoll_set,
-                         struct xcm_socket *conn_socket, int condition)
+static void socket_await(struct xcm_socket *s, int condition)
 {
-    int fds[MAX_FDS];
-    int events[MAX_FDS];
+    int rc = xcm_await(s, condition);
 
-    int num_fds = xcm_want(conn_socket, condition, fds, events, MAX_FDS);
-    if (num_fds < 0)
-        ut_die("Failed to retrieve connection fds");
-    else if (num_fds == 0)
-	return;
+    if (rc < 0)
+        ut_die("Error changing target socket condition");
+}
 
-    epoll_set_ensure(epoll_set, fds, events, num_fds);
+static void socket_wait(int epoll_fd, struct xcm_socket *conn_socket)
+{
+    struct epoll_event event;
 
-    struct epoll_event epoll_events[MAX_FDS];
+    int rc = epoll_wait(epoll_fd, &event, 1, -1);
 
-    int rc = epoll_wait(epoll_set->epoll_fd, epoll_events, MAX_FDS, -1);
-
-    if (rc <  0)
+    if (rc < 0)
         ut_die("I/O multiplexing failure");
 }
 
@@ -146,8 +140,18 @@ static void handle_client(struct xcm_socket *conn)
     if (epoll_fd < 0)
         ut_die("Error creating epoll instance");
 
-    struct epoll_set epoll_set;
-    epoll_set_init(&epoll_set, epoll_fd);
+    int conn_fd = xcm_fd(conn);
+    if (conn_fd < 0)
+        ut_die("Error retrieving XCM socket fd");
+
+    struct epoll_event nevent = {
+        .events = EPOLLIN
+    };
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &nevent) < 0)
+	ut_die("Error adding fd to epoll instance");
+
+    socket_await(conn, XCM_SO_RECEIVABLE);
 
     for (;;) {
 	char requests[MAX_SERVER_BATCH][max_msg];
@@ -165,7 +169,7 @@ static void handle_client(struct xcm_socket *conn)
             else if (r_rc < 0 && errno == EAGAIN) {
                 if (num > 0)
                     break;
-                wait_for_xcm(&epoll_set, conn, XCM_SO_RECEIVABLE);
+                socket_wait(epoll_fd, conn);
             } else if (r_rc < 0)
                 ut_die("Error while server receiving");
         }
@@ -204,9 +208,11 @@ static void handle_client(struct xcm_socket *conn)
                 ssize_t s_rc = xcm_send(conn, response, len);
                 if (s_rc == 0)
                     break;
-                else if (s_rc < 0 && errno == EAGAIN)
-                    wait_for_xcm(&epoll_set, conn, XCM_SO_SENDABLE);
-                else
+                else if (s_rc < 0 && errno == EAGAIN) {
+                    socket_await(conn, XCM_SO_SENDABLE);
+                    socket_wait(epoll_fd, conn);
+                    socket_await(conn, XCM_SO_RECEIVABLE);
+                } else
                     ut_die("Error while server sending");
             }
         }
@@ -308,11 +314,18 @@ static void run_throughput_client(struct xcm_socket *conn,
     if (epoll_fd < 0)
         ut_die("Error creating epoll instance");
 
-    struct epoll_set epoll_set;
-    epoll_set_init(&epoll_set, epoll_fd);
-
     if (xcm_set_blocking(conn, false) < 0)
         ut_die("Failed to set non-blocking mode");
+
+    int conn_fd = xcm_fd(conn);
+
+    struct epoll_event event = {
+        .events = EPOLLIN
+    };
+
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event);
+
+    socket_await(conn, XCM_SO_RECEIVABLE);
 
     int left;
     for (left = num_rt; left > 0;) {
@@ -323,19 +336,22 @@ static void run_throughput_client(struct xcm_socket *conn,
 	    int rc = xcm_send(conn, msg, msg_size);
             if (rc == 0)
                 i++;
-            else if (rc < 0 && errno == EAGAIN)
-                wait_for_xcm(&epoll_set, conn, XCM_SO_SENDABLE);
+            else if (rc < 0 && errno == EAGAIN) {
+                socket_await(conn, XCM_SO_SENDABLE);
+                socket_wait(epoll_fd, conn);
+                socket_await(conn, XCM_SO_RECEIVABLE);
+            }
             else
 		ut_die("Error sending reflection message to server");
         }
 
-        wait_for_xcm(&epoll_set, conn, XCM_SO_RECEIVABLE);
+        socket_wait(epoll_fd, conn);
 	for (i = 0; i < this_batch;) {
 	    int rc = xcm_receive(conn, msg, msg_size);
             if (rc == msg_size)
                 i++;
             else if (rc < 0 && errno == EAGAIN)
-                wait_for_xcm(&epoll_set, conn, XCM_SO_RECEIVABLE);
+                socket_wait(epoll_fd, conn);
 	    else if (rc < 0)
 		ut_die("Error receiving message from server");
 	    else if (rc == 0) {

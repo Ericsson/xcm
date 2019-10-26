@@ -66,17 +66,15 @@ static inline const char *log_family_str(sa_family_t family)
 #define LOG_SCTP_CONN_CHECK(s)						\
     LOG_CONN_CHECK("STCP", s)
 
-#define LOG_CONN_ESTABLISHED(proto_name, s)			\
-    log_debug_sock(s, "%s-layer connection established.", proto_name)
+#define LOG_CONN_ESTABLISHED(proto_name, s, fd)			     \
+    log_debug_sock(s, "%s-layer connection established with fd %d.", \
+		   proto_name, fd)
 
-#define LOG_UX_CONN_ESTABLISHED(s) \
-    LOG_CONN_ESTABLISHED("UNIX domain socket", s)
+#define LOG_TCP_CONN_ESTABLISHED(s, fd)		\
+    LOG_CONN_ESTABLISHED("TCP", s, fd)
 
-#define LOG_TCP_CONN_ESTABLISHED(s)		\
-    LOG_CONN_ESTABLISHED("TCP", s)
-
-#define LOG_SCTP_CONN_ESTABLISHED(s)		\
-    LOG_CONN_ESTABLISHED("SCTP", s)
+#define LOG_SCTP_CONN_ESTABLISHED(s, fd)		\
+    LOG_CONN_ESTABLISHED("SCTP", s, fd)
 
 #define LOG_CONN_FAILED(s, reason_errno)			       \
     log_debug_sock(s, "Failed to establish connection; errno %d (%s).", \
@@ -92,7 +90,7 @@ static inline const char *log_family_str(sa_family_t family)
 #define LOG_SERVER_REQ(addr)						\
     log_debug("Attempting to create server socket bound to \"%s\".", addr)
 
-#define LOG_SOCKET_CREATION_FAILED(reason_errno) \
+#define LOG_SOCKET_CREATION_FAILED(reason_errno)		  \
     log_debug("Failed to create OS-level socket; errno %d (%s).", \
 	      reason_errno, strerror(reason_errno))
 
@@ -229,6 +227,17 @@ static inline const char *log_family_str(sa_family_t family)
     log_debug_sock(conn_sock, "Failed to receive message from lower layer: " \
 		   "errno %d (%s).", reason_errno, strerror(reason_errno))
 
+#define LOG_AWAIT(s, old_condition, new_condition)			\
+    do {								\
+	if (old_condition != new_condition)				\
+	    log_debug_sock(s, "Await called; condition changed from %s " \
+			   "to %s.", tp_so_condition_name(old_condition), \
+			   tp_so_condition_name(new_condition));	\
+	else								\
+	    log_debug_sock(s, "Await called but condition remains %s.", \
+			   tp_so_condition_name(old_condition));	\
+    } while (0)
+
 #define LOG_WANT(s, condition, fds, events, len)			\
     do {								\
 	if (len == 0)							\
@@ -245,6 +254,9 @@ static inline const char *log_family_str(sa_family_t family)
 			       tp_fd_events_name(events[i]), fds[i]);	\
 	}								\
     } while (0)
+
+#define LOG_UPDATE_REQ(s)				\
+    log_debug_sock(s, "Updating internal epoll fd.")
 
 #define LOG_FINISH_REQ(s)						\
     log_debug_sock(s, "Received request to finish outstanding operations.")

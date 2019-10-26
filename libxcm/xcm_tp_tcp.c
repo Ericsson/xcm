@@ -13,9 +13,11 @@
 #include "util.h"
 #include "common_tp.h"
 #include "tcp_attr.h"
+#include "active_fd.h"
 #include "log_tp.h"
 #include "mbuf.h"
 #include "xcm_dns.h"
+#include "epoll_reg.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -36,6 +38,7 @@ enum conn_state { conn_state_none, conn_state_resolving, conn_state_connecting,
 struct tcp_socket
 {
     int fd;
+    struct epoll_reg fd_reg;
 
     char laddr[XCM_ADDR_MAX];
 
@@ -44,6 +47,8 @@ struct tcp_socket
 	    enum conn_state state;
 
 	    int badness_reason;
+
+	    struct epoll_reg active_fd_reg;
 
             /* for conn_state_resolving */
             struct xcm_addr_host remote_host;
@@ -72,14 +77,13 @@ static void tcp_cleanup(struct xcm_socket *s);
 static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int tcp_send(struct xcm_socket *s, const void *buf, size_t len);
 static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity);
-static int tcp_want(struct xcm_socket *conn_socket, int condition, int *fd,
-		    int *events, size_t capacity);
-static int tcp_finish(struct xcm_socket *conn_socket);
-static const char *tcp_remote_addr(struct xcm_socket *conn_socket,
+static void tcp_update(struct xcm_socket *conn_s);
+static int tcp_finish(struct xcm_socket *conn_s);
+static const char *tcp_remote_addr(struct xcm_socket *conn_s,
 				   bool suppress_tracing);
 static const char *tcp_local_addr(struct xcm_socket *socket,
 				  bool suppress_tracing);
-static size_t tcp_max_msg(struct xcm_socket *conn_socket);
+static size_t tcp_max_msg(struct xcm_socket *conn_s);
 static void tcp_get_attrs(struct xcm_tp_attr **attr_list,
                           size_t *attr_list_len);
 static size_t tcp_priv_size(enum xcm_socket_type type);
@@ -94,7 +98,7 @@ static struct xcm_tp_ops tcp_ops = {
     .accept = tcp_accept,
     .send = tcp_send,
     .receive = tcp_receive,
-    .want = tcp_want,
+    .update = tcp_update,
     .finish = tcp_finish,
     .remote_addr = tcp_remote_addr,
     .local_addr = tcp_local_addr,
@@ -170,16 +174,25 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static void init_socket(struct xcm_socket *s)
+static int init_socket(struct xcm_socket *s)
 {
     struct tcp_socket *ts = TOTCP(s);
 
     ts->laddr[0] = '\0';
+    ts->fd = -1;
+    epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
 
     if (s->type == xcm_socket_type_conn) {
 	ts->conn.state = conn_state_none;
 
 	ts->conn.badness_reason = 0;
+
+	int active_fd = active_fd_get();
+	if (active_fd < 0)
+	    return -1;
+
+	epoll_reg_init(&ts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
+
         ts->conn.query = NULL;
 
 	mbuf_init(&ts->conn.send_mbuf);
@@ -190,13 +203,15 @@ static void init_socket(struct xcm_socket *s)
 	ts->conn.raddr[0] = '\0';
     }
 
-    ts->fd = -1;
+    return 0;
 }
 
 static void deinit_socket(struct xcm_socket *s)
 {
     if (s->type == xcm_socket_type_conn) {
 	struct tcp_socket *ts = TOTCP(s);
+	epoll_reg_reset(&ts->conn.active_fd_reg);
+	active_fd_put();
 	xcm_dns_query_free(ts->conn.query);
 	mbuf_deinit(&ts->conn.send_mbuf);
 	mbuf_deinit(&ts->conn.receive_mbuf);
@@ -259,6 +274,8 @@ static void begin_connect(struct xcm_socket *s)
         goto err;
     }
 
+    epoll_reg_set_fd(&ts->fd_reg, ts->fd);
+
     struct sockaddr_storage servaddr;
     tp_ip_to_sockaddr(&ts->conn.remote_host.ip, ts->conn.remote_port,
                       (struct sockaddr*)&servaddr);
@@ -271,7 +288,7 @@ static void begin_connect(struct xcm_socket *s)
 	    LOG_CONN_IN_PROGRESS(s);
     } else {
 	TCP_SET_STATE(s, conn_state_ready);
-	LOG_TCP_CONN_ESTABLISHED(s);
+	LOG_TCP_CONN_ESTABLISHED(s, ts->fd);
     }
 
     UT_RESTORE_ERRNO_DC;
@@ -310,11 +327,6 @@ static void try_finish_resolution(struct xcm_socket *s)
         begin_connect(s);
     }
 
-    /* It's important to close the query after begin_connect(), since
-       this will result in a different fd number compared to the dns
-       query's pipe xfd. This in turn is important not to confuse the
-       application, with two kernel objects with the same number
-       (although at different times. */
     xcm_dns_query_free(ts->conn.query);
     ts->conn.query = NULL;
 }
@@ -326,8 +338,7 @@ static void try_finish_connect(struct xcm_socket *s)
     switch (ts->conn.state) {
     case conn_state_resolving:
         xcm_dns_query_process(ts->conn.query);
-        if (xcm_dns_query_want(ts->conn.query, NULL, NULL, 0) == 0)
-            try_finish_resolution(s);
+	try_finish_resolution(s);
         break;
     case conn_state_connecting:
 	LOG_TCP_CONN_CHECK(s);
@@ -343,7 +354,7 @@ static void try_finish_connect(struct xcm_socket *s)
 	    } else
 		LOG_CONN_IN_PROGRESS(s);
 	} else {
-	    LOG_TCP_CONN_ESTABLISHED(s);
+	    LOG_TCP_CONN_ESTABLISHED(s, ts->fd);
 	    TCP_SET_STATE(s, conn_state_ready);
 	}
         break;
@@ -373,7 +384,8 @@ static int tcp_connect(struct xcm_socket *s, const char *remote_addr)
 
     if (ts->conn.remote_host.type == xcm_addr_type_name) {
         TCP_SET_STATE(s, conn_state_resolving);
-        ts->conn.query = xcm_dns_resolve(s, ts->conn.remote_host.name);
+        ts->conn.query =
+            xcm_dns_resolve(ts->conn.remote_host.name, s->epoll_fd, s);
         if (!ts->conn.query)
 	    goto err_deinit;
     } else {
@@ -416,7 +428,7 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
 
     struct tcp_socket *ts = TOTCP(s);
 
-    if (xcm_dns_resolve_sync(s, &host) < 0)
+    if (xcm_dns_resolve_sync(&host, s) < 0)
         goto err_deinit;
 
     if (create_socket(s, host.ip.family) < 0)
@@ -440,6 +452,8 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
 	goto err_close;
     }
 
+    epoll_reg_set_fd(&ts->fd_reg, ts->fd);
+
     LOG_SERVER_CREATED_FD(s, ts->fd);
 
     return 0;
@@ -456,7 +470,11 @@ static int do_close(struct xcm_socket *s)
 {
     assert_socket(s);
 
-    int fd = TOTCP(s)->fd;
+    struct tcp_socket *ts = TOTCP(s);
+
+    int fd = ts->fd;
+
+    epoll_reg_reset(&ts->fd_reg);
 
     deinit_socket(s);
 
@@ -501,6 +519,8 @@ static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     init_socket(conn_s);
 
     conn_ts->fd = conn_fd;
+    epoll_reg_set_fd(&conn_ts->fd_reg, conn_fd);
+
     TCP_SET_STATE(conn_s, conn_state_ready);
 
     LOG_CONN_ACCEPTED(conn_s, conn_ts->fd);
@@ -727,71 +747,84 @@ static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity)
     return user_len;
 }
 
-static int conn_want(struct tcp_socket *ts, int condition, int *fds,
-		     int *events, size_t capacity)
-{
-    if (ts->conn.state == conn_state_resolving)
-        return xcm_dns_query_want(ts->conn.query, fds, events, capacity);
-
-    int ev;
-    if (ts->conn.state == conn_state_connecting)
-	ev = XCM_FD_WRITABLE;
-    else if (ts->conn.state == conn_state_ready) {
-	if ((condition&XCM_SO_SENDABLE &&
-	     !mbuf_is_complete(&ts->conn.send_mbuf))
-	    ||
-	    (condition&XCM_SO_RECEIVABLE &&
-	     mbuf_is_complete(&ts->conn.receive_mbuf)))
-	    ev = 0; /* ready to service the application's request */
-	else {
-	    ev = 0;
-	    if (mbuf_is_complete(&ts->conn.send_mbuf))
-		ev |= XCM_FD_WRITABLE;
-	    if (!mbuf_is_complete(&ts->conn.receive_mbuf))
-		ev |= XCM_FD_READABLE;
-	}
-    } else
-	ev = 0;
-
-    if (ev) {
-	fds[0] = ts->fd;
-	events[0] = ev;
-	return 1;
-    } else
-	return 0;
-}
-
-static int server_want(struct tcp_socket *ts, int condition, int *fds,
-		       int *events)
-{
-    if (condition & XCM_SO_ACCEPTABLE) {
-	events[0] = XCM_FD_READABLE;
-	fds[0] = ts->fd;
-	return 1;
-    } else
-	return 0;
-}
-
-static int tcp_want(struct xcm_socket *s, int condition,
-		    int *fds, int *events, size_t capacity)
+static void conn_update(struct xcm_socket *s)
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    assert_socket(s);
+    bool ready = false;
+    int event = 0;
 
-    TP_RET_ERR_IF(capacity == 0, EOVERFLOW);
+    switch (ts->conn.state) {
+    case conn_state_resolving:
+	ready = xcm_dns_query_completed(ts->conn.query);
+	break;
+    case conn_state_connecting:
+	event = EPOLLOUT;
+	break;
+    case conn_state_ready: {
+	struct mbuf *sbuf = &ts->conn.send_mbuf;
+	struct mbuf *rbuf = &ts->conn.receive_mbuf;
 
-    int rc;
-    if (s->type == xcm_socket_type_conn)
-	rc = conn_want(ts, condition, fds, events, capacity);
-    else {
-	ut_assert(s->type == xcm_socket_type_server);
-	rc = server_want(ts, condition, fds, events);
+	if (s->condition&XCM_SO_SENDABLE && mbuf_is_empty(sbuf)) {
+	    ready = true;
+	    break;
+	}
+	if (s->condition&XCM_SO_RECEIVABLE && mbuf_is_complete(rbuf)) {
+	    ready = true;
+	    break;
+	}
+
+	if (mbuf_is_complete(sbuf))
+	    event |= EPOLLOUT;
+
+	if (s->condition&XCM_SO_RECEIVABLE)
+	    event |= EPOLLIN;
+
+	break;
+    }
+    case conn_state_closed:
+    case conn_state_bad:
+	ready = true;
+	break;
+    default:
+	ut_assert(0);
     }
 
-    LOG_WANT(s, condition, fds, events, rc);
+    if (ready) {
+	epoll_reg_ensure(&ts->conn.active_fd_reg, EPOLLIN);
+	return;
+    }
 
-    return rc;
+    epoll_reg_reset(&ts->conn.active_fd_reg);
+
+    if (event)
+	epoll_reg_ensure(&ts->fd_reg, event);
+    else
+	epoll_reg_reset(&ts->fd_reg);
+}
+
+static void server_update(struct xcm_socket *s)
+{
+    struct tcp_socket *ts = TOTCP(s);
+
+    if (s->condition & XCM_SO_ACCEPTABLE)
+	epoll_reg_ensure(&ts->fd_reg, EPOLLIN);
+    else
+	epoll_reg_reset(&ts->fd_reg);
+}
+
+static void tcp_update(struct xcm_socket *s)
+{
+    switch (s->type) {
+    case xcm_socket_type_conn:
+        conn_update(s);
+	break;
+    case xcm_socket_type_server:
+        server_update(s);
+	break;
+    default:
+        ut_assert(0);
+    }
 }
 
 static int tcp_finish(struct xcm_socket *s)
@@ -830,6 +863,9 @@ static const char *tcp_remote_addr(struct xcm_socket *conn_s,
 {
     struct tcp_socket *ts = TOTCP(conn_s);
 
+    if (ts->fd < 0)
+        return NULL;
+
     struct sockaddr_storage raddr;
     socklen_t raddr_len = sizeof(raddr);
 
@@ -849,6 +885,9 @@ static const char *tcp_local_addr(struct xcm_socket *socket,
 {
     struct tcp_socket *ts = TOTCP(socket);
 
+    if (ts->fd < 0)
+        return NULL;
+
     struct sockaddr_storage laddr;
     socklen_t laddr_len = sizeof(laddr);
 
@@ -863,7 +902,7 @@ static const char *tcp_local_addr(struct xcm_socket *socket,
     return ts->laddr;
 }
 
-static size_t tcp_max_msg(struct xcm_socket *conn_socket)
+static size_t tcp_max_msg(struct xcm_socket *conn_s)
 {
     return MBUF_MSG_MAX;
 }

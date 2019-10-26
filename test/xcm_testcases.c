@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <poll.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -854,7 +855,7 @@ static void *accepting_server_thread(void *arg)
 
 #define MAX_FDS (8)
 
-static int wait_for_xcm(struct xcm_socket *conn_socket, int condition)
+static int wait_for_xcm_by_want(struct xcm_socket *conn_socket, int condition)
 {
     int fds[MAX_FDS];
     int events[MAX_FDS];
@@ -888,6 +889,36 @@ static int wait_for_xcm(struct xcm_socket *conn_socket, int condition)
 	return -1;
 
     return 0;
+}
+
+#define MAX_FDS (8)
+
+static int wait_for_xcm_by_await(struct xcm_socket *conn_socket, int condition)
+{
+    int fd = xcm_fd(conn_socket);
+    if (fd < 0)
+	return -1;
+
+    if (xcm_await(conn_socket, condition) < 0)
+	return -1;
+
+    struct pollfd pfd = {
+	.fd = fd,
+	.events = POLLIN
+    };
+
+    if (poll(&pfd, 1, -1) != 1)
+	return -1;
+
+    return 0;
+}
+
+static int wait_for_xcm(struct xcm_socket *conn_socket, int condition)
+{
+    if (random() & 1)
+	return wait_for_xcm_by_await(conn_socket, condition);
+    else
+	return wait_for_xcm_by_want(conn_socket, condition);
 }
 
 int wait_until_finished(struct xcm_socket *s, int max_retries)
@@ -1208,6 +1239,39 @@ TESTCASE(xcm, unknown_proto)
     CHKNULLERRNO(xcm_server("foo:bar"), ENOPROTOOPT);
 
     CHKNULLERRNO(xcm_connect("foo:bar", 0), ENOPROTOOPT);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, invalid_await_and_fd_argument)
+{
+    int i;
+    for (i=0; i<test_addrs_len; i++) {
+	struct xcm_socket *server = xcm_server(test_addrs[i]);
+
+	CHKERRNO(xcm_fd(server), EINVAL);
+
+	CHKERRNO(xcm_await(server, 0), EINVAL);
+
+	CHKNOERR(xcm_set_blocking(server, false));
+
+	CHK(xcm_fd(server) >= 0);
+
+	CHKERRNO(xcm_await(server, XCM_SO_SENDABLE), EINVAL);
+	CHKERRNO(xcm_await(server, 0xff), EINVAL);
+
+	CHKNOERR(xcm_await(server, XCM_SO_ACCEPTABLE));
+
+	struct xcm_socket *conn = xcm_connect(test_addrs[i], XCM_NONBLOCK);
+
+	CHKERRNO(xcm_await(conn, XCM_SO_ACCEPTABLE), EINVAL);
+	CHKERRNO(xcm_await(conn, 0xff), EINVAL);
+
+	CHKNOERR(xcm_await(conn, XCM_SO_SENDABLE));
+
+	CHKNOERR(xcm_close(server));
+	CHKNOERR(xcm_close(conn));
+    }
 
     return UTEST_SUCCESS;
 }

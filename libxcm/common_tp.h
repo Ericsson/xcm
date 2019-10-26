@@ -58,14 +58,21 @@ void tp_sockaddr_to_tls_addr(struct sockaddr_storage *sock_addr,
 #define TP_RET_ERR_UNLESS_STATE(_s, _ts, _state, _errno)	\
     TP_RET_ERR_CMP_STATE(_s, _ts, _state, !=, _errno)
 
-#define TP_RET_ERR_RC_UNLESS_TYPE(_s, _t, _rc)				\
+#define TP_RET_ERR_RC_UNLESS_TYPE_GENERIC(_s, _t, _rc, _trace)		\
     do {								\
 	if (_s->type != _t) {						\
-	    LOG_SOCKET_INVALID_TYPE(_s);				\
+	    if (_trace)							\
+		LOG_SOCKET_INVALID_TYPE(_s);				\
 	    errno = EINVAL;						\
 	    return _rc;							\
 	}								\
     } while (0)
+
+#define TP_RET_ERR_RC_UNLESS_TYPE(_s, _t, _rc)	\
+    TP_RET_ERR_RC_UNLESS_TYPE_GENERIC(_s, _t, _rc, true)
+
+#define TP_RET_ERR_RC_UNLESS_TYPE_NOTRACE(_s, _t, _rc)	\
+    TP_RET_ERR_RC_UNLESS_TYPE_GENERIC(_s, _t, _rc, false)
 
 #define TP_RET_ERR_UNLESS_TYPE(_ts, _t) TP_RET_ERR_RC_UNLESS_TYPE(_ts, _t, -1)
 

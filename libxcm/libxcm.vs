@@ -9,6 +9,8 @@
     xcm_send;
     xcm_receive;
     xcm_want;
+    xcm_await;
+    xcm_fd;
     xcm_finish;
     xcm_set_blocking;
     xcm_is_blocking;

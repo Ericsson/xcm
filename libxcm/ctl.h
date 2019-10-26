@@ -19,8 +19,6 @@ struct ctl;
 
 struct ctl *ctl_create(struct xcm_socket *socket);
 void ctl_destroy(struct ctl *ctl, bool owner);
-
-int ctl_want(struct ctl *ctl, int *fds, int *events, size_t capacity);
 void ctl_process(struct ctl *ctl);
 
 #endif

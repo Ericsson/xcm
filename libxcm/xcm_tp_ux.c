@@ -13,6 +13,7 @@
 #include "common_tp.h"
 #include "log_tp.h"
 #include "log_ux.h"
+#include "epoll_reg.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -33,6 +34,7 @@
 struct ux_socket
 {
     int fd;
+    struct epoll_reg reg;
 
     char raddr[UX_NAME_MAX+16];
     char laddr[UX_NAME_MAX+16];
@@ -49,18 +51,17 @@ static void ux_cleanup(struct xcm_socket *s);
 static int ux_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int ux_send(struct xcm_socket *s, const void *buf, size_t len);
 static int ux_receive(struct xcm_socket *s, void *buf, size_t capacity);
-static int ux_want(struct xcm_socket *conn_socket, int condition,
-		   int *fd, int *events, size_t capacity);
-static int ux_finish(struct xcm_socket *conn_socket);
-static const char *ux_remote_addr(struct xcm_socket *conn_socket,
+static void ux_update(struct xcm_socket *s);
+static int ux_finish(struct xcm_socket *s);
+static const char *ux_remote_addr(struct xcm_socket *conn_s,
 				  bool suppress_tracing);
-static const char *uxf_remote_addr(struct xcm_socket *conn_socket,
+static const char *uxf_remote_addr(struct xcm_socket *conn_s,
                                    bool suppress_tracing);
-static const char *ux_local_addr(struct xcm_socket *conn_socket,
+static const char *ux_local_addr(struct xcm_socket *conn_s,
 				 bool suppress_tracing);
-static const char *uxf_local_addr(struct xcm_socket *conn_socket,
+static const char *uxf_local_addr(struct xcm_socket *conn_s,
                                   bool suppress_tracing);
-static size_t ux_max_msg(struct xcm_socket *conn_socket);
+static size_t ux_max_msg(struct xcm_socket *conn_s);
 static void ux_get_attrs(struct xcm_tp_attr **attr_list,
                          size_t *attr_list_len);
 static size_t ux_priv_size(enum xcm_socket_type type);
@@ -73,7 +74,7 @@ static struct xcm_tp_ops ux_ops = {
     .accept = ux_accept,
     .send = ux_send,
     .receive = ux_receive,
-    .want = ux_want,
+    .update = ux_update,
     .finish = ux_finish,
     .remote_addr = ux_remote_addr,
     .local_addr = ux_local_addr,
@@ -90,7 +91,7 @@ static struct xcm_tp_ops uxf_ops = {
     .accept = ux_accept,
     .send = ux_send,
     .receive = ux_receive,
-    .want = ux_want,
+    .update = ux_update,
     .finish = ux_finish,
     .remote_addr = uxf_remote_addr,
     .local_addr = uxf_local_addr,
@@ -120,10 +121,13 @@ static int enable_pass_cred(int fd)
 static void init_socket(struct xcm_socket *s, int fd)
 {
     struct ux_socket *us = TOUX(s);
+
     us->raddr[0] = '\0';
     us->laddr[0] = '\0';
     us->path[0] = '\0';
     us->fd = fd;
+
+    epoll_reg_init(&us->reg, s->epoll_fd, us->fd, s);
 }
 
 static int create_socket(struct xcm_socket *s)
@@ -162,6 +166,11 @@ static void set_fs_addr(struct sockaddr_un *addr, const char *s)
     strcpy(addr->sun_path, s);
 }
 
+static inline bool is_ux(struct xcm_socket *s)
+{
+    return XCM_TP_GETOPS(s) == &ux_ops;
+}
+
 static int ux_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct sockaddr_un servaddr;
@@ -173,7 +182,7 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
 
     char path[UX_NAME_MAX+1];
 
-    if (XCM_TP_GETOPS(s) == &ux_ops) {
+    if (is_ux(s)) {
         /* with 'abstract' UNIX addressing, we set the first byte in the
            UNIX socket name NUL */
         if (xcm_addr_parse_ux(remote_addr, path, sizeof(path)) < 0) {
@@ -201,7 +210,7 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err_close;
     }
 
-    socklen_t servaddr_len = XCM_TP_GETOPS(s) == &ux_ops ?
+    socklen_t servaddr_len = is_ux(s) ?
 	sockaddr_un_size(strlen(path)) : sizeof(struct sockaddr_un);
 
     if (connect(us->fd, (struct sockaddr*)&servaddr, servaddr_len) < 0) {
@@ -211,7 +220,7 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err_close;
     }
 
-    LOG_UX_CONN_ESTABLISHED(s);
+    LOG_UX_CONN_ESTABLISHED(s, us->fd);
 
     return 0;
 
@@ -256,7 +265,7 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
     if (create_socket(s) < 0)
 	goto err;
 
-    if (XCM_TP_GETOPS(s) == &ux_ops) {
+    if (is_ux(s)) {
         /* with 'abstract' UNIX addressing, we set the first byte in the
            UNIX socket name NUL */
         if (xcm_addr_parse_ux(local_addr, path, sizeof(path)) < 0 ||
@@ -276,7 +285,7 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
         set_fs_addr(&addr, path);
     }
 
-    socklen_t addr_len = XCM_TP_GETOPS(s) == &ux_ops ?
+    socklen_t addr_len = is_ux(s) ?
 	sockaddr_un_size(strlen(path)) : sizeof(struct sockaddr_un);
     if (bind(us->fd, (struct sockaddr*)&addr, addr_len) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
@@ -395,47 +404,47 @@ static int ux_receive(struct xcm_socket *s, void *buf, size_t capacity)
     }
 }
 
-static int ux_want(struct xcm_socket *s, int condition, int *fd, int *events,
-		   size_t capacity)
+static int conn_event(int condition)
+{
+    int event = 0;
+    if (condition & XCM_SO_RECEIVABLE)
+        event |= EPOLLIN;
+    if (condition & XCM_SO_SENDABLE)
+        event |= EPOLLOUT;
+
+    return event;
+}
+
+static int server_event(int condition)
+{
+    return condition == XCM_SO_ACCEPTABLE ? EPOLLIN : 0;
+}
+
+static void ux_update(struct xcm_socket *s)
 {
     struct ux_socket *us = TOUX(s);
 
-    TP_RET_ERR_IF(capacity == 0, EOVERFLOW);
-
-    int ev = 0;
+    int event;
     switch (s->type) {
     case xcm_socket_type_conn:
-	if (condition & XCM_SO_RECEIVABLE)
-	    ev |= XCM_FD_READABLE;
-	if (condition & XCM_SO_SENDABLE)
-	    ev |= XCM_FD_WRITABLE;
-	*fd = us->fd;
+        event = conn_event(s->condition);
 	break;
     case xcm_socket_type_server:
-	if (condition & XCM_SO_ACCEPTABLE)
-	    ev |= XCM_FD_READABLE;
+        event = server_event(s->condition);
 	break;
     default:
-	ut_assert(0);
+        ut_assert(0);
     }
 
-    int rc;
-
-    if (ev) {
-	fd[0] = us->fd;
-	events[0] = ev;
-	rc = 1;
-    } else
-	rc = 0;
-
-    LOG_WANT(s, condition, fd, events, rc);
-
-    return rc;
+    if (event)
+	epoll_reg_ensure(&us->reg, event);
+    else
+        epoll_reg_reset(&us->reg);
 }
 
-static int ux_finish(struct xcm_socket *socket)
+static int ux_finish(struct xcm_socket *s)
 {
-    LOG_FINISH_REQ(socket);
+    LOG_FINISH_REQ(s);
     return 0;
 }
 
@@ -446,6 +455,9 @@ int retrieve_addr(int fd,
                   size_t addr_offset,
 		  char *buf, size_t buf_len)
 {
+    if (fd < 0)
+        return -1;
+
     struct sockaddr_un addr;
 
     socklen_t addr_len = sizeof(struct sockaddr_un);
@@ -514,19 +526,19 @@ static const char *local_addr(struct xcm_socket *socket,
     return us->laddr;
 }
 
-static const char *ux_local_addr(struct xcm_socket *conn_socket,
+static const char *ux_local_addr(struct xcm_socket *conn_s,
 				  bool suppress_tracing)
 {
-    return local_addr(conn_socket, xcm_addr_make_ux, 1, suppress_tracing);
+    return local_addr(conn_s, xcm_addr_make_ux, 1, suppress_tracing);
 }
 
-static const char *uxf_local_addr(struct xcm_socket *conn_socket,
+static const char *uxf_local_addr(struct xcm_socket *conn_s,
                                    bool suppress_tracing)
 {
-    return local_addr(conn_socket, xcm_addr_make_uxf, 0, suppress_tracing);
+    return local_addr(conn_s, xcm_addr_make_uxf, 0, suppress_tracing);
 }
 
-static size_t ux_max_msg(struct xcm_socket *conn_socket)
+static size_t ux_max_msg(struct xcm_socket *conn_s)
 {
     return UX_MAX_MSG;
 }

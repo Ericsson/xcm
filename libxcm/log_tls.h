@@ -13,8 +13,8 @@
 #define LOG_TLS_HANDSHAKE(s)					\
     log_debug_sock(s, "Attempting to finish TLS handshake.")
 
-#define LOG_TLS_CONN_ESTABLISHED(s)		\
-    LOG_CONN_ESTABLISHED("TLS", s)
+#define LOG_TLS_CONN_ESTABLISHED(s, fd)		\
+    LOG_CONN_ESTABLISHED("TLS", s, fd)
 
 #define LOG_TLS_PEER_CERT_OK(s)						\
     log_debug_sock(s, "Peer certificate verified successfully.")

@@ -9,11 +9,14 @@
 #include <signal.h>
 
 #include "util.h"
+#include "epoll_reg.h"
+#include "log_tp.h"
 
 #include "xcm_dns.h"
 
-enum query_state { query_state_initiating, query_state_resolving,
-                   query_state_failed, query_state_successful };
+enum query_state {
+    query_state_resolving, query_state_failed, query_state_successful
+};
 
 struct xcm_dns_query
 {
@@ -24,10 +27,11 @@ struct xcm_dns_query
     enum query_state state;
 
     int pipefds[2];
+    struct epoll_reg reg;
 
     struct xcm_addr_ip ip;
 
-    struct xcm_socket *conn_socket; /* only for logging */
+    void *log_ref;
 };
 
 static void resolv_complete(union sigval sigval)
@@ -48,7 +52,7 @@ static void resolv_complete(union sigval sigval)
         abort();
 }
 
-static void try_initiate_query(struct xcm_dns_query *query)
+static int initiate_query(struct xcm_dns_query *query)
 {
     *query->request = (struct gaicb) {
         .ar_name = query->domain_name
@@ -66,14 +70,16 @@ static void try_initiate_query(struct xcm_dns_query *query)
 
     if (rc == EAI_MEMORY)
         abort();
-    else if (rc == EAI_AGAIN)
-        return;
+    else if (rc == EAI_AGAIN) {
+	errno = EAGAIN;
+	return -1;
+    }
 
-    query->state = query_state_resolving;
+    return 0;
 }
 
-static int get_ip(struct xcm_socket *conn_socket, const char *domain_name,
-                  struct addrinfo *info, struct xcm_addr_ip *ip)
+static int get_ip(const char *domain_name, struct addrinfo *info,
+                  struct xcm_addr_ip *ip, void *log_ref)
 {
     /* Leave it to the system (i.e. /etc/gai.conf) to determine the
        order between IPv4 and IPv6 addresses */
@@ -83,7 +89,7 @@ static int get_ip(struct xcm_socket *conn_socket, const char *domain_name,
             (struct sockaddr_in *)info->ai_addr;
         ip->family = AF_INET;
         ip->addr.ip4 = addr_in->sin_addr.s_addr;
-        LOG_DNS_RESPONSE(conn_socket, domain_name, info->ai_family,
+        LOG_DNS_RESPONSE(log_ref, domain_name, info->ai_family,
                          &addr_in->sin_addr);
         return 0;
     }
@@ -92,7 +98,7 @@ static int get_ip(struct xcm_socket *conn_socket, const char *domain_name,
             (struct sockaddr_in6 *)info->ai_addr;
         ip->family = AF_INET6;
         memcpy(ip->addr.ip6, &addr_in6->sin6_addr, 16);
-        LOG_DNS_RESPONSE(conn_socket, domain_name, info->ai_family,
+        LOG_DNS_RESPONSE(log_ref, domain_name, info->ai_family,
                          &addr_in6->sin6_addr);
         return 0;
     }
@@ -108,22 +114,21 @@ static void try_retrieve_query_result(struct xcm_dns_query *query)
     if (rc == 0) {
         struct addrinfo *info = query->request->ar_result;
 
-        int get_rc = get_ip(query->conn_socket,
-                                  query->domain_name, info,
-                                  &query->ip);
+        int get_rc = get_ip(query->domain_name, info, &query->ip,
+                            query->log_ref);
 
         if (get_rc == 0)
             query->state = query_state_successful;
         else
             query->state = query_state_failed;
     } else if (rc != EAI_INPROGRESS) {
-        LOG_DNS_ERROR(query->conn_socket, query->domain_name);
+        LOG_DNS_ERROR(query->log_ref, query->domain_name);
         query->state = query_state_failed;
     }
 }
 
-struct xcm_dns_query *xcm_dns_resolve(struct xcm_socket *conn_socket,
-                                      const char *domain_name)
+struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
+                                      void *log_ref)
 {
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
     query->request = ut_malloc(sizeof(struct gaicb));
@@ -132,14 +137,17 @@ struct xcm_dns_query *xcm_dns_resolve(struct xcm_socket *conn_socket,
     if (pipe(query->pipefds) < 0)
         goto err_free;
 
-    query->conn_socket = conn_socket;
+    epoll_reg_init(&query->reg, epoll_fd, query->pipefds[0], log_ref);
+    epoll_reg_add(&query->reg, EPOLLIN);
 
-    query->state = query_state_initiating;
+    query->log_ref = log_ref;
 
-    try_initiate_query(query);
+    query->state = query_state_resolving;
 
-    if (query->state == query_state_resolving)
-        try_retrieve_query_result(query);
+    if (initiate_query(query) < 0)
+	goto err_free;
+
+    try_retrieve_query_result(query);
 
     return query;
 
@@ -150,35 +158,14 @@ struct xcm_dns_query *xcm_dns_resolve(struct xcm_socket *conn_socket,
     return NULL;
 }
 
-int xcm_dns_query_want(struct xcm_dns_query *query, int *fds, int *events,
-                       size_t capacity)
+bool xcm_dns_query_completed(struct xcm_dns_query *query)
 {
-    switch (query->state) {
-    case query_state_initiating:
-        return 0;
-    case query_state_resolving:
-        if (capacity < 1) {
-            errno = EOVERFLOW;
-            return -1;
-        }
-
-        fds[0] = query->pipefds[0];
-        events[0] = XCM_FD_READABLE;
-        return 1;
-    case query_state_failed:
-    case query_state_successful:
-        return 0;
-    default:
-        ut_assert(0);
-    }
+    return query->state != query_state_resolving;
 }
 
 void xcm_dns_query_process(struct xcm_dns_query *query)
 {
     switch (query->state) {
-    case query_state_initiating:
-        try_initiate_query(query);
-        break;
     case query_state_resolving:
         try_retrieve_query_result(query);
         break;
@@ -194,7 +181,6 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
                          struct xcm_addr_ip *ip)
 {
     switch (query->state) {
-    case query_state_initiating:
     case query_state_resolving:
         errno = EAGAIN;
         return -1;
@@ -203,9 +189,11 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
         return -1;
     case query_state_successful:
         *ip = query->ip;
+        epoll_reg_del(&query->reg);
         return 0;
     default:
         ut_assert(0);
+	return 0;
     }
 }
 
@@ -215,6 +203,8 @@ void xcm_dns_query_free(struct xcm_dns_query *query)
         if (query->state == query_state_resolving)
             while (gai_cancel(query->request) == EAI_NOTCANCELED)
                 ;
+
+        epoll_reg_reset(&query->reg);
 
         close(query->pipefds[0]);
         close(query->pipefds[1]);
@@ -228,8 +218,7 @@ void xcm_dns_query_free(struct xcm_dns_query *query)
     }
 }
 
-int xcm_dns_resolve_sync(struct xcm_socket *conn_socket,
-                         struct xcm_addr_host *host)
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 {
     char domain_name[strlen(host->name)+1];
     strcpy(domain_name, host->name);
@@ -242,7 +231,7 @@ int xcm_dns_resolve_sync(struct xcm_socket *conn_socket,
     if (getaddrinfo(domain_name, NULL, NULL, &addr_info) != 0)
         goto err;
 
-    if (get_ip(conn_socket, domain_name, addr_info, &host->ip) < 0)
+    if (get_ip(domain_name, addr_info, &host->ip, log_ref) < 0)
         goto err_free;
 
     host->type = xcm_addr_type_ip;
@@ -254,7 +243,7 @@ int xcm_dns_resolve_sync(struct xcm_socket *conn_socket,
  err_free:
     freeaddrinfo(addr_info);
  err:
-    LOG_DNS_ERROR(conn_socket, domain_name);
+    LOG_DNS_ERROR(log_ref, domain_name);
     errno = ENOENT;
     return -1;
 }

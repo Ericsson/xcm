@@ -62,7 +62,7 @@ extern bool ut_dprint_enabled;
 
 #ifdef NDEBUG
 
-#define ut_assert(expr) do { (void)(expr) } while (0)
+#define ut_assert(expr) do { (void)(expr); } while (0)
 
 #else
 

@@ -49,8 +49,7 @@ struct xcm_tp_ops {
     int (*accept)(struct xcm_socket *conn_s, struct xcm_socket *server_s);
     int (*send)(struct xcm_socket *s, const void *buf, size_t len);
     int (*receive)(struct xcm_socket *s, void *buf, size_t capacity);
-    int (*want)(struct xcm_socket *conn_s, int condition,
-		int *fd, int *events, size_t capacity);
+    void (*update)(struct xcm_socket *s);
     int (*finish)(struct xcm_socket *conn_s);
     const char *(*remote_addr)(struct xcm_socket *conn_s,
 			       bool suppress_tracing);
@@ -75,6 +74,8 @@ struct xcm_socket {
     enum xcm_socket_type type;
     int64_t sock_id;
     bool is_blocking;
+    int epoll_fd;
+    int condition;
 #ifdef XCM_CTL
     struct ctl *ctl;
 #endif
@@ -82,6 +83,7 @@ struct xcm_socket {
 };
 
 #define XCM_TP_GETOPS(s) ((s)->proto->ops)
+#define XCM_TP_CALL(fun, s, ...) XCM_TP_GETOPS(s)->fun(s, ##__VA_ARGS__)
 
 #define XCM_TP_GETPRIV(s, priv_type)					\
     ({									\

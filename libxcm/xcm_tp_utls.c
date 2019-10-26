@@ -13,6 +13,7 @@
 #include "common_tp.h"
 #include "log_utls.h"
 #include "log_tp.h"
+#include "epoll_reg.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +40,9 @@ struct utls_socket
 {
     char laddr[XCM_ADDR_MAX];
 
+    struct epoll_reg ux_reg;
+    struct epoll_reg tls_reg;
+
     struct xcm_socket *tls_socket;
     struct xcm_socket *ux_socket;
 };
@@ -50,8 +54,7 @@ static int utls_server(struct xcm_socket *s, const char *local_addr);
 static int utls_close(struct xcm_socket *s);
 static void utls_cleanup(struct xcm_socket *s);
 static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
-static int utls_want(struct xcm_socket *conn_s, int condition, int *fd,
-		     int *events, size_t capacity);
+static void utls_update(struct xcm_socket *s);
 static int utls_finish(struct xcm_socket *s);
 static const char *utls_local_addr(struct xcm_socket *socket,
 				   bool suppress_tracing);
@@ -67,7 +70,7 @@ static struct xcm_tp_ops utls_ops = {
     .accept = utls_accept,
     .send = NULL,
     .receive = NULL,
-    .want = utls_want,
+    .update = utls_update,
     .finish = utls_finish,
     .local_addr = utls_local_addr,
     .get_attrs = utls_get_attrs,
@@ -119,7 +122,9 @@ static size_t utls_priv_size(enum xcm_socket_type type)
 
 static void init_server_socket(struct xcm_socket *s)
 {
-    TOUTLS(s)->laddr[0] = '\0';
+    struct utls_socket *us = TOUTLS(s);
+
+    us->laddr[0] = '\0';
 }
 
 #define PROTO_SEP_LEN (1)
@@ -169,16 +174,29 @@ static int utls_connect(struct xcm_socket *s, const char *remote_addr)
     return -1;
 }
 
-static struct xcm_socket *server_nb(const char* addr)
+static struct xcm_socket *server_nb(const char* addr, int epoll_fd,
+				    struct epoll_reg *reg, void *log_ref)
 {
     struct xcm_socket *s = xcm_server(addr);
     if (!s)
-	return NULL;
-    if (xcm_set_blocking(s, false) < 0) {
-	UT_PROTECT_ERRNO(xcm_close(s));
-	return NULL;
-    }
+	goto err;
+
+    if (xcm_set_blocking(s, false) < 0)
+	goto err_close;
+
+    int fd = xcm_fd(s);
+    if (fd < 0)
+	goto err_close;
+
+    epoll_reg_init(reg, epoll_fd, fd, log_ref);
+    epoll_reg_add(reg, EPOLLIN);
+
     return s;
+
+err_close:
+    UT_PROTECT_ERRNO(xcm_close(s));
+err:
+    return NULL;
 }
 
 static int utls_server(struct xcm_socket *s, const char *local_addr)
@@ -212,7 +230,7 @@ static int utls_server(struct xcm_socket *s, const char *local_addr)
        transport API */
 
     struct utls_socket *us = TOUTLS(s);
-    us->tls_socket = server_nb(tls_addr);
+    us->tls_socket = server_nb(tls_addr, s->epoll_fd, &us->tls_reg, s);
     if (!us->tls_socket)
 	goto err;
 
@@ -231,7 +249,7 @@ static int utls_server(struct xcm_socket *s, const char *local_addr)
     char ux_addr[XCM_ADDR_MAX];
     map_tls_to_ux(actual_addr, ux_addr, sizeof(ux_addr));
 
-    us->ux_socket = server_nb(ux_addr);
+    us->ux_socket = server_nb(ux_addr, s->epoll_fd, &us->ux_reg, s);
     if (!us->ux_socket)
 	goto err_close_tls;
 
@@ -279,32 +297,19 @@ static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return -1;
 }
 
-static int utls_want(struct xcm_socket *s, int condition, int *fd, int *events,
-		     size_t capacity)
+static void utls_update(struct xcm_socket *s)
 {
     ut_assert(s->type == xcm_socket_type_server);
 
     struct utls_socket *us = TOUTLS(s);
 
-    int num_ux_fds = xcm_want(us->ux_socket, condition, fd, events, capacity);
+    int ux_rc = xcm_await(us->ux_socket, s->condition);
+    /* xcm_await() should only failed because of invalid input
+     * (i.e. condition) */
+    ut_assert(ux_rc == 0);
 
-    if (num_ux_fds < 0)
-	return -1;
-
-    int num_tls_fds = xcm_want(us->tls_socket, condition, fd+num_ux_fds,
-			       events+num_ux_fds, capacity-num_ux_fds);
-    if (num_tls_fds < 0)
-	return -1;
-
-    /* application request can be serviced immediately */
-    if (condition && (num_ux_fds == 0 || num_tls_fds == 0))
-	return 0;
-
-    int num_fds = num_ux_fds + num_tls_fds;
-
-    LOG_WANT(s, condition, fd, events, num_fds);
-
-    return num_fds;
+    int tls_rc = xcm_await(us->tls_socket, s->condition);
+    ut_assert(tls_rc == 0);
 }
 
 static int utls_finish(struct xcm_socket *s)
@@ -322,6 +327,9 @@ const char *xcm_local_addr_notrace(struct xcm_socket *conn_socket);
 static const char *utls_local_addr(struct xcm_socket *s, bool suppress_tracing)
 {
     struct utls_socket *us = TOUTLS(s);
+
+    if (us->tls_socket == NULL)
+        return NULL;
 
     if (strlen(us->laddr) == 0) {
 	const char *tls_addr = suppress_tracing ?

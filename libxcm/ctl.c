@@ -8,10 +8,12 @@
 #include "xcm.h"
 #include "xcm_attr.h"
 
+#include "xcm_tp.h"
 #include "log_ctl.h"
 #include "ctl_proto.h"
 #include "common_ctl.h"
 #include "util.h"
+#include "epoll_reg_set.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -39,6 +41,8 @@ struct ctl
     int server_fd;
     struct client clients[MAX_CLIENTS];
     int num_clients;
+
+    struct epoll_reg_set reg_set;
 
     uint64_t calls_since_process;
 };
@@ -86,7 +90,7 @@ static int create_ux(struct xcm_socket *s)
     if (ut_set_blocking(server_fd, false) < 0)
 	goto err_unlink;
 
-    LOG_CTL_CREATED(s, addr.sun_path);
+    LOG_CTL_CREATED(s, addr.sun_path, server_fd);
 
     return server_fd;
  err_unlink:
@@ -112,16 +116,39 @@ struct ctl *ctl_create(struct xcm_socket *socket)
     ctl->server_fd = server_fd;
     ctl->socket = socket;
 
+    epoll_reg_set_init(&ctl->reg_set, socket->epoll_fd, socket);
+    epoll_reg_set_add(&ctl->reg_set, ctl->server_fd, EPOLLIN);
+
     return ctl;
+}
+
+static void remove_client(struct ctl *ctl, int client_idx)
+{
+    struct client *rclient = &ctl->clients[client_idx];
+
+    epoll_reg_set_del(&ctl->reg_set, rclient->fd);
+
+    UT_PROTECT_ERRNO(close(rclient->fd));
+
+    const int last_idx = ctl->num_clients-1;
+
+    if (client_idx != last_idx)
+	memcpy(rclient, &ctl->clients[last_idx], sizeof(struct client));
+
+    if (ctl->num_clients == MAX_CLIENTS)
+        epoll_reg_set_add(&ctl->reg_set, ctl->server_fd, EPOLLIN);
+
+    ctl->num_clients--;
+
+    LOG_CLIENT_REMOVED(ctl->socket);
 }
 
 void ctl_destroy(struct ctl *ctl, bool owner)
 {
     if (ctl) {
 	UT_SAVE_ERRNO;
-	int i;
-	for (i=0; i<ctl->num_clients; i++)
-	    close(ctl->clients[i].fd);
+        while (ctl->num_clients > 0)
+            remove_client(ctl, 0);
 
 	struct sockaddr_un laddr;
 
@@ -129,6 +156,8 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 
 	int rc = getsockname(ctl->server_fd, (struct sockaddr *)&laddr,
 			     &laddr_len);
+
+        epoll_reg_set_reset(&ctl->reg_set);
 
 	close(ctl->server_fd);
 
@@ -139,35 +168,6 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 
 	UT_RESTORE_ERRNO_DC;
     }
-}
-
-static void client_want(struct ctl *ctl, struct client *client,
-			int *fd, int *events)
-{
-    *fd = client->fd;
-    *events = client->is_response_pending ? XCM_FD_WRITABLE : XCM_FD_READABLE;
-    LOG_CTL_CLIENT_WANT(ctl->socket, *fd, *events);
-}
-
-int ctl_want(struct ctl *ctl, int *fds, int *events, size_t capacity)
-{
-    if (capacity < (ctl->num_clients+1)) {
-	errno = EOVERFLOW;
-	return -1;
-    }
-
-    int i;
-    for (i=0; i<ctl->num_clients; i++)
-	client_want(ctl, &ctl->clients[i], &fds[i], &events[i]);
-
-    if (ctl->num_clients < MAX_CLIENTS) {
-	fds[ctl->num_clients] = ctl->server_fd;
-	events[ctl->num_clients] = XCM_FD_READABLE;
-	LOG_CTL_SERVER_WANT(ctl->socket, fds[ctl->num_clients],
-			    events[ctl->num_clients]);
-	return ctl->num_clients+1;
-    } else
-	return ctl->num_clients;
 }
 
 static void process_get_attr(struct xcm_socket *socket,
@@ -222,7 +222,7 @@ static void process_get_all_attr(struct xcm_socket *socket,
     xcm_attr_get_all(socket, add_attr, cfm);
 }
 
-static int process_client(struct client *client, struct xcm_socket *s)
+static int process_client(struct client *client, struct ctl *ctl)
 {
     if (client->is_response_pending) {
 	UT_SAVE_ERRNO;
@@ -233,10 +233,13 @@ static int process_client(struct client *client, struct xcm_socket *s)
 	if (rc < 0) {
 	    if (send_errno == EAGAIN)
 		return 0;
-	    LOG_CLIENT_ERROR(s, client->fd, send_errno);
+	    LOG_CLIENT_ERROR(ctl->socket, client->fd, send_errno);
 	    return -1;
-	}
+        }
+
 	client->is_response_pending = false;
+
+        epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLIN);
     } else {
 	struct ctl_proto_msg req;
 
@@ -247,48 +250,33 @@ static int process_client(struct client *client, struct xcm_socket *s)
 	if (rc < 0) {
 	    if (recv_errno == EAGAIN)
 		return 0;
-	    LOG_CLIENT_ERROR(s, client->fd, recv_errno);
+	    LOG_CLIENT_ERROR(ctl->socket, client->fd, recv_errno);
 	    return -1;
 	} else if (rc != sizeof(req)) {
-	    LOG_CLIENT_MSG_MALFORMED(s);
+	    LOG_CLIENT_MSG_MALFORMED(ctl->socket);
 	    return -1;
 	}
 
 	client->is_response_pending = true;
+        epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLOUT);
 
 	struct ctl_proto_msg *res = &client->pending_response;
 
 	switch (req.type) {
 	case ctl_proto_type_get_attr_req:
-	    process_get_attr(s, &(req.get_attr_req), res);
+	    process_get_attr(ctl->socket, &(req.get_attr_req), res);
 	    break;
 	case ctl_proto_type_get_all_attr_req:
-	    process_get_all_attr(s, res);
+	    process_get_all_attr(ctl->socket, res);
 	    break;
 	default:
-	    LOG_CLIENT_MSG_MALFORMED(s);
+	    LOG_CLIENT_MSG_MALFORMED(ctl->socket);
 	    client->is_response_pending = false;
 	    return -1;
 	}
     }
 
     return 0;
-}
-
-static void remove_client(struct ctl *ctl, int client_idx)
-{
-    struct client *rclient = &ctl->clients[client_idx];
-
-    UT_PROTECT_ERRNO(close(rclient->fd));
-
-    const int last_idx = ctl->num_clients-1;
-
-    if (client_idx != last_idx)
-	memcpy(rclient, &ctl->clients[last_idx], sizeof(struct client));
-
-    ctl->num_clients--;
-
-    LOG_CLIENT_REMOVED(ctl->socket);
 }
 
 static void accept_client(struct ctl *ctl)
@@ -306,12 +294,18 @@ static void accept_client(struct ctl *ctl)
     if (rc < 0) {
 	LOG_CTL_NONBLOCK(ctl->socket, errno);
 	close(client_fd);
+        return;
     }
+
+    epoll_reg_set_add(&ctl->reg_set, client_fd, EPOLLIN);
 
     struct client *nclient = &ctl->clients[ctl->num_clients];
     ctl->num_clients++;
     nclient->fd = client_fd;
     nclient->is_response_pending = false;
+
+    if (ctl->num_clients == MAX_CLIENTS)
+        epoll_reg_set_del(&ctl->reg_set, ctl->server_fd);
 
     LOG_CLIENT_ACCEPTED(ctl->socket, nclient->fd, ctl->num_clients);
 
@@ -337,7 +331,7 @@ void ctl_process(struct ctl *ctl)
 
     int i;
     for (i=0; i<ctl->num_clients; i++) {
-	if (process_client(&ctl->clients[i], ctl->socket) < 0) {
+	if (process_client(&ctl->clients[i], ctl) < 0) {
 	    remove_client(ctl, i);
 	    /* restart the process for simplicity */
 	    ctl_process(ctl);
