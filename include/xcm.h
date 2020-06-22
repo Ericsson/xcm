@@ -1,0 +1,1456 @@
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) 2020 Ericsson AB
+ */
+
+#ifndef XCM_H
+#define XCM_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*! @mainpage Extensible Connection-oriented Messaging
+ *
+ * @section introduction Introduction
+ *
+ * This is the documentation for the Extensible Connection-oriented
+ * Messaging (XCM) programming APIs.
+ *
+ * XCM consists of of three parts; the core API in xcm.h, an address
+ * helper library API in xcm_addr.h, and the attribute access API in
+ * xcm_attr.h.
+ *
+ * @author Mattias Rönnblom
+ * @version 0.11
+ *
+ * @section overview Overview
+ *
+ * XCM provides a connection-oriented, reliable messaging service with
+ * in-order delivery. The design goal is to allow a straight-off
+ * mapping to TCP and TLS, but also allow more efficient transport for
+ * local communication.
+ *
+ * XCM reuses much of the terminology (and semantics) of the BSD
+ * Sockets API.
+ *
+ * @section semantics Overall Service Semantics
+ *
+ * XCM has a client-server model. A server creates a server socket
+ * (with xcm_server()) bound to a specific address (in case of TCP or
+ * TLS, a TCP port on a particular IP interface), after which clients
+ * may initiate connections to the server.  On a successful attempt,
+ * two connection sockets will be created; one on the server side
+ * (returned from xcm_accept()), and one of the client side (returned
+ * from xcm_connect()). Thus, a server serving multiple clients will
+ * have multiple sockets; one server socket and N connection sockets,
+ * one each for every client. A client will have one connection socket
+ * for each server it is connected to.
+ *
+ * Messages are always sent and received on a particular connection
+ * socket (and never on a server socket).
+ *
+ * @subsection ordering Ordering Guarantees
+ *
+ * In-order delivery - that messages arrive at the receiver in the
+ * same order they were sent by the sender side - is guaranteed, but
+ * only for messages sent on the same connection.
+ *
+ * @subsection flow_control Flow Control
+ *
+ * XCM transports support flow control. Thus, if the sender message
+ * rate or bandwidth is higher than the network or the receiver can
+ * handle on a particular connection, xcm_send() in the sender process
+ * will eventually block (or return an error EAGAIN, if in
+ * non-blocking mode). Unless XCM is used for bulk data transfer (as
+ * oppose to signaling traffic), xcm_send() blocking because of slow
+ * network or a slow receiver should be rare indeed in practice. TCP,
+ * TLS, and UNIX domain socket transports all have large enough
+ * windows and socket buffers to allow a very large amount of
+ * outstanding data.
+ *
+ * @section addressing Addressing and Transport Selection
+ *
+ * In XCM, the application is in control of which transport will be
+ * used, with the address supplied to xcm_connect() and xcm_server()
+ * including both the transport name and the transport address.
+ *
+ * However, there is nothing preventing a XCM transport to use a more
+ * an abstract addressing format, and internally include multiple
+ * "physical" IPC transport options. This model is used by the @ref
+ * utls_transport.
+ *
+ * @subsection address_syntax Address Syntax
+ *
+ * Addresses are represented as
+ * strings with the following general syntax:
+ * @tt <transport-name>:<transport-address> @endtt
+ *
+ * For the UX UNIX Domain Socket transport, the addresses has this
+ * more specific form: @n
+ * @code ux:<UNIX domain socket name> @endcode
+ *
+ * The addresses of the UXF UNIX Domain Socket transport variant
+ * follow the following format: @n
+ * @code uxf:<file system path> @endcode
+ *
+ * For the TCP, TLS, UTLS and SCTP transports the syntax is: @n
+ * @code
+ * tcp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
+ * tls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
+ * utls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
+ * sctp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
+ * @endcode
+ *
+ * '*' is a shorthand for '0.0.0.0' (=bind to all IPv4 interfaces).
+ * '[*]' is the IPv6 equivalent.
+ *
+ * For example:
+ * @code
+ * tcp:*:4711
+ * tls:192.168.1.42:4711
+ * tcp:[::1]:99
+ * tcp:[*]:4711
+ * tls:service:4711
+ * sctp:service.company.com:42
+ * @endcode
+ *
+ * For TCP, TLS, UTLS and SCTP server socket addresses, the port can
+ * be set to 0, in which case XCM (or rather, the Linux kernel) will
+ * allocate a free TCP port.
+ *
+ * @subsubsection dns DNS Resolution
+ *
+ * For transports allowing a DNS domain name as a part of the address,
+ * the transport will attempt resoĺv the name to an IP address. A DNS
+ * domain name may resolv to zero or more IPv4 addresses and/or zero
+ * or more IPv6 addresses. XCM relies on the system's configuration to
+ * prioritize between IPv4 and IPv6.
+ *
+ * @subsubsection ip_addr_format IPv4 Address Format
+ *
+ * XCM accepts IPv4 addresses in the dotted-decimal format
+ * @code
+ * 130.236.254.2
+ * @endcode
+ *
+ * XCM allows only complete addresses with three '.', and not the
+ * archaic, classful, forms, where some bytes where left out, and thus
+ * the address contained fewer separators.
+ *
+ * @section dpd Dead Peer Detection
+ *
+ * XCM transports attempts to detect a number of conditions which can
+ * lead to lost connectivity, and does so even on idle connections.
+ *
+ * If the remote end closes the connection, the local xcm_receive()
+ * will return 0. If the process on the remote end crashed,
+ * xcm_receive() will return -1 and set errno ECONNRESET. If network
+ * connectivity to the remote end is lost, xcm_receive() will return
+ * -1 and errno will be set to ETIMEDOUT.
+ *
+ * @section error_handling Error Handling
+ *
+ * In general, XCM follow the UNIX system API tradition when it comes
+ * to error handling. Where possible, errors are signaled to the
+ * application by using unused parts of the value range of the
+ * function return type. For functions returning signed integer types,
+ * this means the value of -1 (in case -1 is not a valid return
+ * value). For functions returning pointers, NULL is used to signal
+ * that an error has occurred. For functions where neither -1 or NULL
+ * can be used, or where the function does not return anything
+ * (side-effect only functions), an 'int' is used as the return type,
+ * and is used purely for the purpose to signal success (value 0), or
+ * an error (-1) to the application.
+ *
+ * The actual error code is stored in the thread-local errno
+ * variable. The error codes are those from the fixed set of errno
+ * values defined by POSIX, found in errno.h. Standard functions such
+ * as perror() and strerror() may be used to turn the code into a
+ * human-readable string.
+ *
+ * In non-blocking operation, given the fact the actual transmission
+ * might be defered (and the message buffered in the XCM layer), and
+ * that message receive processing might happen before the application
+ * has called receive, the error being signaled at the point of a
+ * certain XCM call might not be a direct result of the requested
+ * operation, but rather an error discovered previously.
+ *
+ * The documentation for xcm_finish() includes a list of generic error
+ * codes, applicable xcm_connect(), xcm_accept(), xcm_send() and
+ * xcm_receive().
+ *
+ * Also, for errors resulting in an unusable connection, repeated
+ * calls will produce the same errno.
+ *
+ * @section select Event-driven Programming Support
+ *
+ * In UNIX-style event-driven programming, a single application thread
+ * handles multiple clients (and thus multiple XCM connection sockets)
+ * and the task of accepting new clients on the XCM server socket
+ * concurrently (although not in parallel). To wait for events from
+ * multiple sources, an I/O multiplexing facility such as select(2) or
+ * poll(2) is used.
+ *
+ * XCM supports this programming model. However, due to the extensive
+ * user space state/buffering required for some XCM transports, and
+ * the weak correlation between fd read/write state and actual
+ * XCM-level message send/receive that follows, XCM is forced to
+ * deviate from the BSD Sockets semantics in this regard.
+ *
+ * @subsection select_variants Supported I/O Multiplexing Facilities
+ *
+ * XCM allows the application to use select() and poll() by direct
+ * calls, or using any of the many event-loop libraries. For
+ * simplicity, being the most well-known of options, select() is used
+ * in this documentation to denote the whole family of POSIX I/O
+ * multiplexing facilities.
+ *
+ * @subsection non_blocking_ops Non-blocking Operation
+ *
+ * An event-driven application will set the XCM sockets it handles
+ * into non-blocking mode (xcm_set_blocking() or the XCM_NONBLOCK flag
+ * to xcm_connect()).
+ *
+ * For XCM sockets in non-blocking mode, all potentially blocking API
+ * calls related to XCM connections, calls - xcm_connect(),
+ * xcm_accept(), xcm_send(), and xcm_receive() - finish immediately.
+ *
+ * Many such potentially blocking calls will finish immediately and
+ * with success. For xcm_send(), xcm_connect() and xcm_accept(), XCM
+ * signaling success means that the XCM layer has accepted the
+ * request. It may or may not have completed the request.
+ *
+ * @subsubsection non_blocking_connect Non-blocking Connection Establishment
+ *
+ * In case the @ref XCM_NONBLOCK flag is set in the xcm_connect()
+ * call, or in case the a XCM server socket is in non-blocking mode at
+ * the time of a xcm_accept() call, the newly created XCM connection
+ * returned to the application may be in a semi-operational state,
+ * with some internal processing and/or signaling with the remote peer
+ * still required before actual message transmission and reception may
+ * occur.
+ *
+ * The application may attempt to send or receive messages on such
+ * semi-operational connections.
+ *
+ * There are ways for an application wishing to know when connection
+ * establishment or the task of accepting a new client have finished to
+ * do so. See @ref outstanding_tasks for more information.
+ *
+ * @subsubsection non_blocking_send_receive Non-blocking Send and Receive
+ *
+ * To receive a message on a XCM connection socket in non-blocking
+ * mode, the application may wait for the right conditions to arise,
+ * by means of calling xcm_want() with the @ref XCM_SO_RECEIVABLE flag
+ * set.  When select() signals that these conditions are true, the
+ * application should issue xcm_receive() to attempt to retrieve a
+ * message.
+ *
+ * xcm_receive() may also called on speculation, prior to any
+ * xcm_want() call, to poll the socket for incoming messages.
+ *
+ * A XCM connection socket may buffer a number of messages, and thus
+ * the application should, for optimal performance, repeat
+ * xcm_receive() until it returns an error, and errno is set to
+ * EAGAIN. However, an application may choose to call xcm_want() with
+ * @ref XCM_SO_RECEIVABLE set, but in that case, if there are buffered
+ * messages, the xcm_want() call will return 0, signaling that the
+ * socket doesn't have to do anything in order for the application to
+ * receive a message.
+ *
+ * Similar to receiving a message, an application may use xcm_want()
+ * to wait for the right conditions to occur to allow the transmission
+ * of a message. Just like with xcm_receive(), it may also choose to
+ * issue a xcm_send() call on speculation, falling back to xcm_want()
+ * and select() only in the face of XCM being unable to accept a new
+ * message. XCM will signal that this is the case by having
+ * xcm_send() returning an error with errno to EAGAIN.
+ *
+ * For send operations on non-blocking connection sockets, XCM may
+ * buffer whole or part of the message before transmission to the
+ * lower layer. This may be due to socket output buffer underrun, or
+ * the need for some in-band signaling, like security keys exchange,
+ * to happen before the transmission of the complete message may
+ * finish. The XCM layer will (re-)attempt to hand the message over to
+ * the lower layer at a future call to xcm_finish(), xcm_send(), or
+ * xcm_receive().
+ *
+ * An application should never attempt to draw any conclusions
+ * directly based the state of the fd or fds used by the XCM
+ * socket. The fds may be readable, and yet there may be no message to
+ * read from XCM, or it may not be readable, but yet there might be
+ * one or several messages buffered in the XCM layer. The same lack of
+ * correlation holds true also for xcm_send() and the fd
+ * writable/non-writable fd state. In addition, XCM may also used
+ * file descriptor for other purposes.
+ *
+ * For applications wishing to know when any outstanding message
+ * transmission has finished, it may use xcm_finish() to do
+ * so. Normally, applications aren't expected to require this kind of
+ * control. Please also not that the fact a message has left the XCM
+ * layer doesn't necessarily mean it has successfully been delivered
+ * to the recipient.
+ *
+ * @subsubsection outstanding_tasks Finishing Outstanding Tasks
+ *
+ * xcm_connect(), xcm_accept(), xcm_send() may all leave the
+ * connection in a state where work is initiated, but not
+ * completed. In addition, the transport may also busy with an
+ * internal tasks, such filling its internal buffer with incoming
+ * messages, being involved in a key exchange operation (TLS hand
+ * shake) or keep alive message transmission or reception.
+ *
+ * Prior to the select() call, the application must query any XCM
+ * connection or server socket it has in non-blocking mode, asking it
+ * what events it is waiting for, and on what file descriptor. This is
+ * true even if the application neither wants to send or receive (on a
+ * connection socket), or accept incoming connections (on a server
+ * socket).
+ *
+ * The file descriptor, and the type of event, may change if the
+ * application issues any xcm_* calls on that connection. Easiest for
+ * the application is likely to query the connection socket
+ * immediately prior to each and every select() call.
+ *
+ * After waking up from a select() call, where the conditions required
+ * by a non-blocking XCM socket are met, the application must, if no
+ * xcm_send(), xcm_receive() or xcm_accept() calls are to be made,
+ * call xcm_finish().  This is to allow the socket to finish any
+ * outstanding tasks, even in the face of an application having no
+ * immediate further use of the socket.
+ *
+ * The query is made with xcm_want(), and it returns an array of file
+ * descriptors and, for each fd, the event type(s) the socket is
+ * interested in for that fd.
+ *
+ * In case the XCM socket has any such needs, the application should
+ * wait until the conditions are met (by means of select()).  Upon the
+ * conditions are met, the application may continue to use the socket.
+ *
+ * Prior to changing a socket from non-blocking to blocking mode, any
+ * outstanding tasks must be finished.
+ *
+ * @subsection might_block Ready Status Semantics
+ *
+ * There might be situations that the fd or the fds tied to a XCM
+ * connection is marked (by select()) with the appropriate ready
+ * status (typically, but not always, write) for a xcm_send()
+ * operation to success, but a send may still block (or fail with
+ * EAGAIN, if in non-blocking mode). One such may be that the are
+ * indeed socket buffer space, but not enough to fit the complete
+ * message.
+ *
+ * The same situation may arise for xcm_receive(). Even though the fd
+ * tied to a XCM connection is marked with the appropriate ready
+ * status for a message to be received, a xcm_receive() may fail,
+ * since the complete message has not yet arrived.
+ *
+ * Thus, an application may never trust that a xcm_send() or
+ * xcm_receive() in blocking mode won't block, and similarly may never
+ * trust a send or receive operation to never fail and return EAGAIN,
+ * regardless of fd status.
+ *
+ * See @ref io_waiting for other reasons that a send or receive may
+ * always potentially block.
+ *
+ * @subsection io_waiting Waiting for Read May Mean Waiting for Write
+ *
+ * XCM is designed to allow transports where all the processing is
+ * done in the application's thread of control (i.e. no separate OS
+ * threads or processes for a connection to do whatever in-band
+ * signaling is required for handling retransmission, dead peer
+ * detection, key exchange etc). One transport involving a lot of this
+ * kind of processing is the @ref tls_transport.
+ *
+ * For sockets in blocking mode, this complexity is hidden from the
+ * application (except in the form of message reception or
+ * transmission latency jitter).
+ *
+ * For event-driven applications, with their XCM connections in
+ * non-blocking mode, this has a non-obvious effect; in order to
+ * receive a message, the XCM transport may ask the application to
+ * have its thread wait (with select()) for the connection's fd to be
+ * marked writable. This is because in order to receive the message,
+ * the transport may need to complete some in-band signaling. For
+ * example, it may require some new keys for encrypting the outgoing
+ * message, since the old have expired.
+ *
+ * The other way around may also be true; that in order to write a
+ * message, the transport may need to have the application to wait for
+ * the fd to become readable (since it needs to receive some signaling
+ * message from the remote peer in order to proceed).
+ *
+ * The same holds true also for accept operation on server sockets; in
+ * order to accept an incoming request, the transport may ask the
+ * application to wait for the fd to be come writable.
+ *
+ * @subsection nb_examples Non-blocking Example Sequences
+ *
+ * @subsubsection nb_connect_and_send Connect and Send Message
+ *
+ * In this example, the application connects and immediately tries to
+ * send a message. This may fail (for example, in case TCP and/or
+ * TLS-level connection establishement has not yet been completed), in
+ * which case the application will fall back and wait with the use of
+ * xcm_want() and select().
+ *
+ * @startuml{nb_connect_and_send.png}
+ * client -> libxcm: xcm_connect("tls:192.168.1.42:4711", XCM_NONBLOCK);
+ * libxcm -> client: conn_socket
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
+ * libxcm -> client: 2, fds=[99, 17], events=[XCM_FD_READABLE, XCM_FD_READABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(100, [99, 17, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_send(conn_socket, "hello world", 10);
+ * libxcm -> client: -1, errno=EAGAIN
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
+ * libxcm -> client: 2, fds=[99, 17], events=[XCM_FD_READABLE, XCM_FD_WRITABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(100, [99, ...], [17, ...], [...], NULL);
+ * libc -> client: 1
+ * client -> libxcm: xcm_send(conn_socket, "hello world", 10);
+ * libxcm -> client: -1, errno=EAGAIN
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
+ * libxcm -> client: 2, fds=[99, 17], events=[XCM_FD_READABLE, XCM_FD_READABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(100, [99, 17, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_send(conn_socket, "hello world", 10);
+ * libxcm -> client: 0
+ * @enduml
+ *
+ * @subsubsection nb_connect_explicit Connect with Explicit Finish
+ *
+ * In case the application wants to know when the connection
+ * establishment has finished, it may use xcm_finish() to do so, like
+ * in the below example sequence.
+ *
+ * @startuml{nb_connect_explicit.png}
+ * client -> libxcm: xcm_connect("tls:192.168.1.42:4711", XCM_NONBLOCK);
+ * libxcm -> client: conn_socket
+ * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
+ * libxcm -> client: 1, fds=[42], events=[XCM_FD_READABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(43, [42, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_finish(conn_socket);
+ * libxcm -> client: -1, errno=EAGAIN
+ * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
+ * libxcm -> client: 1, fds=[42], events=[XCM_FD_WRITABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(43, [...], [42, ...], [...], NULL);
+ * libc -> client: 1
+ * client -> libxcm: xcm_finish(conn_socket);
+ * libxcm -> client: -1, errno=EAGAIN
+ * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
+ * libxcm -> client: 1, fds=[42], events=[XCM_FD_READABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(43, [42, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_finish(conn_socket);
+ * libxcm -> client: 0
+ * @enduml
+ *
+ * @subsubsection nb_immediate_connection_refused Immediate Connection Refused
+ *
+ * While connecting to a server socket, the client's connection
+ * attempt may be refused immediately.
+ *
+ * @startuml{nb_immediate_connection_refused.png}
+ * client -> libxcm: xcm_connect("utls:192.168.1.17:17", XCM_NONBLOCK);
+ * libxcm -> client: NULL, errno=ECONNREFUSED
+ * @enduml
+ *
+ * @subsubsection nb_delayed_connection_refused Delayed Connection Refused
+ *
+ * In many cases, the application is handed a connection socket before
+ * the connection establishment is completed. Any errors occuring
+ * during this process is handed over to the application at the next
+ * XCM call; would it be xcm_finish(), xcm_send() or xcm_receive().
+ *
+ * @startuml{nb_delayed_connection_refused.png}
+ * client -> libxcm: xcm_connect("utls:192.168.1.17:17", XCM_NONBLOCK);
+ * libxcm -> client: conn_socket
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_SENDABLE, fds, events, 8);
+ * libxcm -> client: 1, fds=[42], events=[XCM_FD_READABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(43, [42, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_send(conn_socket, "Greetings from the North", 25);
+ * libxcm -> client: -1, errno=ECONNREFUSED
+ * client -> libxcm: xcm_close(conn_socket);
+ * libxcm -> client: 0
+ * @enduml
+ *
+ * @subsubsection nb_buffering Receiving Buffering
+ *
+ * In this example, the application runs into a situation where the
+ * operation requested may be perfomed immediately (since XCM already
+ * have a buffered message).
+ *
+ * @startuml{nb_buffering.png}
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_RECEIVABLE, fds, events, 8);
+ * libxcm -> client: 2, fds=[17, 42], events=[XCM_FD_READABLE, XCM_FD_READABLE]
+ * client -> libc: select(43, [17, 42, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_receive(conn_socket, buf, 1024);
+ * libxcm -> client: 100
+ * client -> client: handle_request(buf, 100);
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_RECEIVABLE, fds, events, 8);
+ * libxcm -> client: 0
+ * client -> libxcm: xcm_receive(conn_socket, buf, 1024);
+ * libxcm -> client: 98
+ * client -> client: handle_request(buf, 98);
+ * @enduml
+ *
+ * @subsubsection nb_flush_buffers_before_close Buffer Flush Before Close
+ *
+ * In this example the application flushes any internal XCM buffers
+ * before shutting down the connection, to ensure that any buffered
+ * messages are delivered to the lower layer.
+ *
+ * @startuml{nb_flush_buffers_before_close.png}
+ * client -> libxcm: xcm_send(conn_socket, msg, 100);
+ * libxcm -> client: 0
+ * client -> libxcm: xcm_finish(conn_socket);
+ * libxcm -> client: -1, errno=EAGAIN
+ * client -> libxcm: xcm_want(conn_socket, 0, fds, events, 8);
+ * libxcm -> client: 1, fds=[12], events=[XCM_FD_WRITABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(13, [...], [12, ...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_finish(conn_socket);
+ * libxcm -> client : 0
+ * client -> libxcm: xcm_close(conn_socket);
+ * libxcm -> client : 0
+ * @enduml
+ *
+ * @subsubsection nb_server_accept Server Accept
+ *
+ * In this sequence, a server accepts a new connection, and continues
+ * to attempt to receive a message on this connection, while still,
+ * concurrently, is ready to accept more clients on the server socket.
+ *
+ * @startuml{server_accept.png}
+ * client -> libxcm: xcm_server("tcp:*:17");
+ * libxcm -> client: server_socket
+ * client -> libxcm: xcm_set_blocking(server_socket, false);
+ * libxcm -> client: 0
+ * client -> libxcm: xcm_want(server_socket, XCM_SO_ACCEPTABLE, fds, events, 8);
+ * libxcm -> client: 3, fds=[4, 8, 9], events=[XCM_FD_READABLE, XCM_FD_READABLE, XCM_FD_READABLE]
+ * client -> client: build_fd_sets(...);
+ * client -> libc: select(10, [4, 8, 9, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_accept(server_socket);
+ * libxcm -> client: conn_socket
+ * client -> libxcm: xcm_want(server_socket, XCM_SO_ACCEPTABLE, fds, events, 8);
+ * libxcm -> client: 3, fds=[4, 8, 9], events=[XCM_FD_READABLE, XCM_FD_READABLE, XCM_FD_READABLE]
+ * client -> libxcm: xcm_want(conn_socket, XCM_SO_RECEIVABLE, fds, events, 8);
+ * libxcm -> client: 1, fds=[11], events=[XCM_FD_READABLE]
+ * client -> libc: select(12, [4, 8, 9, 11, ...], [...], [...], NULL);
+ * |||
+ * libc -> client: 1
+ * client -> libxcm: xcm_receive(conn_socket, buf, 1024);
+ * libxcm -> client: 100
+ * client -> client: handle_request(buf, 100);
+ * @enduml
+ *
+ * @section attributes Socket Attributes
+ *
+ * Tied to an XCM server or connection socket is a set of read-only
+ * key-value pairs known as attributes. Which attributes are available
+ * varies across different transports, and different socket types.
+ *
+ * The attribute names are strings, and follows a hierarchical naming
+ * schema. For example, all generic XCM attributes, expected to be
+ * implemented by all transports, have the prefix
+ * "xcm.". Transport-specific attributes are prefixed with the
+ * transport or protocol name (e.g. "tcp." for TCP-specific attributes
+ * applicable to the TLS and TCP transports).
+ *
+ * The attribute value is coded in the native C data types and byte
+ * order. Strings are NUL-terminated, and the NUL character is
+ * included in the length of the attribute. There are three value
+ * types; a boolean type, a 64-bit signed integer type and a string
+ * type. See xcm_attr_types.h for details.
+ *
+ * The attribute access API is in xcm_attr.h.
+ *
+ * Retrieving an integer attribute may look like this (minus error
+ * handling):
+ * ~~~~~~~~~~~~~{.c}
+ * int64_t rtt;
+ * xcm_attr_get(tcp_conn_socket, "tcp.rtt", NULL, &rtt, sizeof(rtt));
+ * printf("Current TCP round-trip time estimate is %ld us.", rtt);
+ * ~~~~~~~~~~~~~
+ *
+ * Process-wide and/or read/write attributes may be supported in the
+ * future.
+ *
+ * @subsection xcm_attr Generic Attributes
+ *
+ * These attributes are expected to be found on XCM sockets regardless
+ * of transport type.
+ *
+ * For TCP transport-specific attributes, see @ref
+ * tcp_attr, and for TLS, see @ref tls_attr.
+ *
+ * Attribute Name | Socket Type | Value Type | Description
+ * ---------------|-------------|------------|------------
+ * xcm.type       | All         | String     | The socket type - "server" or "connection".
+ * xcm.transport  | All         | String     | The transport type.
+ * xcm.local_addr | All         | String     | See xcm_local_addr().
+ * xcm.remote_addr | Connection | String     | See xcm_remote_addr().
+ * xcm.max_msg_size | Connection | Integer | The maximum size of any message transported by this connection.
+ *
+ * @subsubsection cnt_attr Generic Message Counter Attributes
+ *
+ * XCM has a set of generic message counters, which keeps track of the
+ * number of messages crossing a certain boundary for a particular
+ * connection, and a sum of their size.
+ *
+ * Some of the message and byte counter attributes use the concept of
+ * a "lower layer". What this means depends on the transport. For the
+ * UX And TCP transports, it is the Linux kernel. For example, for
+ * TCP, if the xcm.to_lower_msgs is incremented, it means that XCM has
+ * successfully sent the complete message to the kernel's networking
+ * stack for further processing. It does not means it has reached the
+ * receiving process. It may have, but it also may be sitting on the
+ * local or remote socket buffer, on a NIC queue, or be in-transmit in
+ * the network. For TLS, the lower layer is OpenSSL.
+ *
+ * All the "xcm.*_bytes" counters count the length of the XCM message
+ * payload (as in the length field in xcm_send()), and thus does not
+ * include any underlying headers.
+ *
+ * The message counters only count messages succesfully sent and/or
+ * received.
+ *
+ * Attribute Name | Socket Type | Value Type | Description
+ * ---------------|-------------|------------|------------
+ * xcm.from_app_msgs | Connection | Integer | Messages sent from the application and accepted into XCM.
+ * xcm.from_app_bytes | Connection | Integer | The sum of the size of all messages counted by xcm.from_app_msgs.
+ * xcm.to_app_msgs | Connection | Integer | Messages delivered from XCM to the application.
+ * xcm.to_app_bytes | Connection | Integer | The sum of the size of all messages counter by xcm.to_app_msgs.
+ * xcm.from_lower_msgs | Connection | Integer | Messages received by XCM from the lower layer.
+ * xcm.from_lower_bytes | Connection | Integer | The sum of the size of all messages counted by xcm.from_lower_msgs.
+ * xcm.to_lower_msgs | Connection | Integer | Messages successfully sent by XCM into the lower layer.
+ * xcm.to_lower_bytes | Connection | Integer | The sum of the size of all messages counted by xcm.to_lower_msgs.
+ *
+ * @section ctl Control Interface
+ *
+ * XCM includes a control interface, which allows iteration over the
+ * OS instance's XCM server and connection sockets (for processes with
+ * the appropriate permissions), and access to their attributes (see
+ * @ref attributes).
+ *
+ * The control interface is optional by means of build-time
+ * configuration.
+ *
+ * For each XCM server or connection socket, there is a corresponding
+ * UNIX domain socket which is used for control signaling (i.e. state
+ * retrieval).
+ *
+ * @subsection ctl_dir Control UNIX Socket Directory
+ *
+ * By default, the control interface's UNIX domain sockets are stored in
+ * the @c /run/xcm/ctl directory.
+ *
+ * This directory needs to be created prior to running any XCM
+ * applications (for the control interface to worker properly) and
+ * should be writable for all XCM users.
+ *
+ * A particular process using XCM may be configured to use a
+ * non-default directory for storing the UNIX domain sockets used for
+ * the control interface by means of setting the @c XCM_CTL
+ * variable. Please note that using this setting will cause the XCM
+ * connections to be not visible globally on the OS instance (unless
+ * all other XCM-using processes also are using this non-default
+ * directory).
+ *
+ * @subsection ctl_fds Additional File Descriptors
+ *
+ * The XCM socket state the control interface allows access to
+ * (i.e. the attributes) is owned by the various processes is the
+ * system using the XCM library. Thus, to avoid synchronization
+ * issues, the control interface is driven by the application's
+ * thread(s), although the application is kept unaware of this fact.
+ *
+ * If the control interface is enabled, some of the file descriptors
+ * returned to the application (in xcm_want()) will are not tied to
+ * the data interface (i.e. xcm.h and the messaging I/O), but rather
+ * the control interface.
+ *
+ * The control interface is using one file descriptor for the a UNIX
+ * domain server socket, and zero or more fds for any control
+ * interface clients attached.
+ *
+ * @subsection ctl_errors Control Interface Error Handling
+ *
+ * Generally, since the application is left unaware (from an API
+ * perspective) from the existence of the control interface, errors
+ * are not reported up to the application. They are however logged.
+ *
+ * Application threads owning XCM sockets, but which are busy with
+ * non-XCM processing for a long duration of time, or otherwise are
+ * leaving their XCM sockets unattended to (in violation of XCM API
+ * contract), will not respond on the control interface's UNIX domain
+ * sockets (corresponding to their XCM sockets). Only the prescence of
+ * these sockets may be detected, but their state cannot be retrieved.
+ *
+ * @subsection ctl_api Control API
+ *
+ * Internally, the XCM implementation has control interface client
+ * library, but this library's API is not public at this point.
+ *
+ * @subsection ctl_shell Command-line Control Program
+ *
+ * XCM includes a command-line program @c xcmctl which uses the @ref
+ * ctl_api to iterate of the system's current XCM sockets, and allow
+ * access (primarily for debugging purposes) to the sockets'
+ * attributes.
+ * 
+ * @section thread_safety Thread Safety
+ *
+ * Unlike BSD sockets, a XCM socket may not be shared among different
+ * threads without synchronization external to XCM. With proper
+ * external serialization, a socket may be shared by different threads
+ * in the same process, although it might provide difficult in
+ * practice since a thread in a blocking XCM function will continue to
+ * hold the lock, and thus preventing other threads from accessing the
+ * socket at all. For non-blocking sockets, the contract of xcm_want()
+ * may be broken in so far the conditions on which a thread is waiting
+ * for may be change, if another thread calls into that connection
+ * socket.
+ *
+ * It is however safe to "give away" a XCM socket from one thread to
+ * another, provided the appropriate memory fences are used.
+ *
+ * These limitations (compared to BSD Sockets) are in place to allow
+ * socket state outside the kernel (which is required for TCP framing
+ * and TLS).
+ *
+ * @section fork Multi-processing and Fork
+ *
+ * Sharing a XCM socket between threads in different processes is not
+ * possible.
+ *
+ * After a fork() call, either of the two process (the parent, or the
+ * child) must be designated the owner of every XCM socket the parent
+ * owned.
+ *
+ * The owner may continue to use the XCM socket normally.
+ *
+ * The non-owner may not call any other XCM API call than
+ * xcm_cleanup(), which frees local memory tied to this socket
+ * in the non-owner's process address space, without impacting the
+ * connection state in the owner process.
+ *
+ * @section transports Transports
+ *
+ * The core XCM API functions are oblivious to the transports
+ * used. However, the support for building, and parsing addresses
+ * (which some applications are expected to do) are available only for
+ * a set of pre-defined set of transports. There is nothing preventing
+ * xcm_addr.h from being extended, and also nothing prevents an
+ * alternative XCM implementation to include more transports without
+ * touching the address helper API.
+ *
+ * @subsection ux_transport UX Transport
+ *
+ * The UX transport uses UNIX Domain (AF_UNIX, also known as AF_LOCAL)
+ * Sockets.
+ *
+ * UX sockets may only be used with the same OS instance (or, more
+ * specifically, between processes in the same Linux kernel network
+ * namespace).
+ *
+ * UNIX Domain Sockets comes in a number of flavors, and XCM uses the
+ * SOCK_SEQPACKET variety. SOCK_SEQPACKET sockets are
+ * connection-oriented, preserves message boundaries and delivers
+ * messages in the same order they were sent; perfectly matching XCM
+ * semantics and provides for an near-trivial mapping.
+ *
+ * UX is the most efficient of the XCM transports.
+ *
+ * @subsubsection ux_naming UX Namespace
+ *
+ * The standard UNIX Domain Sockets as defined by POSIX uses the file
+ * system as its namespace, with the sockets also being
+ * files. However, for simplicity and to avoid situations where stale
+ * socket files (originating from crashed processes) causing problems,
+ * the UX transport uses a Linux-specific extension, allowing a
+ * private UNIX Domain Socket namespace. This is known as the abstract
+ * namespace (see the unix(7) man page for details). With the abstract
+ * namespace, server socket address allocation has the same life time
+ * as TCP ports (i.e. if the process dies, the address is free'd).
+ *
+ * The UX transport enables the SO_PASSCRED BSD socket option, to give
+ * the remote peer a name (which UNIX domain connection socket doesn't
+ * have by default). This is for debugging and observability purposes.
+ * Without a remote peer name, in server processes with multiple
+ * incoming connections to the same server socket, it's difficult to
+ * say which of the server-side connection sockets goes to which
+ * remote peer. The kernel-generated, unique, name is an integer in
+ * the form "%05x" (printf format). Applications using hardcoded UX
+ * addresses should avoid such names by, for example, using a prefix.
+ *
+ * The @ref utls_transport also indirectly uses the UX namespace, so
+ * care should be taken to avoid any clashes between UX and UTLS
+ * sockets in the same network namespace.
+ *
+ * @subsection uxf_transport UXF Transport
+ *
+ * The UXF transport is identical to the UX transport, only it uses
+ * the standard POSIX naming mechanism. The name of a server socket 
+ * is a file system path, and the socket is also a file.
+ *
+ * The UXF sockets resides in a file system namespace, as opposed to
+ * UX sockets, which live in a network namespace.
+ *
+ * Upon xcm_close(), the socket will be closed and the file removed.
+ * If an application crashes or otherwise fails to run xcm_close(), it
+ * will leave a file in the file system pointing toward a non-existing
+ * socket. This file will prevent the creation another server socket
+ * with the same name.
+ *
+ * @subsection tcp_transport TCP Transport
+ *
+ * The TCP transport uses the Transmission Control Protocol (TCP), by
+ * means of the BSD Sockets API.
+ *
+ * TCP is a byte-stream service, but the XCM TCP transport adds
+ * framing on top of the stream. A single-field 32-bit header
+ * containing the message length in network byte order is added to
+ * every message.
+ *
+ * TCP uses TCP Keepalive to detect lost network connectivity between
+ * the peers.
+ *
+ * The TCP transport supports IPv4 and IPv6.
+ *
+ * Since XCM is designed for signaling traffic, the TCP transport
+ * disables the Nagle algorithm of TCP to avoid its excessive latency.
+ *
+ * @subsubsection tcp_attr TCP Socket Attributes
+ *
+ * The TCP attributes are retrieved from the kernel (struct tcp_info
+ * in linux/tcp.h). See the tcp(7) manual page, and its section on the
+ * TCP_INFO socket option.
+ *
+ * Attribute Name | Socket Type | Value Type | Description
+ * ---------------|-------------|------------|------------
+ * tcp.rtt        | Connection  | Integer    | The current TCP round-trip estimate (in us).
+ * tcp.total_retrans | Connection | Integer | The total number of retransmitted TCP segments.
+ * tcp.segs_in    | Connection  | Integer    | The total number of segments received.
+ * tcp.segs_out   | Connection  | Integer    | The total number of segments sent.
+ *
+ * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
+ * running XCM on Linux kernel 4.2 or later.
+ *
+ * @subsection tls_transport TLS Transport
+ *
+ * The TLS transport uses TLS to provide a secure, private, two-way
+ * authenticated transport.
+ *
+ * TLS is a byte-stream service, but the XCM TLS transport adds
+ * framing in the same manner as does the XCM TCP transport.
+ *
+ * The TLS transport supports IPv4 and IPv6.
+ *
+ * The TLS transport disables the Nagle algorithm of TCP.
+ *
+ * @subsubsection tls_certificates TLS Certificate and Key Storage
+ *
+ * The TLS transport expect the certificate, trust chain and private
+ * key files to be found in a file system directory - the certificate
+ * directory. The default path are configured at build-time, but can
+ * be overriden on a per-process basis by means of a UNIX environment
+ * variable. Prior to creating any TLS or UTLS sockets (typically
+ * before program start), set @c XCM_TLS_CERT to change the
+ * certificate directory.
+ *
+ * The TLS transport will, at the time of XCM socket creation
+ * (xcm_connect() or xcm_server()), look up the process' current
+ * network namespace. In case the namespace is given a name per the
+ * iproute2 methods and conventions, XCM will retrieve this name and
+ * use it in the certificate and key lookup.
+ *
+ * In the certificate directory, the TLS transport expects the
+ * certificate to follow the below naming convention (where <ns>
+ * is the namespace):
+ * @code
+ * cert_<ns>.pem
+ * @endcode
+ *
+ * The private key is stored in:
+ * @code
+ * key_<ns>.pem
+ * @endcode
+ *
+ * The trust chain is stored in:
+ * @code
+ * tc_<ns>.pem
+ * @endcode
+ *
+ * For the default namespace (or any other network namespace not named
+ * according to iproute2 standards), the certificate need to be stored
+ * in a file "cert.pem", the private key in "key.pem" and the trust
+ * chain in "tc.pem".
+ *
+ * In case the certificate, key or trust chain files are not in place
+ * (for a particular namespace), a xcm_server() call will return an
+ * error and set errno to EPROTO. The application may choose to retry
+ * at a later time.
+ *
+ * @subsubsection tls_attr TLS Socket Attributes
+ *
+ * TLS has all the TCP-level attributes of the TCP transport; see
+ * @ref tcp_attr.
+ *
+ * @subsection utls_transport UTLS Transport
+ *
+ * The UTLS transport provides a hybrid transport, utilizing both the
+ * TLS and UX transports internally for actual connection
+ * establishment and message delivery.
+ *
+ * On the client side, at the time of xcm_connect(), the UTLS
+ * transport determines if the server socket can be reached by using
+ * the UX transport (i.e. if the server socket is located on the same
+ * OS instance, in the same network namespace). If not, UTLS will
+ * attempt to reach the server by means of the TLS transport.
+ *
+ * For a particular UTLS connection, either TLS or UX is used (never
+ * both). XCM connections to a particular UTLS server socket may be a
+ * mix of the two different types.
+ *
+ * In the UTLS transport, xcm_want() will return at least two file
+ * descriptors; one for the TCP BSD socket file descriptor utilized
+ * for TLS, and one for the UNIX domain socket. However, the
+ * applications should not depend on this (or the fact that other
+ * transports might return fewer).
+ *
+ * For an UTLS server socket with the address @tt utls:<ip>:<port>
+ * @endtt, two underlying addresses will be allocated;
+ * @tt tls:<ip>:<port> @endtt and @tt ux:<ip>:<port> @endtt .
+ *
+ * Or, in the case DNS is used:
+ * @tt tls:<hostname>:<port> @endtt and @tt ux:<hostname>:<port> @endtt .
+ *
+ * @subsubsection utls_limitations UTLS Limitations
+ *
+ * A wildcard should never be used when creating a UTLS server socket.
+ *
+ * If a DNS hostname is used in place of the IP address, both the
+ * client and server need employ DNS, and also agree upon which
+ * hostname to use (in case there are several pointing at the same IP
+ * address).
+ *
+ * Failure to adhere to the above two rules will prevent a client from
+ * finding a local server. Such a client will instead establish a TLS
+ * connection to the server.
+ *
+ * @subsection sctp_transport SCTP Transport
+ *
+ * The SCTP transport uses the Stream Control Transmission Protocol
+ * (SCTP). SCTP provides a reliable, message-oriented
+ * service. In-order delivery is optional, and to adhere to XCM
+ * semantics (and for other reasons) XCM leaves SCTP in-order delivery
+ * enabled.
+ *
+ * The SCTP transport utilizes the native Linux kernel's
+ * implementation of SCTP, via the BSD Socket API. The operating mode
+ * is such that there is a 1:1-mapping between an association and a
+ * socket (fd).
+ *
+ * The SCTP transport supports IPv4 and IPv6.
+ *
+ * To minimize latency, the SCTP transport disables the Nagle
+ * algorithm.
+ *
+ * @section namespaces Linux Network and IPC Namespaces
+ *
+ * Namespaces is a Linux kernel facility concept for creating multiple,
+ * independent namespaces for kernel resources of a certain kind.
+ *
+ * Linux Network Namespaces will affect all transports, including
+ * the UX transport.
+ *
+ * XCM has no explicit namespace support, but the application is
+ * rather expected to use the Linux kernel facilities for this
+ * functionality (i.e. switch to the right namespace before
+ * xcm_server() och xcm_connect()).
+ *
+ * In case the system follows the iproute2 conventions in regards to
+ * network namespace naming, the TLS and UTLS transports support
+ * per-network namespace TLS certificates and private keys.
+ *
+ * @section limitations Limitations
+ *
+ * XCM, in its current form, does not support binding to a local
+ * socket before doing connect() - something that is possible with BSD
+ * Sockets, but very rarely makes sense.
+ *
+ * XCM also doesn't have a sendmmsg() or recvmmsg() equivalent. Those
+ * could easily be added, and would provide some major performance
+ * improvements for applications that are sending or receiving
+ * multiple messages on the same connection on the same time. *mmsg()
+ * equivalents have been left out because there are strong doubts
+ * there are such applications.
+ */
+
+/*!
+ * @file xcm.h
+ * @brief This file contains the core Extensible Connection-oriented Messaging (XCM) API.
+ */
+
+#include <errno.h>
+#include <stdbool.h>
+#include <sys/types.h>
+
+/** Flag used in xcm_connect() */
+#define XCM_NONBLOCK (1<<0)
+
+/** Struct representing an endpoint for communication.
+ *
+ * This endpoint can either be a server socket (created with
+ * xcm_server(), or a connection socket, created as a result of a
+ * xcm_accept() or xcm_connect() call.
+ */
+struct xcm_socket;
+
+/** Connects to a remote server socket.
+ *
+ * This function returns a connection socket, which is used to send
+ * messages to, and receive messages from the server.
+ *
+ * In BSD Sockets terms, this call does both socket() and connect().
+ *
+ * By default, xcm_connect() blocks for the time it takes for the
+ * transport to determine if the named remote endpoint exists, and is
+ * responding (including any initial handshaking, key exchange
+ * etc). If the remote server socket is not yet bound, it's up to the
+ * application to retry.
+ *
+ * If the XCM_NONBLOCK flag is set, xcm_connect() will work in a
+ * non-blocking fashion and will always return immediately, either
+ * leaving the connection socket in a connected state, a
+ * partly connected state, or signaling an error.
+ *
+ * Setting XCM_NONBLOCK will leave the connection in non-blocking mode
+ * (see xcm_set_blocking() for details).
+ *
+ * See @ref select for an overview how non-blocking mode is used.
+ *
+ * For non-blocking connection establishment attempts, the application
+ * may use xcm_finish() the query the result. It should use xcm_want()
+ * to retrieve the needed information to be able to wait the
+ * appropriate time to make the xcm_finish() call (although it may be
+ * called at any point).
+ *
+ * xcm_connect() with the XCM_NONBLOCK flag set will leave the
+ * connection in non-blocking mode (see xcm_set_blocking() for
+ * details).
+ *
+ * @param[in] remote_addr The remote address which to connect.
+ * @param[in] flags Either 0, or XCM_NONBLOCK for a non-blocking connect.
+ *
+ * @return Returns a socket reference on success, or NULL if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EINVAL       | Invalid address format.
+ * ENOPROTOOPT  | Transport protocol not available.
+ * EMFILE       | The limit on the total number of open fds has been reached.
+ * ENOENT       | DNS domain name resolution failed.
+ *
+ * See xcm_finish() for other possible errno values.
+ *
+ * @see xcm_close
+ */
+
+struct xcm_socket *xcm_connect(const char *remote_addr, int flags);
+
+/** Creates a server socket and binds it to a specific address.
+ *
+ * This function creates a server socket and binds it to a specific
+ * address. After this call has completed, clients may connect to the
+ * address specified.
+ *
+ * This call is the equivalent of socket()+bind()+listen() in BSD
+ * Sockets. In case remote_addr has a DNS domain name (as opposed to
+ * an IP address), a xcm_server() call also includes a blocking name
+ * resolution (e.g. gethostbyname()).
+ *
+ * @param[in] local_addr The local address to which this socket should be bound.
+ *
+ * @return Returns a server socket reference on success, or NULL if an
+ *         error occured (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EACCESS      | Permission to create the socket is denied.
+ * EADDRINUSE   | Local socket address is already in use.
+ * ENOMEM       | Insufficient memory.
+ * EINVAL       | Invalid address format.
+ * ENOPROTOOPT  | Transport protocol not available.
+ * EMFILE       | The limit on the total number of open fds has been reached.
+ * EPROTO       | A protocol error occured.
+ * ENOENT       | DNS domain name resolution failed.
+ *
+ * @see xcm_close
+ */
+
+struct xcm_socket *xcm_server(const char *local_addr);
+
+/** Close an endpoint.
+ *
+ * This function close a XCM socket, including both signaling to the far
+ * and freeing of any local resources associated with this socket.
+ *
+ * xcm_close() will not block, and applications wanting to finish any
+ * outstanding tasks on a socket in non-blocking mode should use
+ * xcm_finish() to do so.
+ *
+ * @param[in] socket The socket to be closed, or NULL (in case xcm_close() is a no-operation).
+ *
+ * @return Returns 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * @see xcm_cleanup
+ */
+int xcm_close(struct xcm_socket *socket);
+
+/** Cleans up any local resources tied to a XCM socket not owned by the caller process.
+ *
+ * After a fork() call, either of the two processes (the parent, or the
+ * child) must be designated the owner of every XCM socket the parent
+ * owned.
+ *
+ * The owner may continue to use the XCM socket normally.
+ *
+ * The non-owner may use xcm_cleanup() to free any local memory tied to
+ * this socket, without impacting the connection state in the owner
+ * process.
+ *
+ * The non-owner may not call xcm_close() or any other XCM API call.
+ *
+ * The owner may not call xcm_cleanup().
+ *
+ * @param[in] socket The socket which local resources are to be freed, or NULL (in case xcm_cleanup() is a no-operation).
+ */
+
+void xcm_cleanup(struct xcm_socket *socket);
+
+/** Retrieve a pending incoming connection from the server socket's queue.
+ *
+ * xcm_accept() retrieves the first connection request from the server
+ * socket's queue of pending connections.
+ *
+ * In case the server socket is in non-blocking mode, the XCM
+ * connection socket returned from xcm_accept() will also be in non-blocking
+ * mode.
+ *
+ * @param[in] server_socket The server socket on which to attempt to accept
+ *                          one pending connection.
+ *
+ * @return Returns a newly created XCM connection socket on success,
+ *         or NULL if an error occured (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EMFILE       | The limit on the total number of open fds has been reached.
+ *
+ * See xcm_finish() for other possible errno values.
+ */
+
+struct xcm_socket *xcm_accept(struct xcm_socket *server_socket);
+
+/** Send message on a particular connection.
+ *
+ * The xcm_send() function is used to send a message out on a
+ * connection socket. A XCM connection goes from a client to a server,
+ * and this connection socket may represent either one of the two
+ * endpoints.
+ *
+ * @param[in] conn_socket The connection socket the message will be sent on.
+ * @param[in] buf A pointer to the message data buffer.
+ * @param[in] len The length of the message in bytes. Zero-length messages are not allowed.
+ *
+ * @return Returns 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EMSGSIZE     | Message is too large. See also @ref xcm_attr.
+ *
+ * See xcm_finish() for more errno values.
+ */
+
+int xcm_send(struct xcm_socket *conn_socket, const void *buf, size_t len);
+
+/** Receive message on a particular connection.
+ *
+ * The xcm_receive() function is used to receive message on a
+ * connection socket. A XCM connection goes from a client to a server,
+ * and this connection socket may represent either one of the two
+ * endpoints.
+ *
+ * If the capacity of the user-supplied buffer is smaller than the
+ * actual message length, the message will be truncated and the part
+ * that fits will be stored in the buffer. The return value will be
+ * the length of the truncated message (i.e. the capacity).
+ *
+ * @param[in] conn_socket The connection socket the message will receive be on.
+ * @param[out] buf The user-supplied buffer where the incoming message will be stored.
+ * @param[in] capacity The capacity in bytes of the buffer.
+ *
+ * @return Returns the size (> 0 bytes) of the received message, 0 if
+ *         the remote end has closed the connection, or -1 if an error
+ *         occured (in which case errno is set).
+ *
+ * See xcm_finish() for possible errno values.
+ */
+int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity);
+
+/** Flag bit denoting a readable fd event in xcm_want(). */
+#define XCM_FD_READABLE (1<<0)
+/** Flag bit denoting a writable fd event. */
+#define XCM_FD_WRITABLE (1<<1)
+/** Flag bit denoting a exception fd event. */
+#define XCM_FD_EXCEPTION (1<<2)
+
+/** Flag bit denoting a socket where the application likely can
+    receive a message. */
+#define XCM_SO_RECEIVABLE (1<<0)
+/** Flag bit denoting a socket where the application likely can
+    send a message. */
+#define XCM_SO_SENDABLE (1<<1)
+/** Flag bit denoting a socket with a pending incoming connection. */
+#define XCM_SO_ACCEPTABLE (1<<2)
+
+/** Query the socket what events on which file descriptors it's
+ * waiting for.
+ *
+ * This function is only used by event-driven application and with XCM
+ * sockets in non-blocking mode. For an overview on this subject, see
+ * @ref select.
+ *
+ * With xcm_want(), the application will inform the XCM socket what
+ * condition it's waiting for (i.e. what XCM operation it wants to
+ * perform), and in return the XCM socket will provide a set of file
+ * descriptors and, for each fd, information on what type of event on
+ * that fd it require to make progress. Progress can mean both
+ * progress toward the goal of reaching the application's desired
+ * socket condition, or finishing any outstanding task the XCM socket
+ * has.
+ *
+ * In case any of the conditions the application is asking for are
+ * believed to be already met, the xcm_want() call will return 0.
+ *
+ * In case the XCM socket has no outstanding tasks, and the
+ * application is not asking for any operation that the XCM socket
+ * believes it can't immediate fulfill, the call will return 0.
+ *
+ * The conditions specified by the application are future operation it
+ * wishes to perform on a socket (as opposed to finishing operations
+ * the socket has already accepted). For example, if an application
+ * use xcm_send() to transmit a message, and the XCM socket accept
+ * this request (by returning 0 on the call), the application
+ * shouldn't send @ref XCM_SO_SENDABLE flag for the reason of having
+ * XCM finishing the transmission; the task of actually handing over
+ * message to the lower layer is performed by XCM regardless of the
+ * conditions specified.
+ *
+ * Note that XCM may ask the application to wait for the connection's
+ * fd or fds to become writable, even if the application is waiting to
+ * receive a message. It may also ask the application to wait for the
+ * connection's fd to become readable, even if the application is
+ * attemting to send a messaging. For the quirks of xcm_want(), see
+ * @ref io_waiting.
+ *
+ * Even though the conditions for a particular connection socket are
+ * met (fd is becoming writable, for example), there's no guarantee
+ * that the xcm_send() or xcm_receive() won't block (or in case of
+ * non-blocking mode, won't fail and set EAGAIN).
+ *
+ * The XCM socket fds may only be used with select(). Supplying this
+ * fd to any other OS calls (such as setsockopt(2), read(2) etc) is
+ * prohibited.
+ *
+ * The information received on which fd to use, and what events on
+ * that fd are relevant for the connection socket in its current
+ * state, are only valid until more xcm_* calls are made on this
+ * socket. See @ref outstanding_tasks for more information.
+ *
+ * The fd is an positive integer, unique within this process.
+ *
+ * The condition parameter is a bitmask, with the bits being @ref
+ * XCM_SO_RECEIVABLE, @ref XCM_SO_SENDABLE, and/or @ref
+ * XCM_SO_ACCEPTABLE. If no bits are set, the application is not
+ * interested in anything beyond this XCM socket to finish any
+ * outstanding task.
+ *
+ * Each element in the events array is an int used as a bitmask.  The
+ * bitmask at position N in the events array represents the file
+ * descriptor events the XCM transport is waiting for, for fd at
+ * position N in the fds array. The bits are @ref XCM_FD_READABLE,
+ * @ref XCM_FD_WRITABLE and/or @ref XCM_FD_EXCEPTION. At least one bit
+ * is always set.
+ *
+ * If a socket is waiting for multiple events (for example, both
+ * readable and writable on the same fd, or readable on one fd, and
+ * writeable on another), the condition is met whenever any of the
+ * events occur (as oppose to all events).
+ *
+ * @param[in] socket The XCM socket.
+ * @param[in] condition The condition the application is waiting for.
+ * @param[out] fds An user-supplied array to store the fds.
+ * @param[out] events An user-supplied array of int to store the bitmask of each of the fds in the fds array.
+ * @param[in] capacity The length of the fds and events arrays.
+ *
+ * @return Returns the number (>=0) of fds, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EOVERFLOW    | The user-supplied buffer was too small to fit the socket's fds.
+ * EINVAL       | The socket is not in blocking mode, or the condition bits are invalid.
+ */
+
+int xcm_want(struct xcm_socket *socket, int condition, int *fds, int *events,
+	     size_t capacity);
+
+/** Attempts to finish an ongoing non-blocking background operation.
+ *
+ * This call is used by an application having issued xcm_connect()
+ * with the XCM_NONBLOCK flag set, xcm_accept() or xcm_send() call on
+ * a connection socket in non-blocking mode, wishing to finish
+ * outstanding processing related to that operation, to know if it
+ * succeeded or not.
+ *
+ * In addition, xcm_finish() must be called if the conditions set by
+ * xcm_want() are met (as signaled by select(), unless the application
+ * calls xcm_send(), xcm_receive() or xcm_accept() on that socket. See
+ * @ref outstanding_tasks for details.
+ *
+ * xcm_finish() may be called at any time.
+ *
+ * @param[in] socket The connection or server socket.
+ *
+ * @return Returns 0 if the connection has been successfully been
+ *         established, or -1 if it has not (in which case errno is
+ *         set).
+ *
+ * These errno values are possible not only for xcm_finish(), but also
+ * for xcm_connect(), xcm_accept(), xcm_send(), and xcm_receive().
+ *
+ * errno        | Description
+ * -------------|------------
+ * EPIPE        | The connection is closed.
+ * EAGAIN       | The socket is marked non-blocking (with xcm_set_blocking()) and the requested operation would block.
+ * ECONNRESET   | Connection reset by peer.
+ * ECONNREFUSED | No-one is listening on the remote address.
+ * ECONNABORTED | A connection has been aborted due to host-internal reasons.
+ * EHOSTUNREACH | Remote host is unreachable.
+ * ENETUNREACH  | Network is unreachable.
+ * ETIMEDOUT    | No or lost network connectivity.
+ * ENOMEM       | Insufficient memory (or other resources) to perform operation.
+ * EINTR        | The operation was interrupted by a UNIX signal.
+ * EPROTO       | A non-recoverable protocol error occurred.
+ */
+
+int xcm_finish(struct xcm_socket *socket);
+
+/** Enabled or disabled non-blocking operation on this socket.
+ *
+ * In blocking mode (which is the default), xcm_send() and
+ * xcm_receive() calls does not return until a message has been handed
+ * over to the system (in case of send), or received from the system
+ * (in case of receive), or an error has occured (whichever happens
+ * first).
+ *
+ * In non-blocking mode, xcm_send() and xcm_receive() will return
+ * immediately, regardless if XCM has been enable to fulfill the
+ * application's request or not.
+ *
+ * Server sockets may also be set into non-blocking mode, in which
+ * case xcm_accept() won't block.
+
+ * Connection sockets created as a result of xcm_connect() may be set
+ * into non-blocking mode already from the start, by means of the @ref
+ * XCM_NONBLOCK flag to xcm_connect(), in which case also the
+ * connection establishment process is non-blocking.
+ *
+ * For an overview of the use of non-blocking mode, see @ref select.
+ *
+ * To set a non-blocking connection socket into blocking mode, it
+ * needs to have finished all outstanding tasks. See @ref
+ * outstanding_tasks for details.
+ *
+ * @param[in] socket The socket.
+ * @param[in] should_block Set to true for blocking operation, false
+ *                         for non-blocking mode.
+ *
+ * @return Returns the 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EAGAIN       | The connection socket has unfinished work that needs to completed before mode can be switched.
+ */
+int xcm_set_blocking(struct xcm_socket *socket, bool should_block);
+
+/** Query whether or not a socket is in non-blocking mode.
+ *
+ * For an overview of the use of non-blocking mode, see @ref select.
+ *
+ * @param[in] socket The socket.
+ *
+ * @return Returns the true if the socket is in blocking mode, or false
+ *         if it is in non-blocking mode.
+ *
+ * @see xcm_set_blocking
+ */
+bool xcm_is_blocking(struct xcm_socket *socket);
+
+/** Returns the address of the remote endpoint for this connection.
+ *
+ * This operation only works for sockets representing connections.
+ *
+ * The address returned is in string format, and the pointer returned
+ * is to an buffer allocated as a part of the socket state, and need
+ * not and should not be free'd by the user.
+ *
+ * @param[in] conn_socket The connection socket.
+ *
+ * @return Returns the remote endpoint address, or NULL if an error
+ *         occurred (in which case errno is set).
+ */
+const char *xcm_remote_addr(struct xcm_socket *conn_socket);
+
+/** Returns the address of the local endpoint for this socket.
+ *
+ * Just like xcm_remote_addr(), but returns the local endpoint address.
+ *
+ * @param[in] socket A server or connection socket.
+ *
+ * @return Returns the local endpoint address, or NULL if an error
+ *         occurred (in which case errno is set).
+ */
+const char *xcm_local_addr(struct xcm_socket *socket);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

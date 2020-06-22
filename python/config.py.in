@@ -1,0 +1,11 @@
+def has_tls():
+    try:
+        return int("@XCM_TLS@")
+    except ValueError:
+        return False
+
+def has_sctp():
+    try:
+        return int("@XCM_SCTP@")
+    except ValueError:
+        return False

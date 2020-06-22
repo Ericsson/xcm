@@ -1,0 +1,71 @@
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) 2020 Ericsson AB
+ */
+
+#ifndef XCM_ATTR_H
+#define XCM_ATTR_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*!
+ * @file xcm_attr.h
+ * @brief This file contains the XCM attribute access API. See @ref attributes for an overview.
+ *
+ */
+
+#include <xcm.h>
+#include <xcm_attr_types.h>
+#include <stdbool.h>
+
+/** Retrieves the value of a XCM socket attribute.
+ *
+ * For a list of available attributes for different socket and
+ * transport types, see @ref xcm_attr, @ref tcp_attr and @ref
+ * tls_attr.
+ *
+ * For a description of the C types and buffer capacity requirements of
+ * the attribute types, see xcm_attr_types.h.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[out] type A pointer to a location where the type of the attribute will be stored. May be left to NULL, in case the type is known a priori.
+ * @param[out] value A user-supplied buffer where the value of the attribute will be stored.
+ * @param[in] capacity The length of the buffer (in bytes).
+ *
+ * @return Returns the length of the value on success, or -1 if an
+ *         error occured (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENOENT       | The attribute does not exist.
+ * EOVERFLOW    | The user-supplied buffer was too small to fit the value.
+ */
+
+int xcm_attr_get(struct xcm_socket *socket, const char *name,
+		 enum xcm_attr_type *type, void *value, size_t capacity);
+
+/** The signature of the user-supplied callback used in xcm_attr_get_all(). */
+typedef void (*xcm_attr_cb)(const char *attr_name, enum xcm_attr_type type,
+			    void *value, size_t value_len, void *cb_data);
+
+/** Retrieves all XCM socket attributes.
+ *
+ * This function retrieves all available attribute names, types and
+ * their current values on a particular connection or server socket.
+ *
+ * The memory locations refered to by the attr_name and attr_value
+ * pointers is only guaranteed to be valid for the execution of the
+ * callback. If needed later, they need to be copied.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] cb The function to be called for every attribute on the socket.
+ * @param[in] cb_data An opaque (for XCM) pointer returned back to the application in the callback. cb_data may be NULL.
+ */
+void xcm_attr_get_all(struct xcm_socket *socket, xcm_attr_cb cb, void *cb_data);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

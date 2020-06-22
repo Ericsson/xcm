@@ -1,0 +1,52 @@
+# This file holds a list of symbols to be exported in the shared library
+{
+ global:
+    xcm_connect;
+    xcm_server;
+    xcm_close;
+    xcm_cleanup;
+    xcm_accept;
+    xcm_send;
+    xcm_receive;
+    xcm_want;
+    xcm_finish;
+    xcm_set_blocking;
+    xcm_is_blocking;
+    xcm_remote_addr;
+    xcm_local_addr;
+    xcm_attr_get;
+    xcm_attr_get_all;
+    xcm_addr_parse_proto;
+    xcm_addr_parse_utls;
+    xcm_addr_parse_tls;
+    xcm_addr_parse_tcp;
+    xcm_addr_parse_sctp;
+    xcm_addr_parse_ux;
+    xcm_addr_parse_uxf;
+    xcm_addr_make_utls;
+    xcm_addr_make_tls;
+    xcm_addr_make_tcp;
+    xcm_addr_make_sctp;
+    xcm_addr_make_ux;
+    xcm_addr_make_uxf;
+# Obsolete pre-DNS address parsing
+    xcm_addr_utls6_parse;
+    xcm_addr_tls6_parse;
+    xcm_addr_tcp6_parse;
+    xcm_addr_sctp6_parse;
+    xcm_addr_ux_parse;
+    xcm_addr_utls6_make;
+    xcm_addr_tls6_make;
+    xcm_addr_tcp6_make;
+    xcm_addr_sctp6_make;
+    xcm_addr_ux_make;
+# Obsolete pre-IPv4 address parsing
+    xcm_addr_utls_parse;
+    xcm_addr_tls_parse;
+    xcm_addr_tcp_parse;
+    xcm_addr_utls_make;
+    xcm_addr_tls_make;
+    xcm_addr_tcp_make;
+local:
+    *;
+};

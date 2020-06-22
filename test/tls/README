@@ -1,0 +1,38 @@
+Test certificate overview
+=========================
+
+/with_root_cert/ ### Contains certificate that is a root certificate
+tc.pem           ### Trusted certificate for cert.pem. Actually a copy of cert.pem
+cert.pem         ### Root certificate. To use with trusted certificate tc.pem
+key.pem          ### Private key for cert.pem
+
+/with_root_cert_ns/ ### Same contents as with_root_cert, but with namespace in names
+
+/subca_only_cert_1/ ### Contains certificate that is not a root certificate.
+                    ### And the trusted certificate tc.pem contains a subCA
+                    ### certificate that in not a root certificate either.
+tc.pem           ### Trusted certificate for cert.pem. The same file as is used in
+                 ### the subca_only_cert_2 directory
+cert.pem         ### Leaf certificate. To use with trusted certificate tc.pem
+key.pem          ### Private key for cert.pem
+
+/subca_only_cert_2/ ### Similar to directory subca_only_cert_1 but cert.pem and
+/                   ### key.pem are different.
+tc.pem           ### Trusted certificate for cert.pem. The same file as is used in
+                 ### the subca_only_cert_1 directory
+cert.pem         ### Leaf certificate (an other certificate than the one used in /subca_only_cert_1/).
+                 ### To use with trusted certificate tc.pem
+key.pem          ### Private key for cert.pem
+
+/tc_with_root_and_subca_cert_1/ ### Contains root certificate and extended trusted tc.pem file
+tc.pem           ### A merge of the tc.pem files in the with_root_cert and subca_only_cert_1
+                 ### directories.
+cert.pem         ### Copy from directory with_root_cert
+key.pem          ### Copy from directory with_root_cert
+
+/tc_with_root_and_subca_cert_2/ ### Contains leaf certificate and extended trusted tc.pem file
+tc.pem           ### A merge of the tc.pem files in the subca_only_cert_1 and the with_root_cert
+                 ### directories.
+cert.pem         ### Copy from directory subca_only_cert_1
+key.pem          ### Copy from directory subca_only_cert_1
+

@@ -1,0 +1,23 @@
+{
+   <getaddrinfo_a_0>
+   Memcheck:Leak
+   ...
+   fun:getaddrinfo
+   fun:handle_requests
+   fun:start_thread
+   ...
+}
+{
+   <getaddrinfo_a_1>
+   Memcheck:Leak
+   ...
+   fun:maybe_init
+   ...
+}
+{
+   <getaddrinfo_a_2>
+   Memcheck:Leak
+   ...
+   fun:allocate_stack
+   ...
+}

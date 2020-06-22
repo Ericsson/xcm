@@ -1,0 +1,7 @@
+{
+   <lttng>
+   Memcheck:Leak
+   ...
+   obj:/usr/*lib*/liblttng-ust*
+   ...
+}
