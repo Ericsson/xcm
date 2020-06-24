@@ -42,15 +42,15 @@ version. If pdflatex is install, there will also be a PDF version.
 To build this software the system needs to have the following packages
 (not including standard things like a C compiler):
 
-automake
-autoconf (2.63 and later are known to work, some older versions will not)
-libtool
-python (3.x)
-openssl (1.0.x or 1.1.x, if UTLS or TLS transports are enabled)
-lttng-ust (including the dev and tools package) (if LTTng is enabled)
-libevent2 (if the 'xcm' command-line tool is enabled)
-doxygen and plantuml (for documentation)
-libsctp-dev (in case the SCTP transport is enabled)
+* automake
+* autoconf (2.63 and later are known to work, some older versions will not)
+* libtool
+* python (3.x)
+* openssl (1.0.x or 1.1.x, if UTLS or TLS transports are enabled)
+* lttng-ust (including the dev and tools package) (if LTTng is enabled)
+* libevent2 (if the 'xcm' command-line tool is enabled)
+* doxygen and plantuml (for documentation)
+* libsctp-dev (in case the SCTP transport is enabled)
 
 Please see `./configure --help` for available build-time options. API
 and ABI is identical regardless of options used.
@@ -83,12 +83,12 @@ core library, and thus cannot be built statically.
 To execute the unit and component test suits, run:
 `make check`
 
-Build and test process doesn't require root permission, but some test
-cases will be skipped for non-root users. Running as root will allow
-the test suite to use network namespaces, and in such a way run many
-test cases in parallel.
+The test process doesn't require root permission, but some test cases
+will be skipped for non-root users. Running as root will allow the
+test suite to use network namespaces, and in such a way run many test
+cases in parallel.
 
 The test suite is partially an integration test, which includes the
 Linux kernel, OpenSSL etc. There are known to be some race conditions
 which can cause some tests to fail on busy or otherwise slow machines.
-The known races in the test suits - not in the XCM library itself.
+The known races are in the tests - not in the XCM library itself.
