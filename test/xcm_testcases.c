@@ -880,6 +880,24 @@ static int wait_for_xcm(struct xcm_socket *conn_socket, int condition)
     return 0;
 }
 
+int wait_until_finished(struct xcm_socket *s, int max_retries)
+{
+    int retries;
+    for (retries = 0; retries < max_retries; retries++) {
+	int rc = xcm_finish(s);
+
+	if (rc == 0)
+	    return 0;
+
+	if (errno != EAGAIN)
+	    return -1;
+
+	if (wait_for_xcm(s, 0) < 0)
+	    return -1;
+    }
+    return -1;
+}
+
 #define MAX_SUCCESSFUL_SEND_ON_CLOSE (10)
 
 #define MAX_IMMEDIATE_LATENCY (0.3)
@@ -1062,6 +1080,8 @@ TESTCASE(xcm, multiple_server_sockets_on_the_same_address)
     return UTEST_SUCCESS;
 }
 
+
+
 TESTCASE(xcm, non_blocking_connect_with_finish)
 {
     int i;
@@ -1079,24 +1099,10 @@ TESTCASE(xcm, non_blocking_connect_with_finish)
 
 	CHK(!xcm_is_blocking(conn_socket));
 
-	int retries = 0;
-
-	for (;;) {
-	    int rc = xcm_finish(conn_socket);
-
-	    if (rc == 0)
-		break;
-
-	    CHKINTEQ(errno, EAGAIN);
-
-	    CHKNOERR(wait_for_xcm(conn_socket, 0));
-
-	    retries++;
-	}
-
 	/* regardless of protocol, there shouldn't be too many retries
-	   needed, since we use select() to wait for the appropriate moment */
-	CHK(retries < 16);
+	   needed, since we use select() to wait for the appropriate
+	   moment */
+	CHKNOERR(wait_until_finished(conn_socket, 16));
 
 	CHKNOERR(xcm_set_blocking(conn_socket, true));
 
@@ -1171,21 +1177,7 @@ TESTCASE(xcm, non_blocking_connect_lazy)
 	    retries++;
 	}
 
-	/* regardless of protocol, there shouldn't be too many retries
-	   needed, since we use select() to wait for the appropriate moment */
-	CHK(retries < 16);
-
-	for (;;) {
-	    int rc = xcm_finish(conn_socket);
-	    if (rc == 0)
-		break;
-
-            CHKERRNO(rc, EAGAIN);
-
-	    /* wait for the send() to go through, so we know we can change
-	       to blocking */
-	    CHKNOERR(wait_for_xcm(conn_socket, 0));
-	}
+	CHKNOERR(wait_until_finished(conn_socket, 16));
 
 	CHKNOERR(xcm_set_blocking(conn_socket, true));
 
@@ -1750,16 +1742,13 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
     tu_executef("%s -A %s", iptables_cmd, rxrule);
 
     struct xcm_socket *conn_socket;
-    int rc;
 
+    int rc = 0;
     if (blocking)
         conn_socket = xcm_connect(addr, 0);
     else {
         conn_socket = xcm_connect(addr, XCM_NONBLOCK);
-
-        while (conn_socket && (rc = xcm_finish(conn_socket)) < 0 &&
-               errno == EAGAIN)
-            wait_for_xcm(conn_socket, XCM_SO_RECEIVABLE);
+	rc = wait_until_finished(conn_socket, 128);
     }
 
     int grep_rc = tu_executef_es("%s -L INPUT -v -n | tail -n 1 | "
@@ -2262,6 +2251,57 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
     CHKNOERR(xcm_close(client_conn));
 
     CHK(info.success);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_get_peer_subject_key_id)
+{
+    const char *tls_addr = "tls:127.0.0.1:12234";
+
+    if (setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1) < 0)
+	return UTEST_FAIL;
+
+    pid_t server_pid =
+	simple_server(NULL, tls_addr, "", "", "./test/tls/subca_only_cert_2");
+
+    tu_msleep(250);
+
+    /* avoid finishing TLS handshake */
+    CHKNOERR(kill(server_pid, SIGSTOP));
+
+    struct xcm_socket *conn = xcm_connect(tls_addr, XCM_NONBLOCK);
+
+    char key_id[1024];
+
+    /* TLS connection should not be established yet */
+    int len = xcm_attr_get(conn, "tls.peer_subject_key_id", NULL, key_id,
+			   sizeof(key_id));
+    CHKINTEQ(len, 0);
+
+    CHKNOERR(kill(server_pid, SIGCONT));
+
+    CHKNOERR(wait_until_finished(conn, 16));
+
+    uint8_t expected_key_id[] = {
+	0x04, 0xF3, 0x52, 0xB0, 0x78, 0xEE, 0x7E, 0xC9, 0x33, 0x8F,
+	0x46, 0x09, 0x5C, 0x3F, 0x56, 0x6C, 0x0E, 0x52, 0xD0, 0x16
+    };
+
+    len = xcm_attr_get(conn, "tls.peer_subject_key_id", NULL, key_id,
+		       sizeof(key_id));
+
+    CHKINTEQ(len, sizeof(expected_key_id));
+
+    CHK(memcmp(key_id, expected_key_id, len) == 0);
+
+    CHKERRNO(xcm_attr_get(conn, "tls.peer_subject_key_id", NULL, key_id,
+			  len - 1), EOVERFLOW);
+
+    CHKNOERR(xcm_close(conn));
+
+    kill(server_pid, SIGTERM);
+    tu_wait(server_pid);
 
     return UTEST_SUCCESS;
 }

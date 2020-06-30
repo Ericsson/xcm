@@ -36,5 +36,6 @@
 #define XCM_ATTR_TCP_SEGS_IN "tcp.segs_in"
 #define XCM_ATTR_TCP_SEGS_OUT "tcp.segs_out"
 
-#endif
+#define XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID "tls.peer_subject_key_id"
 
+#endif

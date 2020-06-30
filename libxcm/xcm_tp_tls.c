@@ -30,6 +30,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/x509v3.h>
 #include <openssl/x509_vfy.h>
 
 #include <pthread.h>
@@ -1553,13 +1554,60 @@ static void try_finish_in_progress(struct tls_socket *ts)
 					      type, value, capacity); \
     }
 
-
 GEN_TCP_GET(rtt)
 GEN_TCP_GET(total_retrans)
 GEN_TCP_GET(segs_in)
 GEN_TCP_GET(segs_out)
 
+static int get_peer_subject_key_id(struct xcm_socket *s,
+				   enum xcm_attr_type *type,
+				   void *value, size_t capacity)
+{
+    struct tls_socket *ts = TOTLS(s);
+    if (s->type != xcm_socket_type_conn) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    if (type)
+	*type = xcm_attr_type_bin;
+
+    bool established =
+	ts->conn.state == conn_state_tls_sending ||
+	ts->conn.state == conn_state_tls_receiving ||
+	ts->conn.state == conn_state_ready;
+
+    if (!established)
+	goto empty;
+
+    X509 *remote_cert = SSL_get_peer_certificate(ts->conn.ssl);
+    if (remote_cert == NULL)
+	goto empty;
+
+    const ASN1_OCTET_STRING *key = X509_get0_subject_key_id(remote_cert);
+    if (key == NULL)
+	goto empty;
+
+    int len = ASN1_STRING_length(key);
+    if (len > capacity)
+	goto overflow;
+
+    memcpy(value, ASN1_STRING_get0_data(key), len);
+
+    return len;
+
+empty:
+    ((char *)value)[0] = '\0';
+    return 0;
+
+overflow:
+    errno = EOVERFLOW;
+    return -1;
+}
+
 static struct xcm_tp_attr attrs[] = {
+    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
+			  get_peer_subject_key_id),
     XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_RTT, get_rtt_attr),
     XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, get_total_retrans_attr),
     XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_SEGS_IN, get_segs_in_attr),
@@ -1568,7 +1616,8 @@ static struct xcm_tp_attr attrs[] = {
 
 #define ATTRS_LEN (sizeof(attrs)/sizeof(attrs[0]))
 
-static void tls_get_attrs(struct xcm_tp_attr **attr_list, size_t *attr_list_len)
+static void tls_get_attrs(struct xcm_tp_attr **attr_list,
+			  size_t *attr_list_len)
 {
     *attr_list = attrs;
     *attr_list_len = ATTRS_LEN;
