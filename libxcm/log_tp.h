@@ -299,7 +299,7 @@ static inline const char *log_family_str(sa_family_t family)
 		   "attribute \"%s\".", attr_name)
 
 static inline void log_attr_str_value(enum xcm_attr_type type, void *value,
-				      char *buf, size_t capacity)
+				      size_t len, char *buf, size_t capacity)
 {
     switch (type) {
     case xcm_attr_type_bool:
@@ -315,13 +315,38 @@ static inline void log_attr_str_value(enum xcm_attr_type type, void *value,
 	snprintf(buf, capacity, "\"%s\"", (char *)value);
 	buf[capacity-1] = '\0';
 	break;
+    case xcm_attr_type_bin: {
+	if (len == 0) {
+	    strcpy(buf, "<zero-length binary data>");
+	    break;
+	}
+	size_t offset = 0;
+	int i;
+	uint8_t *value_bin = value;
+	for (i = 0; i < len; i++) {
+	    size_t left = capacity - offset;
+	    if (left < 4) {
+		strcpy(buf, "<%zd bytes of data>");
+		break;
+	    }
+	    if (i != 0) {
+		buf[offset] = ':';
+		offset++;
+	    }
+	    snprintf(buf + offset, capacity - offset, "%02x", value_bin[i]);
+	    offset += 2;
+	}
+	buf[offset] = '\0';
+	break;
+    }
     }
 }
 
-#define LOG_GET_ATTR_RESULT(s, attr_name, attr_type, attr_value)	\
+#define LOG_GET_ATTR_RESULT(s, attr_name, attr_type, attr_value, attr_len) \
     do {								\
-	char value_s[1024];						\
-	log_attr_str_value(attr_type, attr_value, value_s, sizeof(value_s)); \
+	char value_s[4096];						\
+	log_attr_str_value(attr_type, attr_value, attr_len,		\
+			   value_s, sizeof(value_s));			\
 	log_debug_sock(s, "Attribute \"%s\" has the value %s.", attr_name, \
 		       value_s);					\
     } while (0)

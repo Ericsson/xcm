@@ -53,6 +53,7 @@ xcm_is_blocking_c.argtypes = [c_void_p]
 ATTR_TYPE_BOOL = 1
 ATTR_TYPE_INT64 = 2
 ATTR_TYPE_STR = 3
+ATTR_TYPE_BIN = 4
 
 xcm_attr_get_c = xcm_c.xcm_attr_get
 xcm_attr_get_c.restype = c_int
@@ -79,6 +80,8 @@ def _conv_attr(attr_type, attr_value):
         return int_value.contents.value
     elif attr_type.value == ATTR_TYPE_STR:
         return bytes(attr_value.value).decode('utf-8')
+    elif attr_type.value == ATTR_TYPE_BIN:
+        return bytes(attr_value.value)
     else:
         raise ValueError("Invalid argument type %d" % attr_type.value)
 

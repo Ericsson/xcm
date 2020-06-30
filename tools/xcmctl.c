@@ -93,6 +93,17 @@ static void print_attr(const char *attr_name, enum xcm_attr_type type,
     case xcm_attr_type_str:
 	printf("\"%s\"", (char *)attr_value);
 	break;
+    case xcm_attr_type_bin: {
+	uint8_t *attr_bin_value = attr_value;
+	size_t i;
+	for (i = 0; i < attr_len; i++) {
+	    if (i != 0)
+		putchar(':');
+	    uint8_t b = attr_bin_value[i];
+	    printf("%02x", b);
+	}
+	break;
+    }
     default:
 	assert(0);
     }

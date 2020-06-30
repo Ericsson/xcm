@@ -21,7 +21,7 @@ extern "C" {
  * xcm_attr.h.
  *
  * @author Mattias Rönnblom
- * @version 0.11
+ * @version 0.12
  *
  * @section overview Overview
  *

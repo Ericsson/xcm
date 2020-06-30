@@ -22,7 +22,9 @@ enum xcm_attr_type {
     xcm_attr_type_int64 = 2,
     /*! A variable-length NUL-terminated string. Length is the actual
       string length (including NUL). */
-    xcm_attr_type_str = 3
+    xcm_attr_type_str = 3,
+    /*! Variable-length binary data. */
+    xcm_attr_type_bin = 4
 };
 
 #ifdef __cplusplus

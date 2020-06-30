@@ -28,7 +28,7 @@ check_PROGRAMS = xcmtest
 
 # For information on how to update these numbers, see:
 # https://www.gnu.org/software/libtool/manual/html_node/Libtool-versioning.html#Libtool-versioning
-XCM_VERSION_CURRENT=11
+XCM_VERSION_CURRENT=12
 XCM_VERSION_REVISION=0
 XCM_VERSION_AGE=$(XCM_VERSION_CURRENT)
 

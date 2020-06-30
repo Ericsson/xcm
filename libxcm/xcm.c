@@ -479,7 +479,7 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
     if (rc < 0)
 	goto err;
 
-    LOG_GET_ATTR_RESULT(s, name, *type, value);
+    LOG_GET_ATTR_RESULT(s, name, *type, value, rc);
 
     return rc;
 
