@@ -917,6 +917,10 @@ extern "C" {
  * TLS has all the TCP-level attributes of the TCP transport; see
  * @ref tcp_attr.
  *
+ * Attribute Name          | Socket Type | Value Type  | Description
+ * ------------------------|-------------|-------------|------------
+ * tls.peer_subject_key_id | Connection  | String      | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
+ *
  * @subsection utls_transport UTLS Transport
  *
  * The UTLS transport provides a hybrid transport, utilizing both the
