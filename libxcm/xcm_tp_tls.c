@@ -1435,10 +1435,9 @@ static int tls_want(struct xcm_socket *s, int condition, int *fds, int *events,
 
     int rc;
 
-    if (ts->base.type == xcm_socket_type_conn) {
-	TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    if (ts->base.type == xcm_socket_type_conn)
 	rc = conn_want(ts, condition, fds, events, capacity);
-    } else {
+    else {
 	ut_assert(ts->base.type == xcm_socket_type_server);
 	rc = server_want(ts, condition, fds, events);
     }
