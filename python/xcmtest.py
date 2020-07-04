@@ -35,7 +35,7 @@ if config.has_sctp():
         "sctp:127.0.0.1:%d" % random.randint(10000, 12000)
     ])
 
-class TestStringMethods(unittest.TestCase):
+class TestXcm(unittest.TestCase):
     def setUp(self):
         os.putenv("XCM_TLS_CERT", "./test/tls/with_root_cert")
     def tearDown(self):
@@ -55,6 +55,13 @@ class TestStringMethods(unittest.TestCase):
 
             if addr.startswith("tls") or addr.startswith("tcp"):
                 self.assertGreater(conn.get_attr("tcp.rtt"), 0)
+            if addr.startswith("tls"):
+                key_id = bytes([0xC0, 0x6D, 0x73, 0x1C, 0x13,
+                                0x25, 0xB3, 0x26, 0x10, 0x51,
+                                0xFE, 0xAC, 0x98, 0xDB, 0x44,
+                                0x35, 0xDE, 0xCD, 0x80, 0x8B])
+                self.assertEqual(conn.get_attr("tls.peer_subject_key_id"),
+                                 key_id)
 
             orig_msg = b'\x01\x02\x00\x03\x09\x02\x00\x04'
             conn.send(orig_msg)

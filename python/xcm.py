@@ -71,7 +71,7 @@ SO_ACCEPTABLE = (1<<2)
 
 NONBLOCK = (1<<0)
 
-def _conv_attr(attr_type, attr_value):
+def _conv_attr(attr_type, attr_value, attr_len):
     if attr_type.value == ATTR_TYPE_BOOL:
         bool_value = cast(attr_value.raw, POINTER(c_bool))
         return bool_value.contents.value
@@ -81,7 +81,7 @@ def _conv_attr(attr_type, attr_value):
     elif attr_type.value == ATTR_TYPE_STR:
         return bytes(attr_value.value).decode('utf-8')
     elif attr_type.value == ATTR_TYPE_BIN:
-        return bytes(attr_value.value)
+        return bytes(attr_value.raw)[:attr_len]
     else:
         raise ValueError("Invalid argument type %d" % attr_type.value)
 
@@ -132,7 +132,7 @@ class Socket:
         if rc < 0:
             _raise_io_err()
 
-        return _conv_attr(attr_type, attr_value)
+        return _conv_attr(attr_type, attr_value, rc)
     def __del__(self):
         if self.xcm_socket != None:
             self.close()
