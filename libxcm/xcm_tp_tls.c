@@ -1593,6 +1593,8 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
 
     memcpy(value, ASN1_STRING_get0_data(key), len);
 
+    X509_free(remote_cert);
+
     return len;
 
 empty:
