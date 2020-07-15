@@ -406,7 +406,7 @@ static struct xcm_socket *sctp_connect(const char *remote_addr)
     return NULL;
 }
 
-#define SCTP_CONN_BACKLOG (5)
+#define SCTP_CONN_BACKLOG (32)
 
 static struct xcm_socket *sctp_server(const char *local_addr)
 {

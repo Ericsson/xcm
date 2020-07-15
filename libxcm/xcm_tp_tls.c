@@ -915,7 +915,7 @@ static struct xcm_socket *tls_connect(const char *remote_addr)
     return NULL;
 }
 
-#define TCP_CONN_BACKLOG (5)
+#define TCP_CONN_BACKLOG (32)
 
 static struct xcm_socket *tls_server(const char *local_addr)
 {

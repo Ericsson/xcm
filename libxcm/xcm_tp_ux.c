@@ -250,7 +250,7 @@ static struct xcm_socket *uxf_connect(const char *remote_addr)
     return ux_uxf_connect(&uxf_ops, remote_addr);
 }
 
-#define UX_CONN_BACKLOG (5)
+#define UX_CONN_BACKLOG (32)
 
 static int do_close(struct ux_socket *us, bool owner)
 {
