@@ -47,8 +47,6 @@ enum conn_state { conn_state_none, conn_state_resolving,
 
 struct tls_socket
 {
-    struct xcm_socket base;
-
     char ns[NAME_MAX];
     char laddr[XCM_ADDR_MAX];
 
@@ -74,14 +72,16 @@ struct tls_socket
     };
 };
 
-#define TOTLS(ptr) ((struct tls_socket*)(ptr))
-#define TOGEN(ptr) ((struct xcm_socket*)(ptr))
+#define TOTLS(s) XCM_TP_GETPRIV(s, struct tls_socket)
 
-static struct xcm_socket *tls_connect(const char *remote_addr);
-static struct xcm_socket *tls_server(const char *local_addr);
+#define TLS_SET_STATE(_s, _state)		\
+    TP_SET_STATE(_s, TOTLS(_s), _state)
+
+static int tls_connect(struct xcm_socket *s, const char *remote_addr);
+static int tls_server(struct xcm_socket *s, const char *local_addr);
 static int tls_close(struct xcm_socket *s);
 static void tls_cleanup(struct xcm_socket *s);
-static struct xcm_socket *tls_accept(struct xcm_socket *s);
+static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int tls_send(struct xcm_socket *s, const void *buf, size_t len);
 static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity);
 static int tls_want(struct xcm_socket *s, int condition, int *fd, int *events,
@@ -93,8 +93,9 @@ static const char *tls_local_addr(struct xcm_socket *conn_socket,
 static size_t tls_max_msg(struct xcm_socket *conn_socket);
 static void tls_get_attrs(struct xcm_tp_attr **attr_list,
                           size_t *attr_list_len);
+static size_t tls_priv_size(enum xcm_socket_type type);
 
-static void try_finish_in_progress(struct tls_socket *ts);
+static void try_finish_in_progress(struct xcm_socket *s);
 
 static struct xcm_tp_ops tls_ops = {
     .connect = tls_connect,
@@ -109,8 +110,14 @@ static struct xcm_tp_ops tls_ops = {
     .remote_addr = tls_remote_addr,
     .local_addr = tls_local_addr,
     .max_msg = tls_max_msg,
-    .get_attrs = tls_get_attrs
+    .get_attrs = tls_get_attrs,
+    .priv_size = tls_priv_size
 };
+
+static size_t tls_priv_size(enum xcm_socket_type type)
+{
+    return sizeof(struct tls_socket);
+}
 
 struct ns_ssl_ctx
 {
@@ -461,8 +468,10 @@ static void init(void)
     init_ssl();
 }
 
-static void assert_conn_socket(struct tls_socket *ts)
+static void assert_conn_socket(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     switch (ts->conn.state) {
     case conn_state_none:
 	ut_assert(0);
@@ -491,16 +500,16 @@ static void assert_conn_socket(struct tls_socket *ts)
     }
 }
 
-static void assert_socket(struct tls_socket *ts)
+static void assert_socket(struct xcm_socket *s)
 {
-    ut_assert(ts->base.ops == &tls_ops);
+    ut_assert(XCM_TP_GETOPS(s) == &tls_ops);
 
-    switch (ts->base.type) {
+    switch (s->type) {
     case xcm_socket_type_conn:
-	assert_conn_socket(ts);
+	assert_conn_socket(s);
 	break;
     case xcm_socket_type_server:
-        ut_assert(ts->server.fd >= 0);
+        ut_assert(TOTLS(s)->server.fd >= 0);
 	break;
     default:
 	ut_assert(0);
@@ -517,47 +526,38 @@ static int set_tcp_conn_opts(int fd)
     return 0;
 }
 
-static struct tls_socket *alloc_socket(enum xcm_socket_type type,
-                                       const char *ns)
+static void init_socket(struct xcm_socket *s, const char *ns)
 {
-    struct tls_socket *s = ut_malloc(sizeof(struct tls_socket));
+    struct tls_socket *ts = TOTLS(s);
 
-    xcm_socket_base_init(&s->base, &tls_ops, type);
+    strcpy(ts->ns, ns);
+    ts->laddr[0] = '\0';
 
-    strcpy(s->ns, ns);
-    s->laddr[0] = '\0';
-
-    switch (type) {
+    switch (s->type) {
     case xcm_socket_type_server:
-	s->server.fd = -1;
+	ts->server.fd = -1;
 	break;
     case xcm_socket_type_conn:
-	s->conn.ssl = NULL;
-	s->conn.state = conn_state_none;
-        s->conn.query = NULL;
-	s->conn.ssl_events = 0;
-	s->conn.badness_reason = 0;
-	mbuf_init(&s->conn.send_mbuf);
-	mbuf_init(&s->conn.receive_mbuf);
-	s->conn.raddr[0] = '\0';
+	ts->conn.ssl = NULL;
+	ts->conn.state = conn_state_none;
+        ts->conn.query = NULL;
+	ts->conn.ssl_events = 0;
+	ts->conn.badness_reason = 0;
+	mbuf_init(&ts->conn.send_mbuf);
+	mbuf_init(&ts->conn.receive_mbuf);
+	ts->conn.raddr[0] = '\0';
 	break;
     }
-
-    return s;
 }
 
-static void free_socket(struct tls_socket *s, bool owner)
+static void deinit_socket(struct xcm_socket *s, bool owner)
 {
-    if (s) {
-	xcm_socket_base_deinit(&s->base, owner);
+    if (s && s->type == xcm_socket_type_conn) {
+	struct tls_socket *ts = TOTLS(s);
 
-        if (s->base.type == xcm_socket_type_conn) {
-            xcm_dns_query_free(s->conn.query);
-            mbuf_deinit(&s->conn.send_mbuf);
-            mbuf_deinit(&s->conn.receive_mbuf);
-        }
-
-	ut_free(s);
+	xcm_dns_query_free(ts->conn.query);
+	mbuf_deinit(&ts->conn.send_mbuf);
+	mbuf_deinit(&ts->conn.receive_mbuf);
     }
 }
 
@@ -583,64 +583,68 @@ static const char *state_name(enum conn_state state)
    remote peer just close the TCP connection, or it's done in
    a proper way on the SSL layer first, then TCP close. XCM
    currently doesn't care about which one happened. */
-static void handle_ssl_close(struct tls_socket *ts)
+static void handle_ssl_close(struct xcm_socket *s)
 {
-    LOG_RCV_EOF(TOGEN(ts));
-    TP_SET_STATE(ts, conn_state_closed);
+    LOG_RCV_EOF(s);
+    TLS_SET_STATE(s, conn_state_closed);
 }
 
-static void handle_ssl_proto_error(struct tls_socket *ts)
+static void handle_ssl_proto_error(struct xcm_socket *s)
 {
-    LOG_TLS_PROTO_ERR(TOGEN(ts));
-    TP_SET_STATE(ts, conn_state_bad);
+    struct tls_socket *ts = TOTLS(s);
+
+    LOG_TLS_PROTO_ERR(s);
+    TLS_SET_STATE(s, conn_state_bad);
     ts->conn.badness_reason = EPROTO;
 }
 
-static void handle_ssl_error(struct tls_socket *ts, int ssl_rc, int ssl_errno)
+static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     int ssl_err = SSL_get_error(ts->conn.ssl, ssl_rc);
 
     switch (ssl_err) {
     case SSL_ERROR_WANT_READ:
-	LOG_TLS_OPENSSL_WANTS_READ(TOGEN(ts));
+	LOG_TLS_OPENSSL_WANTS_READ(s);
 	ts->conn.ssl_events = XCM_FD_READABLE;
 	break;
     case SSL_ERROR_WANT_WRITE:
-	LOG_TLS_OPENSSL_WANTS_WRITE(TOGEN(ts));
+	LOG_TLS_OPENSSL_WANTS_WRITE(s);
 	ts->conn.ssl_events = XCM_FD_WRITABLE;
 	break;
     case SSL_ERROR_ZERO_RETURN:
-	handle_ssl_close(ts);
+	handle_ssl_close(s);
 	break;
     case SSL_ERROR_SSL:
-        handle_ssl_proto_error(ts);
+        handle_ssl_proto_error(s);
 	break;
     case SSL_ERROR_SYSCALL:
         if (ERR_peek_error() != 0)
-            handle_ssl_proto_error(ts);
+            handle_ssl_proto_error(s);
         else if (ssl_rc == -1) {
-            LOG_TLS_OPENSSL_SYSCALL_FAILURE(TOGEN(ts), ssl_errno);
+            LOG_TLS_OPENSSL_SYSCALL_FAILURE(s, ssl_errno);
             /* those should be SSL_ERROR_WANT_READ/WRITE */
             ut_assert(ssl_errno != EAGAIN && ssl_errno != EWOULDBLOCK);
             /* when using valgrind, you sometimes get EINPROGRESS for TCP sockets
                already connected according to SO_ERROR */
             if (ssl_errno == EINPROGRESS) {
-                LOG_TLS_SPURIOUS_EINPROGRESS(TOGEN(ts));
+                LOG_TLS_SPURIOUS_EINPROGRESS(s);
                 /* we try again to see if we can finish TCP connect, even though
                    we should have already */
                 ts->conn.ssl_events = XCM_FD_WRITABLE;
             } else if (ssl_errno == EPIPE || ssl_errno == 0) {
                 /* early close seems to yield errno == 0 */
-                LOG_TLS_REMOTE_CLOSED_CONN(TOGEN(ts));
-                TP_SET_STATE(ts, conn_state_closed);
+                LOG_TLS_REMOTE_CLOSED_CONN(s);
+                TLS_SET_STATE(s, conn_state_closed);
             } else {
-                TP_SET_STATE(ts, conn_state_bad);
+                TLS_SET_STATE(s, conn_state_bad);
                 ts->conn.badness_reason = ssl_errno;
             }
         } else {
             ut_assert(ssl_rc == 0);
-            LOG_TLS_EARLY_EOF(TOGEN(ts));
-            TP_SET_STATE(ts, conn_state_bad);
+            LOG_TLS_EARLY_EOF(s);
+            TLS_SET_STATE(s, conn_state_bad);
             ts->conn.badness_reason = EPROTO;
         }
 	break;
@@ -651,9 +655,11 @@ static void handle_ssl_error(struct tls_socket *ts, int ssl_rc, int ssl_errno)
     }
 }
 
-static int socket_fd(struct tls_socket *ts)
+static int socket_fd(struct xcm_socket *s)
 {
-    switch (ts->base.type) {
+    struct tls_socket *ts = TOTLS(s);
+
+    switch (s->type) {
     case xcm_socket_type_conn:
         if (ts->conn.state == conn_state_resolving)
             return -1;
@@ -666,8 +672,10 @@ static int socket_fd(struct tls_socket *ts)
     }
 }
 
-static void verify_peer_cert(struct tls_socket *ts)
+static void verify_peer_cert(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     X509 *x509Object = SSL_get_peer_certificate(ts->conn.ssl);
 
     if (x509Object != NULL) {
@@ -675,24 +683,25 @@ static void verify_peer_cert(struct tls_socket *ts)
 
         if (rc != X509_V_OK) {
             const char *reason = X509_verify_cert_error_string(rc);
-            LOG_TLS_PEER_CERT_NOT_OK(TOGEN(ts), reason);
-            TP_SET_STATE(ts, conn_state_bad);
+            LOG_TLS_PEER_CERT_NOT_OK(s, reason);
+            TLS_SET_STATE(s, conn_state_bad);
             ts->conn.badness_reason = EPROTO;
         } else
-            LOG_TLS_PEER_CERT_OK(TOGEN(ts));
+            LOG_TLS_PEER_CERT_OK(s);
 
         X509_free(x509Object);
     } else {
-        LOG_TLS_PEER_CERT_NOT_OK(TOGEN(ts), "peer certificate not found");
-        TP_SET_STATE(ts, conn_state_bad);
+        LOG_TLS_PEER_CERT_NOT_OK(s, "peer certificate not found");
+        TLS_SET_STATE(s, conn_state_bad);
         ts->conn.badness_reason = EPROTO;
     }
 }
 
-static void try_finish_connect(struct tls_socket *ts);
+static void try_finish_connect(struct xcm_socket *s);
 
-static void begin_connect(struct tls_socket *ts)
+static void begin_connect(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
     ut_assert(ts->conn.remote_host.type == xcm_addr_type_ip);
 
     UT_SAVE_ERRNO;
@@ -709,7 +718,7 @@ static void begin_connect(struct tls_socket *ts)
 	goto err_close;
 
     if (ut_set_blocking(conn_fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(TOGEN(ts), errno);
+	LOG_SET_BLOCKING_FAILED_FD(s, errno);
 	goto err_close;
     }
 
@@ -732,31 +741,32 @@ static void begin_connect(struct tls_socket *ts)
 
     if (connect(conn_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
-	    LOG_CONN_FAILED(TOGEN(ts), errno);
+	    LOG_CONN_FAILED(s, errno);
             goto err_close;
 	} else
-	    LOG_CONN_IN_PROGRESS(TOGEN(ts));
+	    LOG_CONN_IN_PROGRESS(s);
     } else
-	TP_SET_STATE(ts, conn_state_tls_connecting);
+	TLS_SET_STATE(s, conn_state_tls_connecting);
 
     UT_RESTORE_ERRNO_DC;
 
-    assert_socket(ts);
+    assert_socket(s);
 
-    try_finish_connect(ts);
+    try_finish_connect(s);
 
     return;
 
  err_close:
     close(conn_fd);
  err:
-    TP_SET_STATE(ts, conn_state_bad);
+    TLS_SET_STATE(s, conn_state_bad);
     UT_RESTORE_ERRNO(bad_errno);
     ts->conn.badness_reason = bad_errno;
 }
 
-static void try_finish_resolution(struct tls_socket *ts)
+static void try_finish_resolution(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
     struct xcm_addr_ip ip;
 
     UT_SAVE_ERRNO;
@@ -767,15 +777,15 @@ static void try_finish_resolution(struct tls_socket *ts)
         if (query_errno == EAGAIN)
             return;
 
-        TP_SET_STATE(ts, conn_state_bad);
+        TLS_SET_STATE(s, conn_state_bad);
         ut_assert(query_errno != EAGAIN);
         ut_assert(query_errno != 0);
         ts->conn.badness_reason = query_errno;
     } else {
-        TP_SET_STATE(ts, conn_state_tcp_connecting);
+        TLS_SET_STATE(s, conn_state_tcp_connecting);
         ts->conn.remote_host.type = xcm_addr_type_ip;
         ts->conn.remote_host.ip = ip;
-        begin_connect(ts);
+        begin_connect(s);
     }
 
     /* It's important to close the query after begin_connect(), since
@@ -787,35 +797,36 @@ static void try_finish_resolution(struct tls_socket *ts)
     ts->conn.query = NULL;
 }
 
-static void try_finish_connect(struct tls_socket *ts)
+static void try_finish_connect(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
     switch (ts->conn.state) {
     case conn_state_resolving:
         xcm_dns_query_process(ts->conn.query);
         if (xcm_dns_query_want(ts->conn.query, NULL, NULL, 0) == 0)
-            try_finish_resolution(ts);
+            try_finish_resolution(s);
         break;
     case conn_state_tcp_connecting: {
-	LOG_TCP_CONN_CHECK(TOGEN(ts));
+	LOG_TCP_CONN_CHECK(s);
 	UT_SAVE_ERRNO;
-	int rc = ut_established(socket_fd(ts));
+	int rc = ut_established(socket_fd(s));
 	UT_RESTORE_ERRNO(connect_errno);
 	if (rc < 0) {
 	    if (connect_errno == EINPROGRESS) {
-		LOG_CONN_IN_PROGRESS(TOGEN(ts));
+		LOG_CONN_IN_PROGRESS(s);
 		return;
 	    }
-	    LOG_CONN_FAILED(TOGEN(ts), connect_errno);
-	    TP_SET_STATE(ts, conn_state_bad);
+	    LOG_CONN_FAILED(s, connect_errno);
+	    TLS_SET_STATE(s, conn_state_bad);
 	    ts->conn.badness_reason = connect_errno;
 	    ut_assert(connect_errno != 0);
 	    return;
 	}
-	LOG_TCP_CONN_ESTABLISHED(TOGEN(ts));
-	TP_SET_STATE(ts, conn_state_tls_connecting);
+	LOG_TCP_CONN_ESTABLISHED(s);
+	TLS_SET_STATE(s, conn_state_tls_connecting);
     }
     case conn_state_tls_connecting: {
-	LOG_TLS_HANDSHAKE(TOGEN(ts));
+	LOG_TLS_HANDSHAKE(s);
 
 	ts->conn.ssl_events = 0;
 
@@ -824,12 +835,12 @@ static void try_finish_connect(struct tls_socket *ts)
 	UT_RESTORE_ERRNO(connect_errno);
 
 	if (rc < 1)
-	    handle_ssl_error(ts, rc, connect_errno);
+	    handle_ssl_error(s, rc, connect_errno);
 	else {
-	    TP_SET_STATE(ts, conn_state_ready);
-            verify_peer_cert(ts);
+	    TLS_SET_STATE(s, conn_state_ready);
+            verify_peer_cert(s);
 	    if (ts->conn.state == conn_state_ready)
-		LOG_TLS_CONN_ESTABLISHED(TOGEN(ts));
+		LOG_TLS_CONN_ESTABLISHED(s);
         }
 
 	break;
@@ -853,27 +864,27 @@ static int self_net_ns(char *name)
     return rc;
 }
 
-static struct xcm_socket *tls_connect(const char *remote_addr)
+static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     LOG_CONN_REQ(remote_addr);
 
     char ns[NAME_MAX];
     if (self_net_ns(ns) < 0)
 	goto err;
 
-    struct tls_socket *ts = alloc_socket(xcm_socket_type_conn, ns);
-    if (!ts)
-	goto err_free_socket;
-
     if (xcm_addr_parse_tls(remote_addr, &ts->conn.remote_host,
                            &ts->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err_free_socket;
+	goto err;
     }
+
+    init_socket(s, ns);
 
     struct ns_ssl_ctx *ns_ctx = lazy_load_ssl_ctx(ns);
     if (!ns_ctx)
-	goto err_free_socket;
+	goto err_deinit_socket;
 
     SSL_CTX *ctx = ns_ctx->client_ssl_ctx;
 
@@ -884,40 +895,41 @@ static struct xcm_socket *tls_connect(const char *remote_addr)
     }
 
     if (ts->conn.remote_host.type == xcm_addr_type_name) {
-        TP_SET_STATE(ts, conn_state_resolving);
+        TLS_SET_STATE(s, conn_state_resolving);
         ts->conn.query =
-            xcm_dns_resolve(TOGEN(ts), ts->conn.remote_host.name);
+            xcm_dns_resolve(s, ts->conn.remote_host.name);
         if (!ts->conn.query)
             goto err_free_ssl;
     } else {
-        TP_SET_STATE(ts, conn_state_tcp_connecting);
-        begin_connect(ts);
+        TLS_SET_STATE(s, conn_state_tcp_connecting);
+        begin_connect(s);
     }
 
-    try_finish_connect(ts);
+    try_finish_connect(s);
 
     if (ts->conn.state == conn_state_bad) {
 	errno = ts->conn.badness_reason;
 	goto err_close;
     }
 
-    return TOGEN(ts);
+    return 0;
 
  err_close:
-    UT_PROTECT_ERRNO(close(socket_fd(ts)));
+    if (socket_fd(s) >= 0)
+	UT_PROTECT_ERRNO(close(socket_fd(s)));
  err_free_ssl:
     SSL_free(ts->conn.ssl);
  err_unload_ctx:
     lazy_unload_ssl_ctx(ns);
- err_free_socket:
-    free_socket(ts, true);
+ err_deinit_socket:
+    deinit_socket(s, true);
  err:
-    return NULL;
+    return -1;
 }
 
 #define TCP_CONN_BACKLOG (32)
 
-static struct xcm_socket *tls_server(const char *local_addr)
+static int tls_server(struct xcm_socket *s, const char *local_addr)
 {
     LOG_SERVER_REQ(local_addr);
 
@@ -937,17 +949,17 @@ static struct xcm_socket *tls_server(const char *local_addr)
     if (!lazy_load_ssl_ctx(ns))
 	goto err;
 
-    struct tls_socket *ts = alloc_socket(xcm_socket_type_server, ns);
-    if (!ts)
-	goto err_unload;
+    init_socket(s, ns);
 
-    if (xcm_dns_resolve_sync(TOGEN(ts), &host) < 0)
-        goto err_free;
+    if (xcm_dns_resolve_sync(s, &host) < 0)
+        goto err_deinit;
+
+    struct tls_socket *ts = TOTLS(s);
 
     if ((ts->server.fd = socket(host.ip.family, SOCK_STREAM,
                                 IPPROTO_TCP)) < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
-	goto err_free;
+	goto err_deinit;
     }
 
     if (port > 0 && ut_tcp_reuse_addr(ts->server.fd) < 0) {
@@ -974,22 +986,21 @@ static struct xcm_socket *tls_server(const char *local_addr)
     }
 
     if (ut_set_blocking(ts->server.fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(TOGEN(ts), errno);
+	LOG_SET_BLOCKING_FAILED_FD(s, errno);
 	goto err_close;
     }
 
-    LOG_SERVER_CREATED_FD(TOGEN(ts), ts->server.fd);
+    LOG_SERVER_CREATED_FD(s, ts->server.fd);
 
-    return TOGEN(ts);
+    return 0;
  
  err_close:
     UT_PROTECT_ERRNO(close(ts->server.fd));
- err_free:
-    free_socket(ts, true);
- err_unload:
+ err_deinit:
+    deinit_socket(s, true);
     lazy_unload_ssl_ctx(ns);
  err:
-    return NULL;
+    return -1;
 }
 
 static int terminate(struct xcm_socket *s, bool ssl_shutdown)
@@ -998,11 +1009,11 @@ static int terminate(struct xcm_socket *s, bool ssl_shutdown)
 
     int rc = 0;
     if (s) {
-	assert_socket(ts);
+	assert_socket(s);
 
-	const int fd = socket_fd(ts);
+	const int fd = socket_fd(s);
 
-	if (ts->base.type == xcm_socket_type_conn) {
+	if (s->type == xcm_socket_type_conn) {
 	    if (ts->conn.state == conn_state_ready && ssl_shutdown)
 		SSL_shutdown(ts->conn.ssl);
 	    SSL_free(ts->conn.ssl);
@@ -1012,7 +1023,7 @@ static int terminate(struct xcm_socket *s, bool ssl_shutdown)
 
         rc = fd >= 0 ? close(fd) : 0;
 
-	free_socket(ts, true);
+	deinit_socket(s, true);
     }
     return rc;
 }
@@ -1029,10 +1040,12 @@ static void tls_cleanup(struct xcm_socket *s)
     (void)terminate(s, false);
 }
 
-static void try_finish_accept(struct tls_socket *ts)
+static void try_finish_accept(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     if (ts->conn.state == conn_state_tls_accepting) {
-	LOG_TLS_HANDSHAKE(TOGEN(ts));
+	LOG_TLS_HANDSHAKE(s);
 
 	ts->conn.ssl_events = 0;
 
@@ -1041,30 +1054,28 @@ static void try_finish_accept(struct tls_socket *ts)
 	UT_RESTORE_ERRNO(accept_errno);
 
 	if (rc < 1)
-	    handle_ssl_error(ts, rc, accept_errno);
+	    handle_ssl_error(s, rc, accept_errno);
 	else {
-	    TP_SET_STATE(ts, conn_state_ready);
-            verify_peer_cert(ts);
+	    TLS_SET_STATE(s, conn_state_ready);
+            verify_peer_cert(s);
 	    if (ts->conn.state == conn_state_ready)
-		LOG_TLS_CONN_ESTABLISHED(TOGEN(ts));
+		LOG_TLS_CONN_ESTABLISHED(s);
        }
     }
 }
 
-static struct xcm_socket *tls_accept(struct xcm_socket *s)
+static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 {
-    struct tls_socket *ts = TOTLS(s);
+    struct tls_socket *conn_ts = TOTLS(conn_s);
+    struct tls_socket *server_ts = TOTLS(server_s);
 
-    assert_socket(ts);
+    assert_socket(server_s);
 
-    TP_RET_ERR_RC_UNLESS_TYPE(ts, xcm_socket_type_server, NULL);
-
-    LOG_ACCEPT_REQ(s);
+    LOG_ACCEPT_REQ(server_s);
 
     int conn_fd;
-
-    if ((conn_fd = ut_accept(ts->server.fd, NULL, NULL)) < 0) {
-	LOG_ACCEPT_FAILED(s, errno);
+    if ((conn_fd = ut_accept(server_ts->server.fd, NULL, NULL)) < 0) {
+	LOG_ACCEPT_FAILED(server_s, errno);
 	goto err;
     }
 
@@ -1074,58 +1085,57 @@ static struct xcm_socket *tls_accept(struct xcm_socket *s)
     if (ut_set_blocking(conn_fd, false) < 0)
 	goto err_close;
 
-    struct tls_socket *conn_s = alloc_socket(xcm_socket_type_conn, ts->ns);
-    if (!conn_s)
-	goto err_close;
+    init_socket(conn_s, server_ts->ns);
 
-    struct ns_ssl_ctx *ns_ctx = lazy_load_ssl_ctx(ts->ns);
+    struct ns_ssl_ctx *ns_ctx = lazy_load_ssl_ctx(conn_ts->ns);
     if (!ns_ctx)
-	goto err_free_socket;
+	goto err_deinit_socket;
 
     SSL_CTX *ctx = ns_ctx->server_ssl_ctx;
     /* already loaded by server socket, so it can't fail */
     ut_assert(ctx);
 
-    conn_s->conn.ssl = SSL_new(ctx);
-    if (!conn_s->conn.ssl) {
+    conn_ts->conn.ssl = SSL_new(ctx);
+    if (!conn_ts->conn.ssl) {
         errno = ENOMEM;
 	goto err_unload_ctx;
     }
 
-    if (SSL_set_fd(conn_s->conn.ssl, conn_fd) != 1)
+    if (SSL_set_fd(conn_ts->conn.ssl, conn_fd) != 1)
 	goto err_free_ssl;
 
-    TP_SET_STATE(conn_s, conn_state_tls_accepting);
+    TLS_SET_STATE(conn_s, conn_state_tls_accepting);
 
     try_finish_accept(conn_s);
 
-    if (conn_s->conn.state == conn_state_bad) {
-	errno = conn_s->conn.badness_reason;
+    if (conn_ts->conn.state == conn_state_bad) {
+	errno = conn_ts->conn.badness_reason;
 	goto err_free_ssl;
     }
 
-    return TOGEN(conn_s);
+    return 0;
 
  err_free_ssl:
-    SSL_free(conn_s->conn.ssl);
+    SSL_free(conn_ts->conn.ssl);
  err_unload_ctx:
-    lazy_unload_ssl_ctx(ts->ns);
- err_free_socket:
-    free_socket(conn_s, true);
+    lazy_unload_ssl_ctx(conn_ts->ns);
+ err_deinit_socket:
+    deinit_socket(conn_s, true);
  err_close:
     UT_PROTECT_ERRNO(close(conn_fd));
  err:
-    return NULL;
+    return -1;
 }
 
-static void try_send(struct tls_socket *ts)
+static void try_send(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
     struct mbuf *sbuf = &ts->conn.send_mbuf;
 
     if (ts->conn.state == conn_state_ready &&
 	mbuf_is_complete(sbuf)) {
 	ut_assert(ts->conn.ssl_events == 0);
-	TP_SET_STATE(ts, conn_state_tls_sending);
+	TLS_SET_STATE(s, conn_state_tls_sending);
     } else if (ts->conn.state == conn_state_tls_sending) {
 	ut_assert(ts->conn.ssl_events);
 	ts->conn.ssl_events = 0;
@@ -1138,17 +1148,17 @@ static void try_send(struct tls_socket *ts)
     UT_RESTORE_ERRNO(write_errno);
 
     if (rc == 0)
-	handle_ssl_close(ts);
+	handle_ssl_close(s);
     else if (rc < 0)
-	handle_ssl_error(ts, rc, write_errno);
+	handle_ssl_error(s, rc, write_errno);
     else {
 	size_t compl_len = mbuf_complete_payload_len(sbuf);
-	LOG_LOWER_DELIVERED_COMPL(TOGEN(ts), mbuf_payload_start(sbuf),
+	LOG_LOWER_DELIVERED_COMPL(s, mbuf_payload_start(sbuf),
 				  compl_len);
-	CNT_MSG_INC(&ts->base.cnt, to_lower, compl_len);
+	CNT_MSG_INC(&s->cnt, to_lower, compl_len);
 
 	mbuf_reset(sbuf);
-	TP_SET_STATE(ts, conn_state_ready);
+	TLS_SET_STATE(s, conn_state_ready);
     }
 }
 
@@ -1156,21 +1166,19 @@ static int tls_send(struct xcm_socket *s, const void *buf, size_t len)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    assert_socket(ts);
+    assert_socket(s);
 
     LOG_SEND_REQ(s, buf, len);
 
-    TP_RET_ERR_UNLESS_TYPE(ts, xcm_socket_type_conn);
-
     TP_GOTO_ON_INVALID_MSG_SIZE(len, MBUF_MSG_MAX, err);
 
-    try_finish_in_progress(ts);
+    try_finish_in_progress(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_closed, EPIPE);
 
-    TP_RET_ERR_UNLESS_STATE(ts, conn_state_ready, EAGAIN);
+    TP_RET_ERR_UNLESS_STATE(s, ts, conn_state_ready, EAGAIN);
 
     if (mbuf_is_complete(&ts->conn.send_mbuf)) {
 	errno = EAGAIN;
@@ -1178,14 +1186,14 @@ static int tls_send(struct xcm_socket *s, const void *buf, size_t len)
     }
 
     mbuf_set(&ts->conn.send_mbuf, buf, len);
-    LOG_SEND_ACCEPTED(TOGEN(ts), buf, len);
+    LOG_SEND_ACCEPTED(s, buf, len);
     CNT_MSG_INC(&s->cnt, from_app, len);
 
-    try_send(ts);
+    try_send(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_closed, EPIPE);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
     return 0;
 
@@ -1194,18 +1202,20 @@ static int tls_send(struct xcm_socket *s, const void *buf, size_t len)
     return -1;
 }
 
-static void buffer_read(struct tls_socket *ts, int len)
+static void buffer_read(struct xcm_socket *s, int len)
 {
-    assert_socket(ts);
+    struct tls_socket *ts = TOTLS(s);
+    
+    assert_socket(s);
 
     while (len > 0) {
-	LOG_FILL_BUFFER_ATTEMPT(TOGEN(ts), len);
+	LOG_FILL_BUFFER_ATTEMPT(s, len);
 
 	if (ts->conn.state != conn_state_ready &&
 	    ts->conn.state != conn_state_tls_receiving)
 	    return;
 
-	TP_SET_STATE(ts, conn_state_tls_receiving);
+	TLS_SET_STATE(s, conn_state_tls_receiving);
 	ts->conn.ssl_events = 0;
 
         mbuf_wire_ensure_spare_capacity(&ts->conn.receive_mbuf, len);
@@ -1216,54 +1226,59 @@ static void buffer_read(struct tls_socket *ts, int len)
 	UT_RESTORE_ERRNO(read_errno);
 
 	if (rc > 0) {
-	    LOG_BUFFERED(TOGEN(ts), rc);
+	    LOG_BUFFERED(s, rc);
 	    mbuf_wire_appended(&ts->conn.receive_mbuf, rc);
-	    TP_SET_STATE(ts, conn_state_ready);
+	    TLS_SET_STATE(s, conn_state_ready);
 	    len -= rc;
 	} else {
-            handle_ssl_error(ts, rc, read_errno);
+            handle_ssl_error(s, rc, read_errno);
 	    return;
 	}
     }
 }
 
-static void buffer_hdr(struct tls_socket *ts)
+static void buffer_hdr(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     int left = mbuf_hdr_left(&ts->conn.receive_mbuf);
     if (left > 0) {
-	LOG_HEADER_BYTES_LEFT(TOGEN(ts), left);
-	buffer_read(ts, left);
+	LOG_HEADER_BYTES_LEFT(s, left);
+	buffer_read(s, left);
     }
 }
 
-static void buffer_payload(struct tls_socket *ts)
+static void buffer_payload(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
     struct mbuf *rbuf = &ts->conn.receive_mbuf;
 
     if (mbuf_has_complete_hdr(rbuf)) {
 	if (mbuf_is_hdr_valid(rbuf)) {
 	    int left = mbuf_payload_left(rbuf);
-	    LOG_PAYLOAD_BYTES_LEFT(TOGEN(ts), left);
-	    buffer_read(ts, left);
+	    LOG_PAYLOAD_BYTES_LEFT(s, left);
+	    buffer_read(s, left);
 	    if (mbuf_payload_left(rbuf) == 0) {
 		const void *buf = mbuf_payload_start(rbuf);
 		size_t len = mbuf_complete_payload_len(rbuf);
-		LOG_RCV_MSG(TOGEN(ts), buf, len);
-		CNT_MSG_INC(&ts->base.cnt, from_lower, len);
+		LOG_RCV_MSG(s, buf, len);
+		CNT_MSG_INC(&s->cnt, from_lower, len);
 	    }
 	} else {
-	    LOG_INVALID_HEADER(TOGEN(ts));
-	    TP_SET_STATE(ts, conn_state_bad);
+	    LOG_INVALID_HEADER(s);
+	    TLS_SET_STATE(s, conn_state_bad);
 	    ts->conn.badness_reason = EPROTO;
 	}
     }
 }
 
-static bool ssl_pending(struct tls_socket *ts)
+static bool ssl_pending(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
     if (SSL_has_pending(ts->conn.ssl)) {
-        LOG_TLS_OPENSSL_PENDING_UNPROCESSED(TOGEN(ts));
+        LOG_TLS_OPENSSL_PENDING_UNPROCESSED(s);
         return true;
     }
 #endif
@@ -1271,7 +1286,7 @@ static bool ssl_pending(struct tls_socket *ts)
     int pending_ssl = SSL_pending(ts->conn.ssl);
 
     if (pending_ssl > 0) {
-	LOG_TLS_OPENSSL_AVAILABLE_DATA(TOGEN(ts), pending_ssl);
+	LOG_TLS_OPENSSL_AVAILABLE_DATA(s, pending_ssl);
 	return true;
     }
 
@@ -1281,62 +1296,63 @@ static bool ssl_pending(struct tls_socket *ts)
 /* Avoid getting into the receiving state if there aren't any data in
    SSL or on socket. This since the receiving state prevents any other
    operations (read: xcm_send()). */
-static bool receive_pending(struct tls_socket *ts)
+static bool receive_pending(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
 
-    if (ssl_pending(ts))
+    if (ssl_pending(s))
         return true;
 
     UT_SAVE_ERRNO;
     char c;
-    ssize_t recv_rc = recv(socket_fd(ts), &c, 1, MSG_PEEK);
+    ssize_t recv_rc = recv(socket_fd(s), &c, 1, MSG_PEEK);
     UT_RESTORE_ERRNO(recv_errno);
 
     if (recv_rc < 0) {
 	if (recv_errno != EAGAIN) {
-	    LOG_TLS_ERROR_PEEKING(TOGEN(ts), recv_errno);
-	    TP_SET_STATE(ts, conn_state_bad);
+	    LOG_TLS_ERROR_PEEKING(s, recv_errno);
+	    TLS_SET_STATE(s, conn_state_bad);
 	    ts->conn.badness_reason = recv_errno;
 	}
 	return false;
     } else if (recv_rc == 0) {
-	handle_ssl_close(ts);
+	handle_ssl_close(s);
 	return false;
     } else {
-	LOG_TLS_SOCKET_PENDING_DATA(TOGEN(ts));
+	LOG_TLS_SOCKET_PENDING_DATA(s);
 	return true;
     }
 }
 
-static void buffer_msg(struct tls_socket *ts)
+static void buffer_msg(struct xcm_socket *s)
 {
-    buffer_hdr(ts);
-    buffer_payload(ts);
+    buffer_hdr(s);
+    buffer_payload(s);
 }
 
-static void try_receive(struct tls_socket *ts)
+static void try_receive(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     if (ts->conn.state == conn_state_tls_receiving ||
 	(ts->conn.state == conn_state_ready &&
 	 !mbuf_is_complete(&ts->conn.receive_mbuf) &&
-	 receive_pending(ts)))
-	buffer_msg(ts);
+	 receive_pending(s)))
+	buffer_msg(s);
 }
 
 static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    assert_socket(ts);
-
-    TP_RET_ERR_UNLESS_TYPE(ts, xcm_socket_type_conn);
+    assert_socket(s);
 
     LOG_RCV_REQ(s, buf, capacity);
 
-    try_finish_in_progress(ts);
-    try_receive(ts);
+    try_finish_in_progress(s);
+    try_receive(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
     TP_RET_IF_STATE(ts, conn_state_closed, 0);
 
@@ -1364,20 +1380,22 @@ static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity)
     return user_len;
 }
 
-static int server_want(struct tls_socket *ts, int condition, int *fd,
+static int server_want(struct xcm_socket *s, int condition, int *fd,
 		       int *events)
 {
     if (condition & XCM_SO_ACCEPTABLE) {
 	events[0] = XCM_FD_READABLE;
-	fd[0] = socket_fd(ts);
+	fd[0] = socket_fd(s);
 	return 1;
     } else
 	return 0;
 }
 
-static int conn_want(struct tls_socket *ts, int condition, int *fds,
+static int conn_want(struct xcm_socket *s, int condition, int *fds,
 		     int *events, size_t capacity)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     if (ts->conn.state == conn_state_resolving)
         return xcm_dns_query_want(ts->conn.query, fds, events, capacity);
 
@@ -1401,7 +1419,7 @@ static int conn_want(struct tls_socket *ts, int condition, int *fds,
                data pending in the SSL layer, and the application
                wants to read, it shouldn't go into select() */
 	    if (mbuf_is_complete(&ts->conn.receive_mbuf) ||
-                ssl_pending(ts))
+                ssl_pending(s))
 		ev = 0;
 	    else
 		ev |= XCM_FD_READABLE;
@@ -1415,7 +1433,7 @@ static int conn_want(struct tls_socket *ts, int condition, int *fds,
     }
 
     if (ev) {
-	fds[0] = socket_fd(ts);
+	fds[0] = socket_fd(s);
 	events[0] = ev;
 	return 1;
     } else
@@ -1425,24 +1443,20 @@ static int conn_want(struct tls_socket *ts, int condition, int *fds,
 static int tls_want(struct xcm_socket *s, int condition, int *fds, int *events,
 		    size_t capacity)
 {
-    struct tls_socket *ts = TOTLS(s);
-
-    assert_socket(ts);
-
-    TP_RET_ERR_IF_INVALID_COND(ts, condition);
+    assert_socket(s);
 
     TP_RET_ERR_IF(capacity == 0, EOVERFLOW);
 
     int rc;
 
-    if (ts->base.type == xcm_socket_type_conn)
-	rc = conn_want(ts, condition, fds, events, capacity);
+    if (s->type == xcm_socket_type_conn)
+	rc = conn_want(s, condition, fds, events, capacity);
     else {
-	ut_assert(ts->base.type == xcm_socket_type_server);
-	rc = server_want(ts, condition, fds, events);
+	ut_assert(s->type == xcm_socket_type_server);
+	rc = server_want(s, condition, fds, events);
     }
 
-    LOG_WANT(TOGEN(ts), condition, fds, events, rc);
+    LOG_WANT(s, condition, fds, events, rc);
 
     return rc;
 }
@@ -1456,7 +1470,7 @@ static int tls_finish(struct xcm_socket *s)
 
     LOG_FINISH_REQ(s);
 
-    try_finish_in_progress(ts);
+    try_finish_in_progress(s);
 
     switch (ts->conn.state) {
     case conn_state_resolving:
@@ -1488,17 +1502,10 @@ static const char *tls_remote_addr(struct xcm_socket *s, bool suppress_tracing)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (ts->base.type != xcm_socket_type_conn) {
-	if (!suppress_tracing)
-	    LOG_SOCKET_INVALID_TYPE(s);
-	errno = EINVAL;
-	return NULL;
-    }
-
     struct sockaddr_storage raddr;
     socklen_t raddr_len = sizeof(raddr);
 
-    if (getpeername(socket_fd(ts), (struct sockaddr*)&raddr, &raddr_len) < 0) {
+    if (getpeername(socket_fd(s), (struct sockaddr*)&raddr, &raddr_len) < 0) {
 	if (!suppress_tracing)
 	    LOG_REMOTE_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
@@ -1517,7 +1524,7 @@ static const char *tls_local_addr(struct xcm_socket *s, bool suppress_tracing)
     struct sockaddr_storage laddr;
     socklen_t laddr_len = sizeof(laddr);
 
-    if (getsockname(socket_fd(ts), (struct sockaddr*)&laddr, &laddr_len) < 0) {
+    if (getsockname(socket_fd(s), (struct sockaddr*)&laddr, &laddr_len) < 0) {
 	if (!suppress_tracing)
 	    LOG_REMOTE_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
@@ -1533,15 +1540,15 @@ static size_t tls_max_msg(struct xcm_socket *conn_socket)
     return MBUF_MSG_MAX;
 }
 
-static void try_finish_in_progress(struct tls_socket *ts)
+static void try_finish_in_progress(struct xcm_socket *s)
 {
-    try_finish_accept(ts);
-    try_finish_connect(ts);
-    try_send(ts);
+    try_finish_accept(s);
+    try_finish_connect(s);
+    try_send(s);
     /* finish only what's in progress - don't start receiving a new
        TLS record */
-    if (ts->conn.state == conn_state_tls_receiving)
-        try_receive(ts);
+    if (TOTLS(s)->conn.state == conn_state_tls_receiving)
+        try_receive(s);
 }
 
 #define GEN_TCP_GET(field_name)						\
@@ -1549,8 +1556,8 @@ static void try_finish_in_progress(struct tls_socket *ts)
 					   enum xcm_attr_type *type,	\
 					   void *value, size_t capacity) \
     {									\
-	return tcp_get_ ## field_name ##_attr(s, socket_fd(TOTLS(s)), \
-					      type, value, capacity); \
+	return tcp_get_ ## field_name ##_attr(s, socket_fd(s),		\
+					      type, value, capacity);	\
     }
 
 GEN_TCP_GET(rtt)

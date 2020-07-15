@@ -35,8 +35,6 @@ enum conn_state { conn_state_none, conn_state_resolving, conn_state_connecting,
 
 struct tcp_socket
 {
-    struct xcm_socket base;
-
     int fd;
 
     char laddr[XCM_ADDR_MAX];
@@ -62,14 +60,16 @@ struct tcp_socket
     };
 };
 
-#define TOTCP(ptr) ((struct tcp_socket*)(ptr))
-#define TOGEN(ptr) ((struct xcm_socket*)(ptr))
+#define TOTCP(s) XCM_TP_GETPRIV(s, struct tcp_socket)
 
-static struct xcm_socket *tcp_connect(const char *remote_addr);
-static struct xcm_socket *tcp_server(const char *local_addr);
+#define TCP_SET_STATE(_s, _state)		\
+    TP_SET_STATE(_s, TOTCP(_s), _state)
+
+static int tcp_connect(struct xcm_socket *s, const char *remote_addr);
+static int tcp_server(struct xcm_socket *s, const char *local_addr);
 static int tcp_close(struct xcm_socket *s);
 static void tcp_cleanup(struct xcm_socket *s);
-static struct xcm_socket *tcp_accept(struct xcm_socket *s);
+static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int tcp_send(struct xcm_socket *s, const void *buf, size_t len);
 static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity);
 static int tcp_want(struct xcm_socket *conn_socket, int condition, int *fd,
@@ -82,8 +82,9 @@ static const char *tcp_local_addr(struct xcm_socket *socket,
 static size_t tcp_max_msg(struct xcm_socket *conn_socket);
 static void tcp_get_attrs(struct xcm_tp_attr **attr_list,
                           size_t *attr_list_len);
+static size_t tcp_priv_size(enum xcm_socket_type type);
 
-static void try_finish_in_progress(struct tcp_socket *ts);
+static void try_finish_in_progress(struct xcm_socket *s);
 
 static struct xcm_tp_ops tcp_ops = {
     .connect = tcp_connect,
@@ -98,13 +99,19 @@ static struct xcm_tp_ops tcp_ops = {
     .remote_addr = tcp_remote_addr,
     .local_addr = tcp_local_addr,
     .max_msg = tcp_max_msg,
-    .get_attrs = tcp_get_attrs
+    .get_attrs = tcp_get_attrs,
+    .priv_size = tcp_priv_size
 };
 
 static void init(void) __attribute__((constructor));
 static void init(void)
 {
     xcm_tp_register(XCM_TCP_PROTO, &tcp_ops);
+}
+
+static size_t tcp_priv_size(enum xcm_socket_type type)
+{
+    return sizeof(struct tcp_socket);
 }
 
 static const char *state_name(enum conn_state state)
@@ -121,8 +128,10 @@ static const char *state_name(enum conn_state state)
     }
 }
 
-static void assert_conn_socket(struct tcp_socket *ts)
+static void assert_conn_socket(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
+
     switch (ts->conn.state) {
     case conn_state_none:
 	ut_assert(0);
@@ -145,13 +154,13 @@ static void assert_conn_socket(struct tcp_socket *ts)
     }
 }
 
-static void assert_socket(struct tcp_socket *ts)
+static void assert_socket(struct xcm_socket *s)
 {
-    ut_assert(ts->base.ops == &tcp_ops);
+    ut_assert(XCM_TP_GETOPS(s) == &tcp_ops);
 
-    switch (ts->base.type) {
+    switch (s->type) {
     case xcm_socket_type_conn:
-	assert_conn_socket(ts);
+	assert_conn_socket(s);
 	break;
     case xcm_socket_type_server:
 	break;
@@ -161,45 +170,36 @@ static void assert_socket(struct tcp_socket *ts)
     }
 }
 
-static struct tcp_socket *alloc_socket(enum xcm_socket_type type)
+static void init_socket(struct xcm_socket *s)
 {
-    struct tcp_socket *s = ut_malloc(sizeof(struct tcp_socket));
+    struct tcp_socket *ts = TOTCP(s);
 
-    xcm_socket_base_init(&s->base, &tcp_ops, type);
+    ts->laddr[0] = '\0';
 
-    s->laddr[0] = '\0';
+    if (s->type == xcm_socket_type_conn) {
+	ts->conn.state = conn_state_none;
 
-    if (type == xcm_socket_type_conn) {
-	s->conn.state = conn_state_none;
+	ts->conn.badness_reason = 0;
+        ts->conn.query = NULL;
 
-	s->conn.badness_reason = 0;
-        s->conn.query = NULL;
+	mbuf_init(&ts->conn.send_mbuf);
+	ts->conn.mbuf_sent = 0;
 
-	mbuf_init(&s->conn.send_mbuf);
-	s->conn.mbuf_sent = 0;
+	mbuf_init(&ts->conn.receive_mbuf);
 
-	mbuf_init(&s->conn.receive_mbuf);
-
-	s->conn.raddr[0] = '\0';
+	ts->conn.raddr[0] = '\0';
     }
 
-    s->fd = -1;
-
-    return s;
+    ts->fd = -1;
 }
 
-static void free_socket(struct tcp_socket *s, bool owner)
+static void deinit_socket(struct xcm_socket *s)
 {
-    if (s) {
-	xcm_socket_base_deinit(&s->base, owner);
-
-        if (s->base.type == xcm_socket_type_conn) {
-            xcm_dns_query_free(s->conn.query);
-            mbuf_deinit(&s->conn.send_mbuf);
-            mbuf_deinit(&s->conn.receive_mbuf);
-        }
-
-	free(s);
+    if (s->type == xcm_socket_type_conn) {
+	struct tcp_socket *ts = TOTCP(s);
+	xcm_dns_query_free(ts->conn.query);
+	mbuf_deinit(&ts->conn.send_mbuf);
+	mbuf_deinit(&ts->conn.receive_mbuf);
     }
 }
 
@@ -212,7 +212,7 @@ static int set_tcp_conn_opts(int fd)
     return 0;
 }
 
-static int init_socket(struct tcp_socket *ts, sa_family_t family)
+static int create_socket(struct xcm_socket *s, sa_family_t family)
 {
     int fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
     if (fd < 0) {
@@ -220,11 +220,11 @@ static int init_socket(struct tcp_socket *ts, sa_family_t family)
 	goto err;
     }
 
-    if (ts->base.type == xcm_socket_type_conn && set_tcp_conn_opts(fd) < 0)
+    if (s->type == xcm_socket_type_conn && set_tcp_conn_opts(fd) < 0)
         goto err_close;
 
     if (ut_set_blocking(fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(TOGEN(ts), errno);
+	LOG_SET_BLOCKING_FAILED_FD(s, errno);
 	goto err_close;
     }
 
@@ -233,7 +233,7 @@ static int init_socket(struct tcp_socket *ts, sa_family_t family)
 	goto err_close;
     }
 
-    ts->fd = fd;
+    TOTCP(s)->fd = fd;
 
     return 0;
 
@@ -243,13 +243,15 @@ static int init_socket(struct tcp_socket *ts, sa_family_t family)
     return -1;
 }
 
-static void begin_connect(struct tcp_socket *ts)
+static void begin_connect(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
+
     ut_assert(ts->conn.remote_host.type == xcm_addr_type_ip);
 
     UT_SAVE_ERRNO;
 
-    if (init_socket(ts, ts->conn.remote_host.ip.family) < 0)
+    if (create_socket(s, ts->conn.remote_host.ip.family) < 0)
 	goto err;
 
     if (ut_tcp_reduce_max_syn(ts->fd) < 0) {
@@ -263,29 +265,30 @@ static void begin_connect(struct tcp_socket *ts)
 
     if (connect(ts->fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
-	    LOG_CONN_FAILED(TOGEN(ts), errno);
+	    LOG_CONN_FAILED(s, errno);
 	    goto err;
 	} else
-	    LOG_CONN_IN_PROGRESS(TOGEN(ts));
+	    LOG_CONN_IN_PROGRESS(s);
     } else {
-	TP_SET_STATE(ts, conn_state_ready);
-	LOG_TCP_CONN_ESTABLISHED(TOGEN(ts));
+	TCP_SET_STATE(s, conn_state_ready);
+	LOG_TCP_CONN_ESTABLISHED(s);
     }
 
     UT_RESTORE_ERRNO_DC;
 
-    assert_socket(ts);
+    assert_socket(s);
 
     return;
 
  err:
-    TP_SET_STATE(ts, conn_state_bad);
+    TCP_SET_STATE(s, conn_state_bad);
     UT_RESTORE_ERRNO(bad_errno);
     ts->conn.badness_reason = bad_errno;
 }
 
-static void try_finish_resolution(struct tcp_socket *ts)
+static void try_finish_resolution(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
     struct xcm_addr_ip ip;
 
     UT_SAVE_ERRNO;
@@ -296,15 +299,15 @@ static void try_finish_resolution(struct tcp_socket *ts)
         if (query_errno == EAGAIN)
             return;
 
-        TP_SET_STATE(ts, conn_state_bad);
+        TCP_SET_STATE(s, conn_state_bad);
         ut_assert(query_errno != EAGAIN);
         ut_assert(query_errno != 0);
         ts->conn.badness_reason = query_errno;
     } else {
-        TP_SET_STATE(ts, conn_state_connecting);
+        TCP_SET_STATE(s, conn_state_connecting);
         ts->conn.remote_host.type = xcm_addr_type_ip;
         ts->conn.remote_host.ip = ip;
-        begin_connect(ts);
+        begin_connect(s);
     }
 
     /* It's important to close the query after begin_connect(), since
@@ -316,30 +319,32 @@ static void try_finish_resolution(struct tcp_socket *ts)
     ts->conn.query = NULL;
 }
 
-static void try_finish_connect(struct tcp_socket *ts)
+static void try_finish_connect(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
+
     switch (ts->conn.state) {
     case conn_state_resolving:
         xcm_dns_query_process(ts->conn.query);
         if (xcm_dns_query_want(ts->conn.query, NULL, NULL, 0) == 0)
-            try_finish_resolution(ts);
+            try_finish_resolution(s);
         break;
     case conn_state_connecting:
-	LOG_TCP_CONN_CHECK(TOGEN(ts));
+	LOG_TCP_CONN_CHECK(s);
 	UT_SAVE_ERRNO;
 	int rc = ut_established(ts->fd);
 	UT_RESTORE_ERRNO(connect_errno);
 
 	if (rc < 0) {
 	    if (connect_errno != EINPROGRESS) {
-		LOG_CONN_FAILED(TOGEN(ts), connect_errno);
-		TP_SET_STATE(ts, conn_state_bad);
+		LOG_CONN_FAILED(s, connect_errno);
+		TCP_SET_STATE(s, conn_state_bad);
 		ts->conn.badness_reason = connect_errno;
 	    } else
-		LOG_CONN_IN_PROGRESS(TOGEN(ts));
+		LOG_CONN_IN_PROGRESS(s);
 	} else {
-	    LOG_TCP_CONN_ESTABLISHED(TOGEN(ts));
-	    TP_SET_STATE(ts, conn_state_ready);
+	    LOG_TCP_CONN_ESTABLISHED(s);
+	    TCP_SET_STATE(s, conn_state_ready);
 	}
         break;
     case conn_state_none:
@@ -352,48 +357,50 @@ static void try_finish_connect(struct tcp_socket *ts)
     }
 }
 
-static struct xcm_socket *tcp_connect(const char *remote_addr)
+static int tcp_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(remote_addr);
 
-    struct tcp_socket *ts = alloc_socket(xcm_socket_type_conn);
+    init_socket(s);
+
+    struct tcp_socket *ts = TOTCP(s);
 
     if (xcm_addr_parse_tcp(remote_addr, &ts->conn.remote_host,
                            &ts->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-        goto err_free;
+	goto err_deinit;
     }
 
     if (ts->conn.remote_host.type == xcm_addr_type_name) {
-        TP_SET_STATE(ts, conn_state_resolving);
-        ts->conn.query =
-            xcm_dns_resolve(TOGEN(ts), ts->conn.remote_host.name);
+        TCP_SET_STATE(s, conn_state_resolving);
+        ts->conn.query = xcm_dns_resolve(s, ts->conn.remote_host.name);
         if (!ts->conn.query)
-            goto err_close;
+	    goto err_deinit;
     } else {
-        TP_SET_STATE(ts, conn_state_connecting);
-        begin_connect(ts);
+        TCP_SET_STATE(s, conn_state_connecting);
+        begin_connect(s);
     }
 
-    try_finish_connect(ts);
+    try_finish_connect(s);
 
     if (ts->conn.state == conn_state_bad) {
         errno = ts->conn.badness_reason;
         goto err_close;
     }
 
-    return TOGEN(ts);
+    return 0;
 
  err_close:
-    close(ts->fd);
- err_free:
-    free_socket(ts, true);
-    return NULL;
+    if (ts->fd >= 0)
+	UT_PROTECT_ERRNO(close(ts->fd));
+ err_deinit:
+    deinit_socket(s);
+    return -1;
 }
 
 #define TCP_CONN_BACKLOG (32)
 
-static struct xcm_socket *tcp_server(const char *local_addr)
+static int tcp_server(struct xcm_socket *s, const char *local_addr)
 {
     LOG_SERVER_REQ(local_addr);
 
@@ -405,17 +412,17 @@ static struct xcm_socket *tcp_server(const char *local_addr)
 	goto err;
     }
 
-    struct tcp_socket *s = alloc_socket(xcm_socket_type_server);
-    if (!s)
-	goto err;
+    init_socket(s);
 
-    if (xcm_dns_resolve_sync(TOGEN(s), &host) < 0)
-        goto err_free;
+    struct tcp_socket *ts = TOTCP(s);
 
-    if (init_socket(s, host.ip.family) < 0)
-	goto err_free;
+    if (xcm_dns_resolve_sync(s, &host) < 0)
+        goto err_deinit;
 
-    if (port > 0 && ut_tcp_reuse_addr(s->fd) < 0) {
+    if (create_socket(s, host.ip.family) < 0)
+	goto err_deinit;
+
+    if (port > 0 && ut_tcp_reuse_addr(ts->fd) < 0) {
         LOG_SERVER_REUSEADDR_FAILED(errno);
         goto err_close;
     }
@@ -423,35 +430,35 @@ static struct xcm_socket *tcp_server(const char *local_addr)
     struct sockaddr_storage addr;
     tp_ip_to_sockaddr(&host.ip, port, (struct sockaddr*)&addr);
 
-    if (bind(s->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (bind(ts->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
 	goto err_close;
     }
 
-    if (listen(s->fd, TCP_CONN_BACKLOG) < 0) {
+    if (listen(ts->fd, TCP_CONN_BACKLOG) < 0) {
 	LOG_SERVER_LISTEN_FAILED(errno);
 	goto err_close;
     }
 
-    LOG_SERVER_CREATED_FD(TOGEN(s), s->fd);
+    LOG_SERVER_CREATED_FD(s, ts->fd);
 
-    return TOGEN(s);
+    return 0;
 
- err_close:
-    UT_PROTECT_ERRNO(close(s->fd));
- err_free:
-    free_socket(s, true);
- err:
-    return NULL;
+err_close:
+    UT_PROTECT_ERRNO(close(ts->fd));
+err_deinit:
+    deinit_socket(s);
+err:
+    return -1;
 }
 
-static int do_close(struct tcp_socket *ts, bool owner)
+static int do_close(struct xcm_socket *s)
 {
-    assert_socket(ts);
+    assert_socket(s);
 
-    int fd = ts->fd;
+    int fd = TOTCP(s)->fd;
 
-    free_socket(ts, owner);
+    deinit_socket(s);
 
     return fd >= 0 ? close(fd) : 0;
 }
@@ -459,30 +466,27 @@ static int do_close(struct tcp_socket *ts, bool owner)
 static int tcp_close(struct xcm_socket *s)
 {
     LOG_CLOSING(s);
-    struct tcp_socket *ts = TOTCP(s);
-    return do_close(ts, true);
+    return do_close(s);
 }
 
 static void tcp_cleanup(struct xcm_socket *s)
 {
-    struct tcp_socket *ts = TOTCP(s);
     LOG_CLEANING_UP(s);
-    (void)do_close(ts, false);
+    (void)do_close(s);
 }
 
-static struct xcm_socket *tcp_accept(struct xcm_socket *s)
+static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 {
-    struct tcp_socket *ts = TOTCP(s);
+    struct tcp_socket *conn_ts = TOTCP(conn_s);
+    struct tcp_socket *server_ts = TOTCP(server_s);
 
-    assert_socket(ts);
+    assert_socket(server_s);
 
-    TP_RET_ERR_RC_UNLESS_TYPE(ts, xcm_socket_type_server, NULL);
-
-    LOG_ACCEPT_REQ(s);
+    LOG_ACCEPT_REQ(server_s);
 
     int conn_fd;
-    if ((conn_fd = ut_accept(ts->fd, NULL, NULL)) < 0) {
-	LOG_ACCEPT_FAILED(s, errno);
+    if ((conn_fd = ut_accept(server_ts->fd, NULL, NULL)) < 0) {
+	LOG_ACCEPT_FAILED(server_s, errno);
 	goto err;
     }
 
@@ -494,27 +498,27 @@ static struct xcm_socket *tcp_accept(struct xcm_socket *s)
 	goto err_close;
     }
 
-    struct tcp_socket *conn_s = alloc_socket(xcm_socket_type_conn);
-    if (!conn_s)
-	goto err_close;
+    init_socket(conn_s);
 
-    conn_s->fd = conn_fd;
-    TP_SET_STATE(conn_s, conn_state_ready);
+    conn_ts->fd = conn_fd;
+    TCP_SET_STATE(conn_s, conn_state_ready);
 
-    LOG_CONN_ACCEPTED(TOGEN(conn_s), conn_s->fd);
+    LOG_CONN_ACCEPTED(conn_s, conn_ts->fd);
 
     assert_socket(conn_s);
 
-    return TOGEN(conn_s);
+    return 0;
 
  err_close:
     UT_PROTECT_ERRNO(close(conn_fd));
  err:
-    return NULL;
+    return -1;
 }
 
-static void try_send(struct tcp_socket *ts)
+static void try_send(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
+
     if (ts->conn.state == conn_state_ready &&
 	mbuf_is_complete(&ts->conn.send_mbuf)) {
 	struct mbuf *sbuf = &ts->conn.send_mbuf;
@@ -523,7 +527,7 @@ static void try_send(struct tcp_socket *ts)
 	int left = mbuf_wire_len(sbuf) - ts->conn.mbuf_sent;
 	int msg_len = mbuf_complete_payload_len(sbuf);
 
-	LOG_LOWER_DELIVERY_ATTEMPT(TOGEN(ts), left, mbuf_wire_len(sbuf),
+	LOG_LOWER_DELIVERY_ATTEMPT(s, left, mbuf_wire_len(sbuf),
 				   msg_len);
 
 	UT_SAVE_ERRNO;
@@ -531,26 +535,26 @@ static void try_send(struct tcp_socket *ts)
 	UT_RESTORE_ERRNO(send_errno);
 
 	if (rc < 0) {
-	    LOG_SEND_FAILED(TOGEN(ts), send_errno);
+	    LOG_SEND_FAILED(s, send_errno);
 	    if (send_errno != EAGAIN) {
 		if (send_errno == EPIPE)
-		    TP_SET_STATE(ts, conn_state_closed);
+		    TCP_SET_STATE(s, conn_state_closed);
 		else {
-		    TP_SET_STATE(ts, conn_state_bad);
+		    TCP_SET_STATE(s, conn_state_bad);
 		    ts->conn.badness_reason = send_errno;
 		}
 	    }
 	} else if (rc == 0)
-	    TP_SET_STATE(ts, conn_state_closed);
+	    TCP_SET_STATE(s, conn_state_closed);
 	else if (rc > 0) {
 	    ts->conn.mbuf_sent += rc;
-	    LOG_LOWER_DELIVERED_PART(TOGEN(ts), rc);
+	    LOG_LOWER_DELIVERED_PART(s, rc);
 
 	    if (ts->conn.mbuf_sent == mbuf_wire_len(sbuf)) {
 		const size_t compl_len = mbuf_complete_payload_len(sbuf);
-		LOG_LOWER_DELIVERED_COMPL(TOGEN(ts), mbuf_payload_start(sbuf),
+		LOG_LOWER_DELIVERED_COMPL(s, mbuf_payload_start(sbuf),
 					  compl_len);
-		CNT_MSG_INC(&ts->base.cnt, to_lower, compl_len);
+		CNT_MSG_INC(&s->cnt, to_lower, compl_len);
 
 		mbuf_reset(sbuf);
 		ts->conn.mbuf_sent = 0;
@@ -563,25 +567,23 @@ static int tcp_send(struct xcm_socket *s, const void *buf, size_t len)
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    assert_socket(ts);
+    assert_socket(s);
 
     LOG_SEND_REQ(s, buf, len);
 
-    TP_RET_ERR_UNLESS_TYPE(ts, xcm_socket_type_conn);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
-
-    TP_RET_ERR_IF_STATE(ts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_closed, EPIPE);
 
     TP_GOTO_ON_INVALID_MSG_SIZE(len, MBUF_MSG_MAX, err);
 
-    try_finish_in_progress(ts);
+    try_finish_in_progress(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_closed, EPIPE);
 
-    TP_RET_ERR_UNLESS_STATE(ts, conn_state_ready, EAGAIN);
+    TP_RET_ERR_UNLESS_STATE(s, ts, conn_state_ready, EAGAIN);
 
     TP_RET_ERR_IF(mbuf_is_complete(&ts->conn.send_mbuf), EAGAIN);
 
@@ -589,11 +591,11 @@ static int tcp_send(struct xcm_socket *s, const void *buf, size_t len)
     LOG_SEND_ACCEPTED(s, buf, len);
     CNT_MSG_INC(&s->cnt, from_app, len);
 
-    try_send(ts);
+    try_send(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_closed, EPIPE);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
     return 0;
 
@@ -602,14 +604,16 @@ static int tcp_send(struct xcm_socket *s, const void *buf, size_t len)
     return -1;
 }
 
-static void buffer_read(struct tcp_socket *ts, int len)
+static void buffer_read(struct xcm_socket *s, int len)
 {
-    assert_socket(ts);
+    assert_socket(s);
+
+    struct tcp_socket *ts = TOTCP(s);
 
     if (ts->conn.state != conn_state_ready)
 	return;
 
-    LOG_FILL_BUFFER_ATTEMPT(TOGEN(ts), len);
+    LOG_FILL_BUFFER_ATTEMPT(s, len);
 
     mbuf_wire_ensure_spare_capacity(&ts->conn.receive_mbuf, len);
 
@@ -618,84 +622,84 @@ static void buffer_read(struct tcp_socket *ts, int len)
     UT_RESTORE_ERRNO(receive_errno);
 
     if (rc < 0) {
-	LOG_RCV_FAILED(TOGEN(ts), receive_errno);
+	LOG_RCV_FAILED(s, receive_errno);
 	if (receive_errno != EAGAIN) {
-	    TP_SET_STATE(ts, conn_state_bad);
+	    TCP_SET_STATE(s, conn_state_bad);
 	    ts->conn.badness_reason = receive_errno;
 	}
     } else if (rc == 0) {
-	LOG_RCV_EOF(TOGEN(ts));
-	TP_SET_STATE(ts, conn_state_closed);
+	LOG_RCV_EOF(s);
+	TCP_SET_STATE(s, conn_state_closed);
     } else {
-	LOG_BUFFERED(TOGEN(ts), rc);
+	LOG_BUFFERED(s, rc);
 	mbuf_wire_appended(&ts->conn.receive_mbuf, rc);
     }
 }
 
-static void buffer_hdr(struct tcp_socket *ts)
+static void buffer_hdr(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
     int left = mbuf_hdr_left(&ts->conn.receive_mbuf);
     if (left > 0) {
-	LOG_HEADER_BYTES_LEFT(TOGEN(ts), left);
-	buffer_read(ts, left);
+	LOG_HEADER_BYTES_LEFT(s, left);
+	buffer_read(s, left);
     }
 }
 
-static void buffer_payload(struct tcp_socket *ts)
+static void buffer_payload(struct xcm_socket *s)
 {
+    struct tcp_socket *ts = TOTCP(s);
     struct mbuf *rbuf = &ts->conn.receive_mbuf;
 
     if (mbuf_has_complete_hdr(rbuf)) {
 	if (mbuf_is_hdr_valid(rbuf)) {
 	    int left = mbuf_payload_left(rbuf);
-	    LOG_PAYLOAD_BYTES_LEFT(TOGEN(ts), left);
+	    LOG_PAYLOAD_BYTES_LEFT(s, left);
 	    if (left > 0) {
-		buffer_read(ts, left);
+		buffer_read(s, left);
 		if (mbuf_payload_left(rbuf) == 0) {
 		    const void *buf = mbuf_payload_start(rbuf);
 		    size_t compl_len = mbuf_complete_payload_len(rbuf);
-		    LOG_RCV_MSG(TOGEN(ts), buf, compl_len);
-		    CNT_MSG_INC(&ts->base.cnt, from_lower, compl_len);
+		    LOG_RCV_MSG(s, buf, compl_len);
+		    CNT_MSG_INC(&s->cnt, from_lower, compl_len);
 		}
 	    }
 	} else {
-	    LOG_INVALID_HEADER(TOGEN(ts));
-	    TP_SET_STATE(ts, conn_state_bad);
+	    LOG_INVALID_HEADER(s);
+	    TCP_SET_STATE(s, conn_state_bad);
 	    ts->conn.badness_reason = EPROTO;
 	}
     }
 }
 
-static void try_receive(struct tcp_socket *ts)
+static void try_receive(struct xcm_socket *s)
 {
-    buffer_hdr(ts);
-    buffer_payload(ts);
+    buffer_hdr(s);
+    buffer_payload(s);
 }
 
-static void try_finish_in_progress(struct tcp_socket *ts)
+static void try_finish_in_progress(struct xcm_socket *s)
 {
-    try_finish_connect(ts);
-    try_send(ts);
+    try_finish_connect(s);
+    try_send(s);
 }
 
 static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity)
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    assert_socket(ts);
-
-    TP_RET_ERR_UNLESS_TYPE(ts, xcm_socket_type_conn);
+    assert_socket(s);
 
     LOG_RCV_REQ(s, buf, capacity);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
     TP_RET_IF_STATE(ts, conn_state_closed, 0);
 
-    try_finish_in_progress(ts);
-    try_receive(ts);
+    try_finish_in_progress(s);
+    try_receive(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
     TP_RET_IF_STATE(ts, conn_state_closed, 0);
 
@@ -773,74 +777,65 @@ static int tcp_want(struct xcm_socket *s, int condition,
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    assert_socket(ts);
-
-    TP_RET_ERR_IF_INVALID_COND(ts, condition);
+    assert_socket(s);
 
     TP_RET_ERR_IF(capacity == 0, EOVERFLOW);
 
     int rc;
-    if (ts->base.type == xcm_socket_type_conn)
+    if (s->type == xcm_socket_type_conn)
 	rc = conn_want(ts, condition, fds, events, capacity);
     else {
-	ut_assert(ts->base.type == xcm_socket_type_server);
+	ut_assert(s->type == xcm_socket_type_server);
 	rc = server_want(ts, condition, fds, events);
     }
 
-    LOG_WANT(TOGEN(ts), condition, fds, events, rc);
+    LOG_WANT(s, condition, fds, events, rc);
 
     return rc;
 }
 
-static int tcp_finish(struct xcm_socket *socket)
+static int tcp_finish(struct xcm_socket *s)
 {
-    struct tcp_socket *ts = TOTCP(socket);
+    struct tcp_socket *ts = TOTCP(s);
 
-    if (ts->base.type == xcm_socket_type_server)
+    if (s->type == xcm_socket_type_server)
 	return 0;
 
-    LOG_FINISH_REQ(socket);
+    LOG_FINISH_REQ(s);
 
-    try_finish_in_progress(ts);
+    try_finish_in_progress(s);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
 
-    TP_RET_ERR_IF_STATE(ts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ts, conn_state_closed, EPIPE);
 
     if (ts->conn.state == conn_state_resolving ||
         ts->conn.state == conn_state_connecting ||
         (ts->conn.state == conn_state_ready &&
          mbuf_is_complete(&ts->conn.send_mbuf))) {
-        LOG_FINISH_SAY_BUSY(socket, state_name(ts->conn.state));
+        LOG_FINISH_SAY_BUSY(s, state_name(ts->conn.state));
         errno = EAGAIN;
         return -1;
     }
 
-    LOG_FINISH_SAY_FREE(socket);
+    LOG_FINISH_SAY_FREE(s);
 
     ut_assert(ts->conn.state == conn_state_ready);
 
     return 0;
 }
 
-static const char *tcp_remote_addr(struct xcm_socket *conn_socket,
+static const char *tcp_remote_addr(struct xcm_socket *conn_s,
 				   bool suppress_tracing)
 {
-    struct tcp_socket *ts = TOTCP(conn_socket);
-
-    if (ts->base.type != xcm_socket_type_conn) {
-	if (!suppress_tracing)
-	    LOG_SOCKET_INVALID_TYPE(conn_socket);
-	errno = EINVAL;
-	return NULL;
-    }
+    struct tcp_socket *ts = TOTCP(conn_s);
 
     struct sockaddr_storage raddr;
     socklen_t raddr_len = sizeof(raddr);
 
     if (getpeername(ts->fd, (struct sockaddr*)&raddr, &raddr_len) < 0) {
 	if (!suppress_tracing)
-	    LOG_REMOTE_SOCKET_NAME_FAILED(TOGEN(conn_socket), errno);
+	    LOG_REMOTE_SOCKET_NAME_FAILED(conn_s, errno);
 	return NULL;
     }
 

@@ -43,25 +43,25 @@ void tp_sockaddr_to_tls_addr(struct sockaddr_storage *sock_addr,
 	}								\
     } while (0)
 
-#define TP_RET_ERR_CMP_STATE(_ts, _state, _cmp, _errno)			\
+#define TP_RET_ERR_CMP_STATE(_s, _ts, _state, _cmp, _errno)		\
     do {								\
 	if (_ts->conn.state _cmp _state) {				\
-	    LOG_SOCKET_INVALID_STATE(TOGEN(_ts), _ts->conn.state);	\
+	    LOG_SOCKET_INVALID_STATE(_s, _ts->conn.state);		\
 	    errno = _errno;						\
 	    return -1;							\
 	}								\
     } while (0)
 
-#define TP_RET_ERR_IF_STATE(_ts, _state, _errno)	\
-    TP_RET_ERR_CMP_STATE(_ts, _state, ==, _errno)
+#define TP_RET_ERR_IF_STATE(_s, _ts, _state, _errno)	\
+    TP_RET_ERR_CMP_STATE(_s, _ts, _state, ==, _errno)
 
-#define TP_RET_ERR_UNLESS_STATE(_ts, _state, _errno)	\
-    TP_RET_ERR_CMP_STATE(_ts, _state, !=, _errno)
+#define TP_RET_ERR_UNLESS_STATE(_s, _ts, _state, _errno)	\
+    TP_RET_ERR_CMP_STATE(_s, _ts, _state, !=, _errno)
 
-#define TP_RET_ERR_RC_UNLESS_TYPE(_ts, _t, _rc)				\
+#define TP_RET_ERR_RC_UNLESS_TYPE(_s, _t, _rc)				\
     do {								\
-	if (_ts->base.type != _t) {						\
-	    LOG_SOCKET_INVALID_TYPE(TOGEN(_ts));			\
+	if (_s->type != _t) {						\
+	    LOG_SOCKET_INVALID_TYPE(_s);				\
 	    errno = EINVAL;						\
 	    return _rc;							\
 	}								\
@@ -82,9 +82,9 @@ void tp_sockaddr_to_tls_addr(struct sockaddr_storage *sock_addr,
     } while (0)
 
 /* macro to make debug printouts function/line more appropriate */
-#define TP_SET_STATE(_ts, _state)					\
+#define TP_SET_STATE(_s, _ts, _state)					\
     do {								\
-	LOG_STATE_CHANGE(TOGEN(_ts), _ts->conn.state, _state);		\
+	LOG_STATE_CHANGE(_s, (_ts)->conn.state, _state);		\
 	_ts->conn.state = _state;					\
     } while (0)
 
@@ -102,9 +102,7 @@ const char *tp_so_condition_name(int condition);
     ((_t) == xcm_socket_type_server ? TP_IS_VALID_SERVER_COND(_mask) :	\
      TP_IS_VALID_CONN_COND(_mask))
 
-#define TP_RET_ERR_IF_INVALID_COND(_ts, _condition) \
-    TP_RET_ERR_IF(!TP_IS_VALID_COND((_ts)->base.type, _condition), EINVAL)
-
-int64_t tp_get_next_sock_id();
+#define TP_RET_ERR_IF_INVALID_COND(_s, _condition) \
+    TP_RET_ERR_IF(!TP_IS_VALID_COND((_s)->type, _condition), EINVAL)
 
 #endif

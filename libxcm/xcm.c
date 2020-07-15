@@ -33,6 +33,54 @@ static void init(void)
 	log_console_conf(true);
 }
 
+/* socket id, unique on a per-process basis */
+static pthread_mutex_t next_id_lock = PTHREAD_MUTEX_INITIALIZER;
+static int64_t next_id = 0;
+
+static int64_t get_next_sock_id(void)
+{
+    int64_t nid;
+    ut_mutex_lock(&next_id_lock);
+    nid = next_id++;
+    ut_mutex_unlock(&next_id_lock);
+    return nid;
+}
+
+static void enable_ctl(struct xcm_socket *s)
+{
+#ifdef XCM_CTL
+    s->ctl = ctl_create(s);
+#endif
+}
+
+static struct xcm_socket *socket_create(struct xcm_tp_proto *proto,
+					enum xcm_socket_type type,
+					bool is_blocking)
+{
+    size_t priv_size = proto->ops->priv_size(type);
+    struct xcm_socket *s = ut_malloc(sizeof(struct xcm_socket) + priv_size);
+    s->proto = proto;
+    s->type = type;
+    s->is_blocking = is_blocking;
+    s->sock_id = get_next_sock_id();
+#ifdef XCM_CTL
+    s->ctl = NULL;
+#endif
+    memset(&s->cnt, 0, sizeof(struct cnt_conn));
+
+    return s;
+}
+
+static void socket_destroy(struct xcm_socket *s, bool owner)
+{
+    if (s != NULL) {
+#ifdef XCM_CTL
+	ctl_destroy(s->ctl, owner);
+#endif
+	ut_free(s);
+    }
+}
+
 static void translate_fd_event(int xcm_fd, int xcm_fd_events,
 			       struct pollfd *pfd)
 {
@@ -48,11 +96,11 @@ static void translate_fd_event(int xcm_fd, int xcm_fd_events,
 
 #define MAX_FDS (8)
 
-static int want(struct xcm_socket *socket, int condition, int *fds,
+static int want(struct xcm_socket *s, int condition, int *fds,
 		int *events, size_t capacity)
 {
     int num_sock_fds =
-	XCM_TP_GETOPS(socket)->want(socket, condition, fds, events, capacity);
+	XCM_TP_GETOPS(s)->want(s, condition, fds, events, capacity);
 
     /* XCM transport can service the application's request immediately */
     if (condition && num_sock_fds == 0)
@@ -62,10 +110,10 @@ static int want(struct xcm_socket *socket, int condition, int *fds,
 	return -1;
 
 #ifdef XCM_CTL
-    if (!socket->ctl)
+    if (!s->ctl)
 	return num_sock_fds;
 
-    int num_ctl_fds = ctl_want(socket->ctl, fds+num_sock_fds,
+    int num_ctl_fds = ctl_want(s->ctl, fds+num_sock_fds,
 			       events+num_sock_fds, capacity-num_sock_fds);
 
     /* ignore errors from ctl_want() */
@@ -78,20 +126,20 @@ static int want(struct xcm_socket *socket, int condition, int *fds,
 #endif
 }
 
-static void do_ctl(struct xcm_socket *socket)
+static void do_ctl(struct xcm_socket *s)
 {
 #ifdef XCM_CTL
-    if (socket->ctl)
-	ctl_process(socket->ctl);
+    if (s->ctl)
+	ctl_process(s->ctl);
 #endif
 }
 
-static int socket_wait(struct xcm_socket *conn_socket, int condition)
+static int socket_wait(struct xcm_socket *conn_s, int condition)
 {
     int fds[MAX_FDS];
     int events[MAX_FDS];
 
-    int num_fds = want(conn_socket, condition, fds, events, MAX_FDS);
+    int num_fds = want(conn_s, condition, fds, events, MAX_FDS);
 
     if (num_fds <= 0)
 	return num_fds;
@@ -104,22 +152,22 @@ static int socket_wait(struct xcm_socket *conn_socket, int condition)
 
     int rc = poll(pfds, num_fds, -1);
 
-    do_ctl(conn_socket);
+    do_ctl(conn_s);
 
     return rc > 0 ? 0 : -1;
 }
 
-static int finish(struct xcm_socket *conn_socket)
+static int finish(struct xcm_socket *conn_s)
 {
-    return XCM_TP_GETOPS(conn_socket)->finish(conn_socket);
+    return XCM_TP_GETOPS(conn_s)->finish(conn_s);
 }
 
-static int socket_finish(struct xcm_socket *socket)
+static int socket_finish(struct xcm_socket *s)
 {
     int f_rc;
-    while ((f_rc = finish(socket)) < 0 &&
+    while ((f_rc = finish(s)) < 0 &&
 	   (errno == EAGAIN || errno == EINPROGRESS)) {
-	if (socket_wait(socket, 0) < 0)
+	if (socket_wait(s, 0) < 0)
 	    return -1;
     }
     return f_rc;
@@ -127,194 +175,220 @@ static int socket_finish(struct xcm_socket *socket)
 
 struct xcm_socket *xcm_connect(const char *remote_addr, int flags)
 {
-    struct tp_proto *proto = xcm_tp_proto_by_addr(remote_addr);
+    struct xcm_tp_proto *proto = xcm_tp_proto_by_addr(remote_addr);
     if (!proto)
 	return NULL;
-    struct xcm_socket *s = proto->ops->connect(remote_addr);
 
-    if (s) {
-	xcm_socket_base_enable_ctl(s);
+    struct xcm_socket *s =
+	socket_create(proto, xcm_socket_type_conn, !(flags&XCM_NONBLOCK));
 
-	if (flags&XCM_NONBLOCK)
-	    s->is_blocking = false;
-	else {
-	    s->is_blocking = true;
-	    if (socket_finish(s) < 0) {
-		LOG_CONN_FAILED(s, errno);
-		UT_PROTECT_ERRNO(xcm_close(s));
-		s = NULL;
-	    }
-	}
+    if (XCM_TP_GETOPS(s)->connect(s, remote_addr) < 0) {
+	socket_destroy(s, true);
+	return NULL;
     }
+
+    if (s->is_blocking && socket_finish(s) < 0) {
+	LOG_CONN_FAILED(s, errno);
+	UT_PROTECT_ERRNO(xcm_close(s));
+	return NULL;
+    }
+
+    enable_ctl(s);
 
     return s;
 }
 
 struct xcm_socket *xcm_server(const char *local_addr)
 {
-    struct tp_proto *proto = xcm_tp_proto_by_addr(local_addr);
+    struct xcm_tp_proto *proto = xcm_tp_proto_by_addr(local_addr);
     if (!proto)
 	return NULL;
 
-    struct xcm_socket *s = proto->ops->server(local_addr);
-    if (s) {
-	xcm_socket_base_enable_ctl(s);
-	s->is_blocking = true;
+    struct xcm_socket *s = socket_create(proto, xcm_socket_type_server, true);
+
+    if (XCM_TP_GETOPS(s)->server(s, local_addr) < 0) {
+	socket_destroy(s, true);
+	return NULL;
     }
+
+    enable_ctl(s);
+
     return s;
 }
 
-int xcm_close(struct xcm_socket *socket)
+int xcm_close(struct xcm_socket *s)
 {
-    if (socket)
-	return XCM_TP_GETOPS(socket)->close(socket);
-    else
+    if (s) {
+	int rc = XCM_TP_GETOPS(s)->close(s);
+	socket_destroy(s, true);
+	return rc;
+    } else
 	return 0;
 }
 
-void xcm_cleanup(struct xcm_socket *socket)
+void xcm_cleanup(struct xcm_socket *s)
 {
-    if (socket)
-	XCM_TP_GETOPS(socket)->cleanup(socket);
-}
-
-struct xcm_socket *xcm_accept(struct xcm_socket *server_socket)
-{
-    do_ctl(server_socket);
-
-    if (server_socket->is_blocking) {
-	for (;;) {
-	    if (socket_wait(server_socket, XCM_SO_ACCEPTABLE) < 0)
-		return NULL;
-	    struct xcm_socket *conn_socket =
-		XCM_TP_GETOPS(server_socket)->accept(server_socket);
-
-	    if (conn_socket) {
-		xcm_socket_base_enable_ctl(conn_socket);
-
-		conn_socket->is_blocking = true;
-		if (socket_finish(conn_socket) < 0) {
-		    UT_PROTECT_ERRNO(xcm_close(conn_socket));
-		    return NULL;
-		}
-		ut_assert(conn_socket->is_blocking);
-		return conn_socket;
-	    } else if (errno != EAGAIN)
-		return NULL;
-	}
-    } else {
-	struct xcm_socket *conn_socket =
-	    XCM_TP_GETOPS(server_socket)->accept(server_socket);
-	if (conn_socket) {
-	    xcm_socket_base_enable_ctl(conn_socket);
-	    conn_socket->is_blocking = false;
-	}
-	return conn_socket;
+    if (s) {
+	XCM_TP_GETOPS(s)->cleanup(s);
+	socket_destroy(s, false);
     }
 }
 
-int xcm_send(struct xcm_socket *conn_socket, const void *buf, size_t len)
+struct xcm_socket *xcm_accept(struct xcm_socket *server_s)
 {
-    do_ctl(conn_socket);
+    do_ctl(server_s);
 
-    if (conn_socket->is_blocking) {
+    TP_RET_ERR_RC_UNLESS_TYPE(server_s, xcm_socket_type_server, NULL);
+
+    struct xcm_socket *conn_s =
+	socket_create(server_s->proto, xcm_socket_type_conn,
+		      server_s->is_blocking);
+
+    if (server_s->is_blocking) {
+	for (;;) {
+	    if (socket_wait(server_s, XCM_SO_ACCEPTABLE) < 0)
+		goto err_destroy;
+
+	    if (XCM_TP_GETOPS(server_s)->accept(conn_s, server_s) < 0) {
+		if (errno == EAGAIN)
+		    continue;
+		goto err_destroy;
+	    }
+
+	    if (socket_finish(conn_s) < 0) {
+		UT_PROTECT_ERRNO(xcm_close(conn_s));
+		return NULL;
+	    }
+	    break;
+	}
+    } else {
+	if (XCM_TP_GETOPS(server_s)->accept(conn_s, server_s) < 0)
+	    goto err_destroy;
+    }
+
+    enable_ctl(conn_s);
+
+    return conn_s;
+
+err_destroy:
+    socket_destroy(conn_s, true);
+    return NULL;
+}
+
+int xcm_send(struct xcm_socket *conn_s, const void *buf, size_t len)
+{
+    do_ctl(conn_s);
+
+    TP_RET_ERR_UNLESS_TYPE(conn_s, xcm_socket_type_conn);
+
+    if (conn_s->is_blocking) {
 	int s_rc;
 	do {
-	    s_rc = XCM_TP_GETOPS(conn_socket)->send(conn_socket, buf, len);
+	    s_rc = XCM_TP_GETOPS(conn_s)->send(conn_s, buf, len);
 	    if (s_rc < 0) {
 		if (errno != EAGAIN)
 		    return s_rc;
-		if (socket_wait(conn_socket, XCM_SO_SENDABLE) < 0)
+		if (socket_wait(conn_s, XCM_SO_SENDABLE) < 0)
 		    return -1;
 	    }
 	} while (s_rc < 0);
 
-	return socket_finish(conn_socket);
+	return socket_finish(conn_s);
     } else
-	return XCM_TP_GETOPS(conn_socket)->send(conn_socket, buf, len);
+	return XCM_TP_GETOPS(conn_s)->send(conn_s, buf, len);
 }
 
-int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity)
+int xcm_receive(struct xcm_socket *conn_s, void *buf, size_t capacity)
 {
-    do_ctl(conn_socket);
+    do_ctl(conn_s);
 
-    if (conn_socket->is_blocking) {
+    TP_RET_ERR_UNLESS_TYPE(conn_s, xcm_socket_type_conn);
+
+    if (conn_s->is_blocking) {
 	for (;;) {
-	    if (socket_wait(conn_socket, XCM_SO_RECEIVABLE) < 0)
+	    if (socket_wait(conn_s, XCM_SO_RECEIVABLE) < 0)
 		return -1;
-	    int s_rc = XCM_TP_GETOPS(conn_socket)->receive(conn_socket, buf,
+	    int s_rc = XCM_TP_GETOPS(conn_s)->receive(conn_s, buf,
 							   capacity);
 
 	    if (s_rc != -1 || errno != EAGAIN)
 		return s_rc;
 	}
     } else
-	return XCM_TP_GETOPS(conn_socket)->receive(conn_socket, buf, capacity);
+	return XCM_TP_GETOPS(conn_s)->receive(conn_s, buf, capacity);
 }
 
-int xcm_want(struct xcm_socket *socket, int condition, int *fds,
+int xcm_want(struct xcm_socket *s, int condition, int *fds,
 	     int *events, size_t capacity)
 {
-    TP_RET_ERR_IF(socket->is_blocking, EINVAL);
-    return want(socket, condition, fds, events, capacity);
+    TP_RET_ERR_IF(s->is_blocking, EINVAL);
+    TP_RET_ERR_IF_INVALID_COND(s, condition);
+    return want(s, condition, fds, events, capacity);
 }
 
-int xcm_finish(struct xcm_socket *socket)
+int xcm_finish(struct xcm_socket *s)
 {
-    do_ctl(socket);
+    do_ctl(s);
 
-    TP_RET_ERR_IF(socket->is_blocking, EINVAL);
+    TP_RET_ERR_IF(s->is_blocking, EINVAL);
 
-    return finish(socket);
+    return finish(s);
 }
 
-int xcm_set_blocking(struct xcm_socket *socket, bool should_block)
+int xcm_set_blocking(struct xcm_socket *s, bool should_block)
 {
-    LOG_SET_BLOCKING(socket, should_block);
+    LOG_SET_BLOCKING(s, should_block);
 
-    if (socket->is_blocking == should_block) {
-	LOG_BLOCKING_UNCHANGED(socket);
+    if (s->is_blocking == should_block) {
+	LOG_BLOCKING_UNCHANGED(s);
 	return 0;
     }
 
     /* API calls for outstanding operations to be finished when
        switching from non-blocking to blocking */
-    if (!socket->is_blocking) {
-	LOG_BLOCKING_FINISHING_WORK(socket);
-	if (socket_finish(socket) < 0)
+    if (!s->is_blocking) {
+	LOG_BLOCKING_FINISHING_WORK(s);
+	if (socket_finish(s) < 0)
 	    return -1;
     }
 
-    LOG_BLOCKING_CHANGED(socket);
+    LOG_BLOCKING_CHANGED(s);
 
-    socket->is_blocking = should_block;
+    s->is_blocking = should_block;
 
     return 0;
 }
 
-bool xcm_is_blocking(struct xcm_socket *socket)
+bool xcm_is_blocking(struct xcm_socket *s)
 {
-    return socket->is_blocking;
+    return s->is_blocking;
 }
 
-const char *xcm_remote_addr(struct xcm_socket *conn_socket)
+const char *xcm_remote_addr(struct xcm_socket *conn_s)
 {
-    return XCM_TP_GETOPS(conn_socket)->remote_addr(conn_socket, false);
+    TP_RET_ERR_RC_UNLESS_TYPE(conn_s, xcm_socket_type_conn, NULL);
+
+    return XCM_TP_GETOPS(conn_s)->remote_addr(conn_s, false);
 }
 
-const char *xcm_local_addr(struct xcm_socket *socket)
+const char *xcm_local_addr(struct xcm_socket *s)
 {
-    return XCM_TP_GETOPS(socket)->local_addr(socket, false);
+    return XCM_TP_GETOPS(s)->local_addr(s, false);
 }
 
-const char *xcm_remote_addr_notrace(struct xcm_socket *conn_socket)
+const char *xcm_remote_addr_notrace(struct xcm_socket *conn_s)
 {
-    return XCM_TP_GETOPS(conn_socket)->remote_addr(conn_socket, true);
+    if (conn_s->type != xcm_socket_type_conn) {
+	errno = EINVAL;
+	return NULL;
+    }
+
+    return XCM_TP_GETOPS(conn_s)->remote_addr(conn_s, true);
 }
 
-const char *xcm_local_addr_notrace(struct xcm_socket *socket)
+const char *xcm_local_addr_notrace(struct xcm_socket *s)
 {
-    return XCM_TP_GETOPS(socket)->local_addr(socket, true);
+    return XCM_TP_GETOPS(s)->local_addr(s, true);
 }
 
 static int str_attr(const char *value, enum xcm_attr_type *type,
@@ -353,7 +427,7 @@ static int get_type_attr(struct xcm_socket *s, enum xcm_attr_type *type,
 static int get_transport_attr(struct xcm_socket *s, enum xcm_attr_type *type,
 			      void *value, size_t capacity)
 {
-    return str_attr(xcm_tp_proto_by_ops(s->ops)->name, type, value, capacity);
+    return str_attr(s->proto->name, type, value, capacity);
 }
 
 static int addr_to_attr(const char *addr, enum xcm_attr_type *type,
@@ -498,7 +572,8 @@ static void get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data,
 	    enum xcm_attr_type type;
 	    char value[XCM_ATTR_VALUE_MAX];
 	    UT_SAVE_ERRNO;
-	    int rc = xcm_attr_get(s, attrs[i].name, &type, value, sizeof(value));
+	    int rc = xcm_attr_get(s, attrs[i].name, &type,
+				  value, sizeof(value));
 	    UT_RESTORE_ERRNO_DC;
 	    if (rc >= 0)
 		cb(attrs[i].name, type, value, rc, cb_data);
@@ -519,7 +594,7 @@ void xcm_attr_get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data)
 }
 
 /* not a part of the library ABI - for internal use only */
-int64_t xcm_sock_id(struct xcm_socket *socket)
+int64_t xcm_sock_id(struct xcm_socket *s)
 {
-    return socket->sock_id;
+    return s->sock_id;
 }

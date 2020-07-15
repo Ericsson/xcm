@@ -19,8 +19,6 @@
 #include <stdlib.h>
 #include <errno.h>
 
-int ut_max(int a, int b);
-int ut_min(int a, int b);
 
 void ut_mutex_lock(pthread_mutex_t *m);
 void ut_mutex_unlock(pthread_mutex_t *m);
@@ -105,5 +103,19 @@ void _ut_lassert_failed(const char* expr, const char* file, int line);
 	stmt;					\
 	errno = _errno;				\
     } while (0)
+
+#define UT_MAX(a, b)				\
+    ({						\
+	typeof(a) _a = a;			\
+	typeof(b) _b = b;			\
+	_a > _b ? _a : _b;			\
+    })
+
+#define UT_MIN(a, b)				\
+    ({						\
+	typeof(a) _a = a;			\
+	typeof(b) _b = b;			\
+	_a < _b ? _a : _b;			\
+    })
 
 #endif

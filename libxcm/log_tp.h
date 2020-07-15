@@ -124,7 +124,7 @@ static inline const char *log_family_str(sa_family_t family)
 #define LOG_CLEANING_UP(s) \
     log_debug_sock(s, "Cleaning up socket.")
 
-#define LOG_ACCEPT_REQ(server_sock)					\
+#define LOG_ACCEPT_REQ(s)					\
     log_debug_sock(s, "Attempting to accept new connection.")
 
 #define LOG_ACCEPT_FAILED(server_sock, reason_errno)			\

@@ -717,7 +717,7 @@ TESTCASE_SERIALIZED(xcm, backpressure_with_slow_server)
 		}
 	    }
 
-	    max_in_flight = ut_max(max_in_flight, num_sent-num_received);
+	    max_in_flight = UT_MAX(max_in_flight, num_sent-num_received);
 
 	    do {
 		rc = xcm_receive(conn, buf, sizeof(buf));
@@ -2427,7 +2427,7 @@ TESTCASE(xcm, garbled_tcp_input)
     return UTEST_SUCCESS;
 }
 
-/* max length for abstract UNIX names */
+/* max length for UNIX domain socket names */
 #define UX_NAME_MAX (107)
 
 static void append_char(char *s, char c)

@@ -316,7 +316,7 @@ static void run_throughput_client(struct xcm_socket *conn,
 
     int left;
     for (left = num_rt; left > 0;) {
-	int this_batch = ut_min(left, batch_size);
+	int this_batch = UT_MIN(left, batch_size);
 
         int i;
         for (i = 0; i < this_batch;) {

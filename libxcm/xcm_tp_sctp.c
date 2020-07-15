@@ -36,8 +36,6 @@ enum conn_state { conn_state_none, conn_state_resolving,
 
 struct sctp_socket
 {
-    struct xcm_socket base;
-
     int fd;
 
     char laddr[XCM_ADDR_MAX];
@@ -58,14 +56,16 @@ struct sctp_socket
     };
 };
 
-#define TOSCTP(ptr) ((struct sctp_socket*)(ptr))
-#define TOGEN(ptr) ((struct xcm_socket*)(ptr))
+#define TOSCTP(s) XCM_TP_GETPRIV(s, struct sctp_socket)
 
-static struct xcm_socket *sctp_connect(const char *remote_addr);
-static struct xcm_socket *sctp_server(const char *local_addr);
+#define SCTP_SET_STATE(_s, _state)		\
+    TP_SET_STATE(_s, TOSCTP(_s), _state)
+
+static int sctp_connect(struct xcm_socket *s, const char *remote_addr);
+static int sctp_server(struct xcm_socket *s, const char *local_addr);
 static int sctp_close(struct xcm_socket *s);
 static void sctp_cleanup(struct xcm_socket *s);
-static struct xcm_socket *sctp_accept(struct xcm_socket *s);
+static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len);
 static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity);
 static int sctp_want(struct xcm_socket *conn_socket, int condition, int *fd,
@@ -78,6 +78,7 @@ static const char *sctp_local_addr(struct xcm_socket *socket,
 static size_t sctp_max_msg(struct xcm_socket *conn_socket);
 static void sctp_get_attrs(struct xcm_tp_attr **attr_list,
                            size_t *attr_list_len);
+static size_t sctp_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops sctp_ops = {
     .connect = sctp_connect,
@@ -92,13 +93,19 @@ static struct xcm_tp_ops sctp_ops = {
     .remote_addr = sctp_remote_addr,
     .local_addr = sctp_local_addr,
     .max_msg = sctp_max_msg,
-    .get_attrs = sctp_get_attrs
+    .get_attrs = sctp_get_attrs,
+    .priv_size = sctp_priv_size
 };
 
 static void init(void) __attribute__((constructor));
 static void init(void)
 {
     xcm_tp_register(XCM_SCTP_PROTO, &sctp_ops);
+}
+
+static size_t sctp_priv_size(enum xcm_socket_type type)
+{
+    return sizeof(struct sctp_socket);
 }
 
 static const char *state_name(enum conn_state state)
@@ -114,8 +121,10 @@ static const char *state_name(enum conn_state state)
     }
 }
 
-static void assert_conn_socket(struct sctp_socket *ss)
+static void assert_conn_socket(struct xcm_socket *s)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
     switch (ss->conn.state) {
     case conn_state_none:
 	ut_assert(0);
@@ -136,13 +145,13 @@ static void assert_conn_socket(struct sctp_socket *ss)
     }
 }
 
-static void assert_socket(struct sctp_socket *ss)
+static void assert_socket(struct xcm_socket *s)
 {
-    ut_assert(ss->base.ops == &sctp_ops);
+    ut_assert(XCM_TP_GETOPS(s) == &sctp_ops);
 
-    switch (ss->base.type) {
+    switch (s->type) {
     case xcm_socket_type_conn:
-	assert_conn_socket(ss);
+	assert_conn_socket(s);
 	break;
     case xcm_socket_type_server:
 	break;
@@ -152,30 +161,29 @@ static void assert_socket(struct sctp_socket *ss)
     }
 }
 
-static struct sctp_socket *alloc_socket(enum xcm_socket_type type)
+static void init_socket(struct xcm_socket *s)
 {
-    struct sctp_socket *s = ut_malloc(sizeof(struct sctp_socket));
+    struct sctp_socket *ss = TOSCTP(s);
 
-    xcm_socket_base_init(&s->base, &sctp_ops, type);
+    ss->laddr[0] = '\0';
 
-    s->laddr[0] = '\0';
-
-    if (type == xcm_socket_type_conn) {
-	s->conn.state = conn_state_none;
-
-	s->conn.badness_reason = 0;
-
-        s->conn.query = NULL;
-
-	s->conn.raddr[0] = '\0';
+    if (s->type == xcm_socket_type_conn) {
+	ss->conn.state = conn_state_none;
+	ss->conn.badness_reason = 0;
+        ss->conn.query = NULL;
+	ss->conn.raddr[0] = '\0';
     }
 
-    s->fd = -1;
-
-    return s;
+    ss->fd = -1;
 }
 
-static int init_socket(struct sctp_socket *ss, sa_family_t family)
+static void deinit_socket(struct xcm_socket *s)
+{
+    if (s->type == xcm_socket_type_conn)
+	xcm_dns_query_free(TOSCTP(s)->conn.query);
+}
+
+static int create_socket(struct xcm_socket *s, sa_family_t family)
 {
     int fd = socket(family, SOCK_STREAM, IPPROTO_SCTP);
     if (fd < 0) {
@@ -188,7 +196,7 @@ static int init_socket(struct sctp_socket *ss, sa_family_t family)
 	goto err_close;
     }
 
-    ss->fd = fd;
+    TOSCTP(s)->fd = fd;
 
     return 0;
 
@@ -196,14 +204,6 @@ static int init_socket(struct sctp_socket *ss, sa_family_t family)
     UT_PROTECT_ERRNO(close(fd));
  err:
     return -1;
-}
-
-static void free_socket(struct sctp_socket *s, bool owner)
-{
-    if (s) {
-	xcm_socket_base_deinit(&s->base, owner);
-	free(s);
-    }
 }
 
 static int disable_sctp_nagle(int fd)
@@ -264,13 +264,15 @@ static int set_sctp_conn_opts(int fd)
     return 0;
 }
 
-static void begin_connect(struct sctp_socket *ss)
+static void begin_connect(struct xcm_socket *s)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
     ut_assert(ss->conn.remote_host.type == xcm_addr_type_ip);
 
     UT_SAVE_ERRNO;
 
-    if (init_socket(ss, ss->conn.remote_host.ip.family) < 0)
+    if (create_socket(s, ss->conn.remote_host.ip.family) < 0)
 	goto err;
 
     if (set_sctp_conn_opts(ss->fd) < 0)
@@ -282,29 +284,31 @@ static void begin_connect(struct sctp_socket *ss)
 
     if (connect(ss->fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
-	    LOG_CONN_FAILED(TOGEN(ss), errno);
+	    LOG_CONN_FAILED(s, errno);
 	    goto err;
 	} else
-	    LOG_CONN_IN_PROGRESS(TOGEN(ss));
+	    LOG_CONN_IN_PROGRESS(s);
     } else {
-	TP_SET_STATE(ss, conn_state_ready);
-	LOG_TCP_CONN_ESTABLISHED(TOGEN(ss));
+	SCTP_SET_STATE(s, conn_state_ready);
+	LOG_TCP_CONN_ESTABLISHED(s);
     }
 
     UT_RESTORE_ERRNO_DC;
 
-    assert_socket(ss);
+    assert_socket(s);
 
     return;
 
  err:
-    TP_SET_STATE(ss, conn_state_bad);
+    SCTP_SET_STATE(s, conn_state_bad);
     UT_RESTORE_ERRNO(bad_errno);
     ss->conn.badness_reason = bad_errno;
 }
 
-static void try_finish_resolution(struct sctp_socket *ss)
+static void try_finish_resolution(struct xcm_socket *s)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
     struct xcm_addr_ip ip;
 
     UT_SAVE_ERRNO;
@@ -315,15 +319,15 @@ static void try_finish_resolution(struct sctp_socket *ss)
         if (query_errno == EAGAIN)
             return;
 
-        TP_SET_STATE(ss, conn_state_bad);
+        SCTP_SET_STATE(s, conn_state_bad);
         ut_assert(query_errno != EAGAIN);
         ut_assert(query_errno != 0);
         ss->conn.badness_reason = query_errno;
     } else {
-        TP_SET_STATE(ss, conn_state_connecting);
+        SCTP_SET_STATE(s, conn_state_connecting);
         ss->conn.remote_host.type = xcm_addr_type_ip;
         ss->conn.remote_host.ip = ip;
-        begin_connect(ss);
+        begin_connect(s);
     }
 
     /* It's important to close the query after begin_connect(), since
@@ -335,16 +339,18 @@ static void try_finish_resolution(struct sctp_socket *ss)
     ss->conn.query = NULL;
 }
 
-static void try_finish_connect(struct sctp_socket *ss)
+static void try_finish_connect(struct xcm_socket *s)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
     switch (ss->conn.state) {
     case conn_state_resolving:
         xcm_dns_query_process(ss->conn.query);
         if (xcm_dns_query_want(ss->conn.query, NULL, NULL, 0) == 0)
-            try_finish_resolution(ss);
+            try_finish_resolution(s);
         break;
     case conn_state_connecting:
-        LOG_SCTP_CONN_CHECK(TOGEN(ss));
+        LOG_SCTP_CONN_CHECK(s);
 
         UT_SAVE_ERRNO;
         int rc = ut_established(ss->fd);
@@ -352,14 +358,14 @@ static void try_finish_connect(struct sctp_socket *ss)
 
         if (rc < 0) {
             if (connect_errno != EINPROGRESS) {
-                LOG_CONN_FAILED(TOGEN(ss), connect_errno);
-                TP_SET_STATE(ss, conn_state_bad);
+                LOG_CONN_FAILED(s, connect_errno);
+                SCTP_SET_STATE(s, conn_state_bad);
                 ss->conn.badness_reason = connect_errno;
             } else
-                LOG_CONN_IN_PROGRESS(TOGEN(ss));
+                LOG_CONN_IN_PROGRESS(s);
         } else {
-            LOG_SCTP_CONN_ESTABLISHED(TOGEN(ss));
-            TP_SET_STATE(ss, conn_state_ready);
+            LOG_SCTP_CONN_ESTABLISHED(s);
+            SCTP_SET_STATE(s, conn_state_ready);
         }
         break;
     default:
@@ -367,48 +373,51 @@ static void try_finish_connect(struct sctp_socket *ss)
     }
 }
 
-static struct xcm_socket *sctp_connect(const char *remote_addr)
+static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(remote_addr);
 
-    struct sctp_socket *ss = alloc_socket(xcm_socket_type_conn);
+    init_socket(s);
 
-    if (xcm_addr_parse_sctp(remote_addr, &ss->conn.remote_host,
+    struct sctp_socket *ss = TOSCTP(s);
+
+     if (xcm_addr_parse_sctp(remote_addr, &ss->conn.remote_host,
                             &ss->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err_free;
+	goto err_deinit;
     }
 
     if (ss->conn.remote_host.type == xcm_addr_type_name) {
-        TP_SET_STATE(ss, conn_state_resolving);
+        SCTP_SET_STATE(s, conn_state_resolving);
         ss->conn.query =
-            xcm_dns_resolve(TOGEN(ss), ss->conn.remote_host.name);
+            xcm_dns_resolve(s, ss->conn.remote_host.name);
         if (!ss->conn.query)
-            goto err_close;
+            goto err_deinit;
     } else {
-        TP_SET_STATE(ss, conn_state_connecting);
-        begin_connect(ss);
+        SCTP_SET_STATE(s, conn_state_connecting);
+        begin_connect(s);
     }
 
-    try_finish_connect(ss);
+    try_finish_connect(s);
 
     if (ss->conn.state == conn_state_bad) {
         errno = ss->conn.badness_reason;
         goto err_close;
     }
 
-    return TOGEN(ss);
+    return 0;
 
- err_close:
-    close(ss->fd);
- err_free:
-    free_socket(ss, true);
-    return NULL;
+err_close:
+    if (ss->fd >= 0)
+	UT_PROTECT_ERRNO(close(ss->fd));
+err_deinit:
+    deinit_socket(s);
+    return -1;
 }
 
 #define SCTP_CONN_BACKLOG (32)
 
-static struct xcm_socket *sctp_server(const char *local_addr)
+static int sctp_server(struct xcm_socket *s, const char *local_addr)
 {
     LOG_SERVER_REQ(local_addr);
 
@@ -420,18 +429,18 @@ static struct xcm_socket *sctp_server(const char *local_addr)
 	goto err;
     }
 
-    struct sctp_socket *s = alloc_socket(xcm_socket_type_server);
-    if (!s)
-	goto err;
+    init_socket(s);
 
-    if (xcm_dns_resolve_sync(TOGEN(s), &host) < 0)
-        goto err_free;
+    struct sctp_socket *ss = TOSCTP(s);
 
-    if (init_socket(s, host.ip.family) < 0)
-        goto err_free;
+    if (xcm_dns_resolve_sync(s, &host) < 0)
+        goto err_deinit;
+
+    if (create_socket(s, host.ip.family) < 0)
+        goto err_deinit;
 
     int on = 1;
-    if (setsockopt(s->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+    if (setsockopt(ss->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
 	LOG_SERVER_REUSEADDR_FAILED(errno);
 	goto err_close;
     }
@@ -439,39 +448,39 @@ static struct xcm_socket *sctp_server(const char *local_addr)
     struct sockaddr_storage addr;
     tp_ip_to_sockaddr(&host.ip, port, (struct sockaddr*)&addr);
 
-    if (bind(s->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (bind(ss->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
 	goto err_close;
     }
 
-    if (listen(s->fd, SCTP_CONN_BACKLOG) < 0) {
+    if (listen(ss->fd, SCTP_CONN_BACKLOG) < 0) {
 	LOG_SERVER_LISTEN_FAILED(errno);
 	goto err_close;
     }
 
-    if (ut_set_blocking(s->fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(TOGEN(s), errno);
+    if (ut_set_blocking(ss->fd, false) < 0) {
+	LOG_SET_BLOCKING_FAILED_FD(s, errno);
 	goto err_close;
     }
 
-    LOG_SERVER_CREATED_FD(TOGEN(s), s->fd);
+    LOG_SERVER_CREATED_FD(s, ss->fd);
 
-    return TOGEN(s);
- err_close:
-    UT_PROTECT_ERRNO(close(s->fd));
- err_free:
-    free_socket(s, true);
- err:
-    return NULL;
+    return 0;
+err_close:
+    UT_PROTECT_ERRNO(close(ss->fd));
+err_deinit:
+    deinit_socket(s);
+err:
+    return -1;
 }
 
-static int do_close(struct sctp_socket *ss, bool owner)
+static int do_close(struct xcm_socket *s)
 {
-    assert_socket(ss);
+    assert_socket(s);
 
-    int fd = ss->fd;
+    int fd = TOSCTP(s)->fd;
 
-    free_socket(ss, owner);
+    deinit_socket(s);
 
     return fd >= 0 ? close(fd): 0;
 }
@@ -479,30 +488,27 @@ static int do_close(struct sctp_socket *ss, bool owner)
 static int sctp_close(struct xcm_socket *s)
 {
     LOG_CLOSING(s);
-    struct sctp_socket *ss = TOSCTP(s);
-    return do_close(ss, true);
+    return do_close(s);
 }
 
 static void sctp_cleanup(struct xcm_socket *s)
 {
-    struct sctp_socket *ss = TOSCTP(s);
     LOG_CLEANING_UP(s);
-    (void)do_close(ss, false);
+    (void)do_close(s);
 }
 
-static struct xcm_socket *sctp_accept(struct xcm_socket *s)
+static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 {
-    struct sctp_socket *ss = TOSCTP(s);
+    struct sctp_socket *conn_ss = TOSCTP(conn_s);
+    struct sctp_socket *server_ss = TOSCTP(server_s);
 
-    assert_socket(ss);
+    assert_socket(server_s);
 
-    TP_RET_ERR_RC_UNLESS_TYPE(ss, xcm_socket_type_server, NULL);
-
-    LOG_ACCEPT_REQ(s);
+    LOG_ACCEPT_REQ(server_s);
 
     int conn_fd;
-    if ((conn_fd = ut_accept(ss->fd, NULL, NULL)) < 0) {
-	LOG_ACCEPT_FAILED(s, errno);
+    if ((conn_fd = ut_accept(server_ss->fd, NULL, NULL)) < 0) {
+	LOG_ACCEPT_FAILED(server_s, errno);
 	goto err;
     }
 
@@ -514,40 +520,36 @@ static struct xcm_socket *sctp_accept(struct xcm_socket *s)
 	goto err_close;
     }
 
-    struct sctp_socket *conn_s = alloc_socket(xcm_socket_type_conn);
-    if (!conn_s)
-	goto err_close;
+    init_socket(conn_s);
+    conn_ss->fd = conn_fd;
 
-    conn_s->fd = conn_fd;
-    TP_SET_STATE(conn_s, conn_state_ready);
+    SCTP_SET_STATE(conn_s, conn_state_ready);
 
-    LOG_CONN_ACCEPTED(TOGEN(conn_s), conn_s->fd);
+    LOG_CONN_ACCEPTED(conn_s, conn_ss->fd);
 
     assert_socket(conn_s);
 
-    return TOGEN(conn_s);
+    return 0;
 
  err_close:
     UT_PROTECT_ERRNO(close(conn_fd));
  err:
-    return NULL;
+    return -1;
 }
 
 static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
-    try_finish_connect(ss);
+    try_finish_connect(s);
 
     LOG_SEND_REQ(s, buf, len);
 
     TP_GOTO_ON_INVALID_MSG_SIZE(len, SCTP_MAX_MSG, err);
 
-    TP_RET_ERR_UNLESS_TYPE(ss, xcm_socket_type_conn);
+    TP_RET_ERR_IF_STATE(s, ss, conn_state_bad, ss->conn.badness_reason);
 
-    TP_RET_ERR_IF_STATE(ss, conn_state_bad, ss->conn.badness_reason);
-
-    TP_RET_ERR_IF_STATE(ss, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ss, conn_state_closed, EPIPE);
 
     int rc = send(ss->fd, buf, len, MSG_NOSIGNAL|MSG_EOR);
 
@@ -567,9 +569,9 @@ static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len)
     LOG_SEND_FAILED(s, errno);
     if (errno != EAGAIN) {
         if (errno == EPIPE)
-            TP_SET_STATE(ss, conn_state_closed);
+            SCTP_SET_STATE(s, conn_state_closed);
         else {
-            TP_SET_STATE(ss, conn_state_bad);
+            SCTP_SET_STATE(s, conn_state_bad);
             ss->conn.badness_reason = errno;
         }
     }
@@ -580,15 +582,13 @@ static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
-    assert_socket(ss);
+    assert_socket(s);
 
     LOG_RCV_REQ(s, buf, capacity);
 
-    TP_RET_ERR_UNLESS_TYPE(ss, xcm_socket_type_conn);
+    try_finish_connect(s);
 
-    try_finish_connect(ss);
-
-    TP_RET_ERR_IF_STATE(ss, conn_state_bad, ss->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ss, conn_state_bad, ss->conn.badness_reason);
 
     TP_RET_IF_STATE(ss, conn_state_closed, 0);
 
@@ -599,24 +599,26 @@ static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity)
 	CNT_MSG_INC(&s->cnt, from_lower, rc);
 	LOG_APP_DELIVERED(s, buf, rc);
 	CNT_MSG_INC(&s->cnt, to_app, rc);
-	return ut_min(rc, capacity);
+	return UT_MIN(rc, capacity);
     } else if (rc == 0) {
 	LOG_RCV_EOF(s);
-        TP_SET_STATE(ss, conn_state_closed);
+        SCTP_SET_STATE(s, conn_state_closed);
 	return 0;
     } else {
 	LOG_RCV_FAILED(s, errno);
         if (errno != EAGAIN) {
-            TP_SET_STATE(ss, conn_state_bad);
+            SCTP_SET_STATE(s, conn_state_bad);
             ss->conn.badness_reason = errno;
         }
 	return -1;
     }
 }
 
-static int conn_want(struct sctp_socket *ss, int condition, int *fds,
+static int conn_want(struct xcm_socket *s, int condition, int *fds,
 		     int *events, size_t capacity)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
     if (ss->conn.state == conn_state_resolving)
         return xcm_dns_query_want(ss->conn.query, fds, events, capacity);
 
@@ -639,9 +641,11 @@ static int conn_want(struct sctp_socket *ss, int condition, int *fds,
 	return 0;
 }
 
-static int server_want(struct sctp_socket *ss, int condition, int *fds,
+static int server_want(struct xcm_socket *s, int condition, int *fds,
 		       int *events)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
     if (condition & XCM_SO_ACCEPTABLE) {
 	events[0] = XCM_FD_READABLE;
 	fds[0] = ss->fd;
@@ -653,74 +657,63 @@ static int server_want(struct sctp_socket *ss, int condition, int *fds,
 static int sctp_want(struct xcm_socket *s, int condition,
 		    int *fds, int *events, size_t capacity)
 {
-    struct sctp_socket *ss = TOSCTP(s);
-
-    assert_socket(ss);
-
-    TP_RET_ERR_IF_INVALID_COND(ss, condition);
+    assert_socket(s);
 
     TP_RET_ERR_IF(capacity == 0, EOVERFLOW);
 
     int rc;
-    if (ss->base.type == xcm_socket_type_conn)
-	rc = conn_want(ss, condition, fds, events, capacity);
+    if (s->type == xcm_socket_type_conn)
+	rc = conn_want(s, condition, fds, events, capacity);
     else {
-	ut_assert(ss->base.type == xcm_socket_type_server);
-	rc = server_want(ss, condition, fds, events);
+	ut_assert(s->type == xcm_socket_type_server);
+	rc = server_want(s, condition, fds, events);
     }
 
-    LOG_WANT(TOGEN(ss), condition, fds, events, rc);
+    LOG_WANT(s, condition, fds, events, rc);
 
     return rc;
 }
 
-static int sctp_finish(struct xcm_socket *socket)
+static int sctp_finish(struct xcm_socket *s)
 {
-    struct sctp_socket *ss = TOSCTP(socket);
+    struct sctp_socket *ss = TOSCTP(s);
 
-    if (ss->base.type == xcm_socket_type_server)
+    if (s->type == xcm_socket_type_server)
 	return 0;
 
-    LOG_FINISH_REQ(socket);
+    LOG_FINISH_REQ(s);
 
-    try_finish_connect(ss);
+    try_finish_connect(s);
 
-    TP_RET_ERR_IF_STATE(ss, conn_state_bad, ss->conn.badness_reason);
+    TP_RET_ERR_IF_STATE(s, ss, conn_state_bad, ss->conn.badness_reason);
 
-    TP_RET_ERR_IF_STATE(ss, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, ss, conn_state_closed, EPIPE);
 
     if (ss->conn.state == conn_state_connecting ||
         ss->conn.state == conn_state_resolving) {
-	LOG_FINISH_SAY_BUSY(socket, state_name(ss->conn.state));
+	LOG_FINISH_SAY_BUSY(s, state_name(ss->conn.state));
 	errno = EAGAIN;
 	return -1;
     }
 
-    LOG_FINISH_SAY_FREE(socket);
+    LOG_FINISH_SAY_FREE(s);
 
     ut_assert(ss->conn.state == conn_state_ready);
 
     return 0;
 }
 
-static const char *sctp_remote_addr(struct xcm_socket *conn_socket,
-				   bool suppress_tracing)
+static const char *sctp_remote_addr(struct xcm_socket *s,
+				    bool suppress_tracing)
 {
-    struct sctp_socket *ss = TOSCTP(conn_socket);
-
-    if (ss->base.type != xcm_socket_type_conn) {
-	if (!suppress_tracing)
-	    LOG_SOCKET_INVALID_TYPE(conn_socket);
-	errno = EINVAL;
-	return NULL;
-    }
+    struct sctp_socket *ss = TOSCTP(s);
 
     struct sockaddr_storage raddr;
     socklen_t raddr_len = sizeof(raddr);
 
     if (getpeername(ss->fd, (struct sockaddr*)&raddr, &raddr_len) < 0) {
 	if (!suppress_tracing)
-	    LOG_REMOTE_SOCKET_NAME_FAILED(TOGEN(socket), errno);
+	    LOG_REMOTE_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
     }
 
@@ -729,17 +722,17 @@ static const char *sctp_remote_addr(struct xcm_socket *conn_socket,
     return ss->conn.raddr;
 }
 
-static const char *sctp_local_addr(struct xcm_socket *socket,
-				  bool suppress_tracing)
+static const char *sctp_local_addr(struct xcm_socket *s,
+				   bool suppress_tracing)
 {
-    struct sctp_socket *ss = TOSCTP(socket);
+    struct sctp_socket *ss = TOSCTP(s);
 
     struct sockaddr_storage laddr;
     socklen_t laddr_len = sizeof(laddr);
 
     if (getsockname(ss->fd, (struct sockaddr*)&laddr, &laddr_len) < 0) {
 	if (!suppress_tracing)
-	    LOG_LOCAL_SOCKET_NAME_FAILED(socket, errno);
+	    LOG_LOCAL_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
     }
 
@@ -748,7 +741,7 @@ static const char *sctp_local_addr(struct xcm_socket *socket,
     return ss->laddr;
 }
 
-static size_t sctp_max_msg(struct xcm_socket *conn_socket)
+static size_t sctp_max_msg(struct xcm_socket *s)
 {
     return SCTP_MAX_MSG;
 }

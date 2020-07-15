@@ -27,16 +27,6 @@
 #include <arpa/inet.h>
 #include <poll.h>
 
-int ut_max(int a, int b)
-{
-    return a > b ? a : b;
-}
-
-int ut_min(int a, int b)
-{
-    return a < b ? a : b;
-}
-
 void ut_mutex_lock(pthread_mutex_t *m)
 {
     int rc = pthread_mutex_lock(m);

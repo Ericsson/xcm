@@ -27,7 +27,7 @@
 /*
  * UNIX Domain Socket + TLS Transport
  *
- * 'utls' is a COM transport that uses UNIX Domain Sockets for local
+ * 'utls' is a XCM transport that uses UNIX Domain Sockets for local
  * (i.e. within the same OS container) connections, and TLS for
  * everything else.
  *
@@ -37,31 +37,27 @@
 
 struct utls_socket
 {
-    struct xcm_socket base;
-
-    char laddr[64];
+    char laddr[XCM_ADDR_MAX];
 
     struct xcm_socket *tls_socket;
     struct xcm_socket *ux_socket;
 };
 
-#define TOUTLS(ptr) ((struct utls_socket*)(ptr))
-#define TOGEN(ptr) ((struct xcm_socket*)(ptr))
+#define TOUTLS(s) XCM_TP_GETPRIV(s, struct utls_socket)
 
-static struct xcm_socket *utls_connect(const char *remote_addr);
-static struct xcm_socket *utls_server(const char *local_addr);
+static int utls_connect(struct xcm_socket *s, const char *remote_addr);
+static int utls_server(struct xcm_socket *s, const char *local_addr);
 static int utls_close(struct xcm_socket *s);
 static void utls_cleanup(struct xcm_socket *s);
-static struct xcm_socket *utls_accept(struct xcm_socket *s);
-static int utls_want(struct xcm_socket *conn_socket, int condition, int *fd,
+static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
+static int utls_want(struct xcm_socket *conn_s, int condition, int *fd,
 		     int *events, size_t capacity);
 static int utls_finish(struct xcm_socket *s);
-static const char *utls_remote_addr(struct xcm_socket *conn_socket,
-				    bool suppress_tracing);
 static const char *utls_local_addr(struct xcm_socket *socket,
 				   bool suppress_tracing);
 static void utls_get_attrs(struct xcm_tp_attr **attr_list,
 			   size_t *attr_list_len);
+static size_t utls_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops utls_ops = {
     .connect = utls_connect,
@@ -69,15 +65,13 @@ static struct xcm_tp_ops utls_ops = {
     .close = utls_close,
     .cleanup = utls_cleanup,
     .accept = utls_accept,
-    /* XXX: Implement the connection socket-only functions too, and
-       return appropriate error code in case they are called */
     .send = NULL,
     .receive = NULL,
     .want = utls_want,
     .finish = utls_finish,
-    .remote_addr = utls_remote_addr,
     .local_addr = utls_local_addr,
-    .get_attrs = utls_get_attrs
+    .get_attrs = utls_get_attrs,
+    .priv_size = utls_priv_size
 };
 
 static void init(void) __attribute__((constructor));
@@ -86,23 +80,46 @@ static void init(void)
     xcm_tp_register(XCM_UTLS_PROTO, &utls_ops);
 }
 
-static struct utls_socket *alloc_socket(void)
+static struct xcm_tp_proto *get_proto(const char *name,
+				      struct xcm_tp_proto **cached_proto)
 {
-    struct utls_socket *s = ut_malloc(sizeof(struct utls_socket));
+    struct xcm_tp_proto *proto =
+	__atomic_load_n(cached_proto, __ATOMIC_RELAXED);
 
-    xcm_socket_base_init(&s->base, &utls_ops, xcm_socket_type_server); 
+    if (proto == NULL) {
+	proto = xcm_tp_proto_by_name(name);
+	__atomic_store_n(cached_proto, proto, __ATOMIC_RELAXED);
+    }
 
-    s->laddr[0] = '\0';
-
-    return s;
+    return proto;
 }
 
-static void free_socket(struct utls_socket *s, bool owner)
+static struct xcm_tp_proto *tls_proto(void)
 {
-    if (s) {
-	xcm_socket_base_deinit(&s->base, owner);
-	free(s);
+    static struct xcm_tp_proto *tls_cached_proto = NULL;
+    return get_proto(XCM_TLS_PROTO, &tls_cached_proto);
+}
+
+static struct xcm_tp_proto *ux_proto(void)
+{
+    static struct xcm_tp_proto *ux_cached_proto = NULL;
+    return get_proto(XCM_UX_PROTO, &ux_cached_proto);
+}
+
+static size_t utls_priv_size(enum xcm_socket_type type)
+{
+    if (type == xcm_socket_type_server)
+	return sizeof(struct utls_socket);
+    else {
+	size_t tls_priv_data = tls_proto()->ops->priv_size(type);
+	size_t ux_priv_data = ux_proto()->ops->priv_size(type);
+	return UT_MAX(tls_priv_data, ux_priv_data);
     }
+}
+
+static void init_server_socket(struct xcm_socket *s)
+{
+    TOUTLS(s)->laddr[0] = '\0';
 }
 
 #define PROTO_SEP_LEN (1)
@@ -114,7 +131,7 @@ static void map_tls_to_ux(const char *tls_addr, char *ux_addr, size_t capacity)
     ut_assert(rc == 0);
 }
 
-static struct xcm_socket *utls_connect(const char *remote_addr)
+static int utls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(remote_addr);
 
@@ -122,7 +139,7 @@ static struct xcm_socket *utls_connect(const char *remote_addr)
     uint16_t port;
     if (xcm_addr_parse_utls(remote_addr, &host, &port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	return NULL;
+	return -1;
     }
 
     char tls_addr[XCM_ADDR_MAX];
@@ -135,17 +152,21 @@ static struct xcm_socket *utls_connect(const char *remote_addr)
     /* unlike TCP sockets, if the UX socket doesn't exists,
        ECONNREFUSED will be returned immediately, even for
        non-blocking connect */
-    struct xcm_socket *ux_conn = xcm_connect(ux_addr, XCM_NONBLOCK);
 
-    if (ux_conn)
-	return ux_conn;
+    s->proto = ux_proto();
+    if (XCM_TP_GETOPS(s)->connect(s, ux_addr) == 0)
+	return 0;
 
     if (errno != ECONNREFUSED)
-	return NULL;
+	return -1;
 
     LOG_UTLS_FALLBACK;
 
-    return xcm_connect(tls_addr, XCM_NONBLOCK);
+    s->proto = tls_proto();
+    if (XCM_TP_GETOPS(s)->connect(s, tls_addr) == 0)
+	return 0;
+
+    return -1;
 }
 
 static struct xcm_socket *server_nb(const char* addr)
@@ -160,7 +181,7 @@ static struct xcm_socket *server_nb(const char* addr)
     return s;
 }
 
-static struct xcm_socket *utls_server(const char *local_addr)
+static int utls_server(struct xcm_socket *s, const char *local_addr)
 {
     LOG_SERVER_REQ(local_addr);
 
@@ -171,9 +192,7 @@ static struct xcm_socket *utls_server(const char *local_addr)
 	goto err;
     }
 
-    struct utls_socket *s = alloc_socket();
-    if (!s)
-	goto err;
+    init_server_socket(s);
 
     /* XXX: how to handle "wildcard" 0.0.0.0 correctly? So the client
        can connect with 127.0.0.1, or any local IP, but end up on UX socket */
@@ -192,15 +211,16 @@ static struct xcm_socket *utls_server(const char *local_addr)
        would need some special hacks, and the not regular TCP
        transport API */
 
-    s->tls_socket = server_nb(tls_addr);
-    if (!s->tls_socket)
-	goto err_free;
+    struct utls_socket *us = TOUTLS(s);
+    us->tls_socket = server_nb(tls_addr);
+    if (!us->tls_socket)
+	goto err;
 
     const char *actual_addr;
     if (port == 0) {
 	/* application asked for automatic dynamic TCP port allocation
 	   - find out what the port actually is */
-	actual_addr = xcm_local_addr(s->tls_socket);
+	actual_addr = xcm_local_addr(us->tls_socket);
 	ut_assert(actual_addr);
 	int rc = xcm_addr_parse_tls(actual_addr, &host, &port);
 	ut_assert(rc == 0 && port > 0);
@@ -211,20 +231,18 @@ static struct xcm_socket *utls_server(const char *local_addr)
     char ux_addr[XCM_ADDR_MAX];
     map_tls_to_ux(actual_addr, ux_addr, sizeof(ux_addr));
 
-    s->ux_socket = server_nb(ux_addr);
-    if (!s->ux_socket)
+    us->ux_socket = server_nb(ux_addr);
+    if (!us->ux_socket)
 	goto err_close_tls;
 
-    LOG_SERVER_CREATED(TOGEN(s));
+    LOG_SERVER_CREATED(s);
 
-    return TOGEN(s);
+    return 0;
 
  err_close_tls:
-    xcm_close(s->tls_socket);
- err_free:
-    free_socket(s, true);
+    xcm_close(us->tls_socket);
  err:
-    return NULL;
+    return -1;
 }
 
 static int utls_close(struct xcm_socket *s)
@@ -233,7 +251,6 @@ static int utls_close(struct xcm_socket *s)
     struct utls_socket *us = TOUTLS(s);
     int ux_rc = xcm_close(us->ux_socket);
     int tls_rc = xcm_close(us->tls_socket);
-    free_socket(us, true);
     return ux_rc < 0 || tls_rc < 0 ? -1 : 0;
 }
 
@@ -243,29 +260,30 @@ static void utls_cleanup(struct xcm_socket *s)
     struct utls_socket *us = TOUTLS(s);
     xcm_cleanup(us->ux_socket);
     xcm_cleanup(us->tls_socket);
-    free_socket(us, false);
 }
 
-static struct xcm_socket *utls_accept(struct xcm_socket *s)
+static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 {
-    struct utls_socket *us = TOUTLS(s);
+    struct utls_socket *server_us = TOUTLS(server_s);
 
-    LOG_ACCEPT_REQ(s);
+    LOG_ACCEPT_REQ(server_s);
 
-    struct xcm_socket *conn = xcm_accept(us->ux_socket);
+    conn_s->proto = ux_proto();
+    if (XCM_TP_GETOPS(conn_s)->accept(conn_s, server_us->ux_socket) == 0)
+	return 0;
+	
+    conn_s->proto = tls_proto();
+    if (XCM_TP_GETOPS(conn_s)->accept(conn_s, server_us->tls_socket) == 0)
+	return 0;
 
-    if (conn)
-	return conn;
-
-    if (errno != EAGAIN)
-	return NULL;
-
-    return xcm_accept(us->tls_socket);
+    return -1;
 }
 
 static int utls_want(struct xcm_socket *s, int condition, int *fd, int *events,
 		     size_t capacity)
 {
+    ut_assert(s->type == xcm_socket_type_server);
+
     struct utls_socket *us = TOUTLS(s);
 
     int num_ux_fds = xcm_want(us->ux_socket, condition, fd, events, capacity);
@@ -300,14 +318,6 @@ static int utls_finish(struct xcm_socket *s)
 }
 
 const char *xcm_local_addr_notrace(struct xcm_socket *conn_socket);
-
-static const char *utls_remote_addr(struct xcm_socket *s, bool suppress_tracing)
-{
-    if (!suppress_tracing)
-	LOG_SOCKET_INVALID_TYPE(s);
-    errno = EINVAL;
-    return NULL;
-}
 
 static const char *utls_local_addr(struct xcm_socket *s, bool suppress_tracing)
 {

@@ -380,12 +380,12 @@ pid_t pingpong_run_async_server(const char *server_addr, int total_pings,
 	    for (i=0; i<num_server_fds; i++) {
 		fd_set_events(server_fds[i], server_events[i], &rfds,
 			      &wfds);
-		max_fd = ut_max(max_fd, server_fds[i]);
+		max_fd = UT_MAX(max_fd, server_fds[i]);
 	    }
 	} else
 	    assure_finish_ok(server_sock);
 
-	max_fd = ut_max(fill_fd_sets(clients, &rfds, &wfds), max_fd);
+	max_fd = UT_MAX(fill_fd_sets(clients, &rfds, &wfds), max_fd);
 
 	int rc = select(max_fd+1, &rfds, &wfds, NULL, NULL);
 
