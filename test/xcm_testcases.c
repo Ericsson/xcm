@@ -2437,6 +2437,11 @@ static void append_char(char *s, char c)
     s[len+1] = '\0';
 }
 
+static char rand_printable(void)
+{
+    return (char)tu_randint('a', 'z');
+}
+
 static char *gen_name(const char *proto, int len)
 {
     char *s = malloc(strlen(proto) + 1 + len + 1);
@@ -2446,7 +2451,7 @@ static char *gen_name(const char *proto, int len)
 
     int i;
     for (i=0; i<len; i++)
-	append_char(s, 'a');
+	append_char(s, rand_printable());
 
     return s;
 }
