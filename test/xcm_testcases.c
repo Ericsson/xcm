@@ -790,7 +790,9 @@ TESTCASE(xcm, non_blocking_non_orderly_tls_close)
 	   ++retries < NB_MAX_RETRIES)
 	tu_msleep(10);
 
-    CHK(rc == 0);
+    /* Dead process results in a TLS protocol violation */
+    CHKINTEQ(rc, -1);
+    CHKERRNOEQ(EPROTO);
 
     CHKNOERR(xcm_close(client_conn));
 

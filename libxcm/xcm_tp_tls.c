@@ -41,8 +41,7 @@
 
 enum conn_state { conn_state_none, conn_state_resolving,
                   conn_state_tcp_connecting, conn_state_tls_connecting,
-                  conn_state_tls_accepting, conn_state_tls_sending,
-                  conn_state_tls_receiving, conn_state_ready,
+                  conn_state_tls_accepting, conn_state_ready,
                   conn_state_bad, conn_state_closed };
 
 struct tls_socket
@@ -480,13 +479,16 @@ static void assert_conn_socket(struct xcm_socket *s)
         ut_assert(ts->conn.query);
         break;
     case conn_state_ready:
+	ut_assert(mbuf_is_empty(&ts->conn.send_mbuf) ||
+		  ts->conn.ssl_events);
+	ut_assert(!mbuf_is_partial(&ts->conn.receive_mbuf) ||
+		  ts->conn.ssl_events);
+	break;
     case conn_state_tcp_connecting:
 	ut_assert(ts->conn.ssl_events == 0);
 	break;
     case conn_state_tls_connecting:
     case conn_state_tls_accepting:
-    case conn_state_tls_sending:
-    case conn_state_tls_receiving:
 	ut_assert(ts->conn.ssl_events);
 	break;
     case conn_state_bad:
@@ -570,8 +572,6 @@ static const char *state_name(enum conn_state state)
     case conn_state_tcp_connecting: return "tcp connecting";
     case conn_state_tls_connecting: return "tls connecting";
     case conn_state_tls_accepting: return "tls accepting";
-    case conn_state_tls_sending: return "tls sending";
-    case conn_state_tls_receiving: return "tls receiving";
     case conn_state_ready: return "ready";
     case conn_state_bad: return "bad";
     case conn_state_closed: return "closed";
@@ -626,12 +626,12 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
             LOG_TLS_OPENSSL_SYSCALL_FAILURE(s, ssl_errno);
             /* those should be SSL_ERROR_WANT_READ/WRITE */
             ut_assert(ssl_errno != EAGAIN && ssl_errno != EWOULDBLOCK);
-            /* when using valgrind, you sometimes get EINPROGRESS for TCP sockets
-               already connected according to SO_ERROR */
+            /* when using valgrind, you sometimes get EINPROGRESS for
+               TCP sockets already connected according to SO_ERROR */
             if (ssl_errno == EINPROGRESS) {
                 LOG_TLS_SPURIOUS_EINPROGRESS(s);
-                /* we try again to see if we can finish TCP connect, even though
-                   we should have already */
+                /* we try again to see if we can finish TCP connect,
+                   even though we should have already */
                 ts->conn.ssl_events = XCM_FD_WRITABLE;
             } else if (ssl_errno == EPIPE || ssl_errno == 0) {
                 /* early close seems to yield errno == 0 */
@@ -1044,23 +1044,24 @@ static void try_finish_accept(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (ts->conn.state == conn_state_tls_accepting) {
-	LOG_TLS_HANDSHAKE(s);
+    if (ts->conn.state != conn_state_tls_accepting)
+	return;
 
-	ts->conn.ssl_events = 0;
+    LOG_TLS_HANDSHAKE(s);
 
-	UT_SAVE_ERRNO;
-	int rc = SSL_accept(ts->conn.ssl);
-	UT_RESTORE_ERRNO(accept_errno);
+    ts->conn.ssl_events = 0;
 
-	if (rc < 1)
-	    handle_ssl_error(s, rc, accept_errno);
-	else {
-	    TLS_SET_STATE(s, conn_state_ready);
-            verify_peer_cert(s);
-	    if (ts->conn.state == conn_state_ready)
-		LOG_TLS_CONN_ESTABLISHED(s);
-       }
+    UT_SAVE_ERRNO;
+    int rc = SSL_accept(ts->conn.ssl);
+    UT_RESTORE_ERRNO(accept_errno);
+
+    if (rc < 1)
+	handle_ssl_error(s, rc, accept_errno);
+    else {
+	TLS_SET_STATE(s, conn_state_ready);
+	verify_peer_cert(s);
+	if (ts->conn.state == conn_state_ready)
+	    LOG_TLS_CONN_ESTABLISHED(s);
     }
 }
 
@@ -1127,25 +1128,24 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return -1;
 }
 
+static void try_receive(struct xcm_socket *s);
+
 static void try_send(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
     struct mbuf *sbuf = &ts->conn.send_mbuf;
 
-    if (ts->conn.state == conn_state_ready &&
-	mbuf_is_complete(sbuf)) {
-	ut_assert(ts->conn.ssl_events == 0);
-	TLS_SET_STATE(s, conn_state_tls_sending);
-    } else if (ts->conn.state == conn_state_tls_sending) {
-	ut_assert(ts->conn.ssl_events);
-	ts->conn.ssl_events = 0;
-    } else
+    if (ts->conn.state != conn_state_ready)
+	return;
+    if (!mbuf_is_complete(sbuf))
 	return;
 
     UT_SAVE_ERRNO;
     int rc = SSL_write(ts->conn.ssl, mbuf_wire_start(sbuf),
 		       mbuf_wire_len(sbuf));
     UT_RESTORE_ERRNO(write_errno);
+
+    ts->conn.ssl_events = 0;
 
     if (rc == 0)
 	handle_ssl_close(s);
@@ -1156,10 +1156,14 @@ static void try_send(struct xcm_socket *s)
 	LOG_LOWER_DELIVERED_COMPL(s, mbuf_payload_start(sbuf),
 				  compl_len);
 	CNT_MSG_INC(&s->cnt, to_lower, compl_len);
-
 	mbuf_reset(sbuf);
-	TLS_SET_STATE(s, conn_state_ready);
     }
+
+    /* try_send() may clear ssl_events that corresponded to an in-progress
+       SSL_read(). Calling try_receive() will restore them. */
+    if (mbuf_is_partial(&ts->conn.receive_mbuf) && 
+	ts->conn.ssl_events == 0)
+	try_receive(s);
 }
 
 static int tls_send(struct xcm_socket *s, const void *buf, size_t len)
@@ -1205,17 +1209,13 @@ static int tls_send(struct xcm_socket *s, const void *buf, size_t len)
 static void buffer_read(struct xcm_socket *s, int len)
 {
     struct tls_socket *ts = TOTLS(s);
-    
-    assert_socket(s);
 
     while (len > 0) {
-	LOG_FILL_BUFFER_ATTEMPT(s, len);
-
-	if (ts->conn.state != conn_state_ready &&
-	    ts->conn.state != conn_state_tls_receiving)
+	if (ts->conn.state != conn_state_ready)
 	    return;
 
-	TLS_SET_STATE(s, conn_state_tls_receiving);
+	LOG_FILL_BUFFER_ATTEMPT(s, len);
+
 	ts->conn.ssl_events = 0;
 
         mbuf_wire_ensure_spare_capacity(&ts->conn.receive_mbuf, len);
@@ -1228,7 +1228,6 @@ static void buffer_read(struct xcm_socket *s, int len)
 	if (rc > 0) {
 	    LOG_BUFFERED(s, rc);
 	    mbuf_wire_appended(&ts->conn.receive_mbuf, rc);
-	    TLS_SET_STATE(s, conn_state_ready);
 	    len -= rc;
 	} else {
             handle_ssl_error(s, rc, read_errno);
@@ -1293,52 +1292,30 @@ static bool ssl_pending(struct xcm_socket *s)
     return false;
 }
 
-/* Avoid getting into the receiving state if there aren't any data in
-   SSL or on socket. This since the receiving state prevents any other
-   operations (read: xcm_send()). */
-static bool receive_pending(struct xcm_socket *s)
+static void buffer_msg(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (ssl_pending(s))
-        return true;
-
-    UT_SAVE_ERRNO;
-    char c;
-    ssize_t recv_rc = recv(socket_fd(s), &c, 1, MSG_PEEK);
-    UT_RESTORE_ERRNO(recv_errno);
-
-    if (recv_rc < 0) {
-	if (recv_errno != EAGAIN) {
-	    LOG_TLS_ERROR_PEEKING(s, recv_errno);
-	    TLS_SET_STATE(s, conn_state_bad);
-	    ts->conn.badness_reason = recv_errno;
-	}
-	return false;
-    } else if (recv_rc == 0) {
-	handle_ssl_close(s);
-	return false;
-    } else {
-	LOG_TLS_SOCKET_PENDING_DATA(s);
-	return true;
-    }
-}
-
-static void buffer_msg(struct xcm_socket *s)
-{
     buffer_hdr(s);
     buffer_payload(s);
+
+    /* After receiving a complete message, ssl_events that
+       corresponded to an in-progress SSL_write() may have bee
+       cleared. Calling try_send() will restore them. */
+    if (mbuf_is_complete(&ts->conn.send_mbuf) &&
+	ts->conn.ssl_events == 0)
+	try_send(s);
 }
 
 static void try_receive(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (ts->conn.state == conn_state_tls_receiving ||
-	(ts->conn.state == conn_state_ready &&
-	 !mbuf_is_complete(&ts->conn.receive_mbuf) &&
-	 receive_pending(s)))
-	buffer_msg(s);
+    if (ts->conn.state != conn_state_ready)
+	return;
+    if (mbuf_is_complete(&ts->conn.receive_mbuf))
+	return;
+    buffer_msg(s);
 }
 
 static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity)
@@ -1350,6 +1327,7 @@ static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity)
     LOG_RCV_REQ(s, buf, capacity);
 
     try_finish_in_progress(s);
+
     try_receive(s);
 
     TP_RET_ERR_IF_STATE(s, ts, conn_state_bad, ts->conn.badness_reason);
@@ -1407,29 +1385,33 @@ static int conn_want(struct xcm_socket *s, int condition, int *fds,
 	break;
     case conn_state_tls_connecting:
     case conn_state_tls_accepting:
-    case conn_state_tls_sending:
-    case conn_state_tls_receiving:
 	ev = ts->conn.ssl_events;
 	break;
-    case conn_state_ready:
-	if (condition & XCM_SO_SENDABLE)
-	    ev |= XCM_FD_WRITABLE;
-	if (condition & XCM_SO_RECEIVABLE) {
-	    /* if XCM has buffered a complete message, or there are
-               data pending in the SSL layer, and the application
-               wants to read, it shouldn't go into select() */
-	    if (mbuf_is_complete(&ts->conn.receive_mbuf) ||
-                ssl_pending(s))
-		ev = 0;
-	    else
-		ev |= XCM_FD_READABLE;
-	}
+    case conn_state_ready: {
+	struct mbuf *rbuf = &ts->conn.receive_mbuf;
+	struct mbuf *sbuf = &ts->conn.send_mbuf;
+
+	if (condition & XCM_SO_SENDABLE && mbuf_is_empty(sbuf))
+	    break;
+	if (condition & XCM_SO_RECEIVABLE &&
+	    (mbuf_is_complete(rbuf) || ssl_pending(s)))
+	    break;
+
+	/* XXX: If the application wants to both wait for the socket
+	   becoming SENDABLE or RECEIVABLE, we are in a bit of a
+	   trouble, since OpenSSL has no way of conveying the required
+	   information. The OpenSSL API only can answer what you need
+	   to wait for to do either read or write, not both. */
+	   
+	ev = ts->conn.ssl_events;
 	break;
+    }
     case conn_state_closed:
     case conn_state_bad:
 	break;
     default:
 	ut_assert(0);
+	break;
     }
 
     if (ev) {
@@ -1477,14 +1459,16 @@ static int tls_finish(struct xcm_socket *s)
     case conn_state_tcp_connecting:
     case conn_state_tls_connecting:
     case conn_state_tls_accepting:
-    case conn_state_tls_sending:
-    case conn_state_tls_receiving:
+    case conn_state_ready:
+	if (ts->conn.state == conn_state_ready &&
+	    mbuf_is_empty(&ts->conn.send_mbuf) &&
+	    !mbuf_is_partial(&ts->conn.receive_mbuf)) {
+	    LOG_FINISH_SAY_FREE(s);
+	    return 0;
+	}
 	LOG_FINISH_SAY_BUSY(s, state_name(ts->conn.state));
 	errno = EAGAIN;
 	return -1;
-    case conn_state_ready:
-	LOG_FINISH_SAY_FREE(s);
-	return 0;
     case conn_state_bad:
 	errno = ts->conn.badness_reason;
 	return -1;
@@ -1542,13 +1526,17 @@ static size_t tls_max_msg(struct xcm_socket *conn_socket)
 
 static void try_finish_in_progress(struct xcm_socket *s)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     try_finish_accept(s);
     try_finish_connect(s);
-    try_send(s);
-    /* finish only what's in progress - don't start receiving a new
-       TLS record */
-    if (TOTLS(s)->conn.state == conn_state_tls_receiving)
-        try_receive(s);
+
+    if (ts->conn.state == conn_state_ready) {
+	if (!mbuf_is_empty(&ts->conn.send_mbuf))
+	    try_send(s);
+	if (mbuf_is_partial(&ts->conn.receive_mbuf))
+	    try_receive(s);
+    }
 }
 
 #define GEN_TCP_GET(field_name)						\
@@ -1578,12 +1566,7 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
     if (type)
 	*type = xcm_attr_type_bin;
 
-    bool established =
-	ts->conn.state == conn_state_tls_sending ||
-	ts->conn.state == conn_state_tls_receiving ||
-	ts->conn.state == conn_state_ready;
-
-    if (!established)
+    if (ts->conn.state != conn_state_ready)
 	goto empty;
 
     X509 *remote_cert = SSL_get_peer_certificate(ts->conn.ssl);

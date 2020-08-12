@@ -49,6 +49,10 @@ static int mbuf_wire_len(struct mbuf *b) MBUF_UNUSED;
 
 static int mbuf_wire_capacity_left(struct mbuf *b) MBUF_UNUSED;
 
+static bool mbuf_is_empty(struct mbuf *b) MBUF_UNUSED;
+
+static bool mbuf_is_partial(struct mbuf *b) MBUF_UNUSED;
+
 static void mbuf_set(struct mbuf *b, const void *msg, uint32_t msg_len)
     MBUF_UNUSED;
 
@@ -126,6 +130,16 @@ static int mbuf_wire_len(struct mbuf *b)
 static int mbuf_wire_capacity_left(struct mbuf *b)
 {
     return MBUF_WIRE_MAX - b->wire_len;
+}
+
+static bool mbuf_is_empty(struct mbuf *b)
+{
+    return mbuf_wire_len(b) == 0;
+}
+
+static bool mbuf_is_partial(struct mbuf *b)
+{
+    return !mbuf_is_empty(b) && !mbuf_is_complete(b);
 }
 
 static void mbuf_set(struct mbuf *b, const void *msg, uint32_t msg_len)

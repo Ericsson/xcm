@@ -96,13 +96,6 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 #define LOG_TLS_OPENSSL_PENDING_UNPROCESSED(s)                          \
     log_debug_sock(s, "OpenSSL has pending unprocessed protocol records.")
 
-#define LOG_TLS_ERROR_PEEKING(s, reason_errno)			       \
-    log_debug_sock(s, "Error peeking TCP socket data; errno %d (%s).", \
-		   reason_errno, strerror(reason_errno))
-
-#define LOG_TLS_SOCKET_PENDING_DATA(s) \
-    log_debug_sock(s, "Data pending on TCP socket.")
-
 #define LOG_TLS_OPENSSL_SYSCALL_FAILURE(s, reason_errno)		\
     log_debug_sock(s, "OpenSSL reported syscall failure; errno %d (%s).", \
 		   reason_errno, strerror(reason_errno))
