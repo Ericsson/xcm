@@ -13,6 +13,7 @@
 
 #include "util.h"
 #include "common_tp.h"
+#include "ctx_store.h"
 #include "tcp_attr.h"
 #include "log_tp.h"
 #include "log_tls.h"
@@ -31,13 +32,14 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509v3.h>
-#include <openssl/x509_vfy.h>
-
-#include <pthread.h>
 
 /*
  * TSL XCM Transport
  */
+
+#define TLS_CERT_ENV "XCM_TLS_CERT"
+
+#define DEFAULT_CERT_DIR (SYSCONFDIR "/xcm/tls")
 
 enum conn_state { conn_state_none, conn_state_resolving,
                   conn_state_tcp_connecting, conn_state_tls_connecting,
@@ -66,6 +68,7 @@ struct tls_socket
 	    char raddr[XCM_ADDR_MAX];
 	} conn;
 	struct {
+	    SSL_CTX *ssl_ctx;
 	    int fd;
 	} server;
     };
@@ -118,295 +121,6 @@ static size_t tls_priv_size(enum xcm_socket_type type)
     return sizeof(struct tls_socket);
 }
 
-struct ns_ssl_ctx
-{
-    char ns[NAME_MAX];
-    SSL_CTX *client_ssl_ctx;
-    SSL_CTX *server_ssl_ctx;
-
-    /* unfortunately, we need to keep a reference count separate from
-       the built-in reference count in the SSL_CTX object, since we
-       need to know when it reaches zero (to NULL the pointer), and
-       OpenSSL doesn't provide a way to do this */
-    int use_cnt;
-};
-
-static struct ns_ssl_ctx *ns_ssl_ctx_alloc(const char *ns,
-					   SSL_CTX *client_ssl_ctx,
-					   SSL_CTX *server_ssl_ctx)
-{
-    struct ns_ssl_ctx *ctx = ut_malloc(sizeof(struct ns_ssl_ctx));
-
-    strcpy(ctx->ns, ns);
-    ctx->client_ssl_ctx = client_ssl_ctx;
-    ctx->server_ssl_ctx = server_ssl_ctx;
-    ctx->use_cnt = 1;
-
-    return ctx;
-}
-
-static void ns_ssl_ctx_ref(struct ns_ssl_ctx *ctx)
-{
-    ctx->use_cnt++;
-}
-
-static int ns_ssl_ctx_unref(struct ns_ssl_ctx *ctx)
-{
-    ctx->use_cnt--;
-
-    ut_assert(ctx->use_cnt >= 0);
-
-    if (ctx->use_cnt == 0) {
-	SSL_CTX_free(ctx->client_ssl_ctx);
-	SSL_CTX_free(ctx->server_ssl_ctx);
-        ut_free(ctx);
-	return 0;
-    }
-
-    return ctx->use_cnt;
-}
-
-pthread_mutex_t ns_ssl_ctxs_lock = PTHREAD_MUTEX_INITIALIZER;
-
-#define MAX_CTXS (64)
-static struct ns_ssl_ctx *ns_ssl_ctxs[MAX_CTXS];
-
-static int find_ctx_slot_for_ns(const char *ns_name)
-{
-    int i;
-    for (i=0; i<MAX_CTXS; i++) {
-	struct ns_ssl_ctx *ctx = ns_ssl_ctxs[i];
-	if (ctx && strcmp(ctx->ns, ns_name) == 0)
-	    return i;
-    }
-    return -1;
-}
-
-static struct ns_ssl_ctx *find_ctx_for_ns(const char *ns_name)
-{
-    int slot = find_ctx_slot_for_ns(ns_name);
-    if (slot < 0)
-	return NULL;
-    return ns_ssl_ctxs[slot];
-}
-
-static int find_empty_ctx_slot(void)
-{
-    int i;
-    for (i=0; i<MAX_CTXS; i++)
-	if (ns_ssl_ctxs[i] == NULL)
-	    return i;
-    errno = ENOMEM;
-    return -1;
-}
-
-static void init_ctx_slots(void)
-{
-    int i;
-    for (i=0; i<MAX_CTXS; i++)
-	ns_ssl_ctxs[i] = NULL;
-}
-
-#define TLS_CERT_ENV "XCM_TLS_CERT"
-
-#define DEFAULT_CERT_DIR (SYSCONFDIR "/xcm/tls")
-
-#define DEFAULT_TC_FILE "%s/tc.pem"
-#define DEFAULT_CERT_FILE "%s/cert.pem"
-#define DEFAULT_KEY_FILE "%s/key.pem"
-
-#define NS_TC_FILE "%s/tc_%s.pem"
-#define NS_CERT_FILE "%s/cert_%s.pem"
-#define NS_KEY_FILE "%s/key_%s.pem"
-
-#define TLS_CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305"
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-#define SSL_OP_NO_TLSv1_3 0
-#endif
-
-#define TLS_OPT_SET					\
-    (SSL_OP_NO_SSLv2|					\
-     SSL_OP_NO_SSLv3|					\
-     SSL_OP_NO_TLSv1|					\
-     SSL_OP_NO_TLSv1_1|					\
-     SSL_OP_NO_COMPRESSION|				\
-     SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION|	\
-     SSL_OP_NO_TICKET|					\
-     SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS)
-
-#define TLS_OPT_CLEAR					\
-    (SSL_OP_SAFARI_ECDHE_ECDSA_BUG|			\
-     SSL_OP_TLSEXT_PADDING|				\
-     SSL_OP_TLS_ROLLBACK_BUG|				\
-     SSL_OP_NETSCAPE_CA_DN_BUG|				\
-     SSL_OP_NO_TLSv1_2|					\
-     SSL_OP_NO_TLSv1_3|					\
-     SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION|		\
-     SSL_OP_LEGACY_SERVER_CONNECT)
-
-static const char *get_env_def(const char *env_name, const char *default_value)
-{
-    const char *value = getenv(env_name);
-    return value ? value : default_value;
-}
-
-static SSL_CTX *lazy_load_ssl_ctx_common(const char *ns, char *tc_file,
-					 size_t tc_file_capacity)
-{
-    SSL_CTX *ssl_ctx = NULL;
-
-    const SSL_METHOD* method = SSLv23_method();
-    if (!method) {
-	errno = EPROTO;
-	goto out;
-    }
-
-    ssl_ctx = SSL_CTX_new(method);
-    if (!ssl_ctx) {
-	errno = ENOMEM;
-	goto out;
-    }
-
-    SSL_CTX_set_options(ssl_ctx, TLS_OPT_SET);
-    SSL_CTX_clear_options(ssl_ctx, TLS_OPT_CLEAR);
-
-    LOG_TLS_CIPHERS(TLS_CIPHER_LIST);
-    int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_CIPHER_LIST);
-    ut_assert(rc == 1);
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    SSL_CTX_set_ecdh_auto(ssl_ctx, 1);
-#endif
-
-    const char *cert_dir = get_env_def(TLS_CERT_ENV, DEFAULT_CERT_DIR);
-
-    char cert_file[PATH_MAX];
-    char key_file[PATH_MAX];
-
-    if (strlen(ns) > 0) {
-	snprintf(cert_file, sizeof(cert_file), NS_CERT_FILE, cert_dir, ns);
-	snprintf(key_file, sizeof(key_file), NS_KEY_FILE, cert_dir, ns);
-	snprintf(tc_file, tc_file_capacity, NS_TC_FILE, cert_dir, ns);
-    } else {
-	snprintf(cert_file, sizeof(cert_file), DEFAULT_CERT_FILE, cert_dir);
-	snprintf(key_file, sizeof(key_file), DEFAULT_KEY_FILE, cert_dir);
-	snprintf(tc_file, tc_file_capacity, DEFAULT_TC_FILE, cert_dir);
-    }
-
-    LOG_TLS_CERT_FILES(cert_file, key_file, tc_file);
-
-    if (!SSL_CTX_load_verify_locations(ssl_ctx, tc_file, NULL)) {
-	LOG_TLS_ERR_LOADING_TC(tc_file);
-	goto err_free_ctx;
-    }
-
-    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, cert_file) != 1) {
-	LOG_TLS_ERR_LOADING_CERT(cert_file);
-	goto err_free_ctx;
-    }
-
-    if (SSL_CTX_use_PrivateKey_file(ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-	LOG_TLS_ERR_LOADING_KEY(key_file);
-	goto err_free_ctx;
-    }
-
-    if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
-	LOG_TLS_INCONSISTENT_KEY;
-	goto err_free_ctx;
-    }
-
-    /*  SSL_has_pending() and OpenSSL 1.1 is needed for read-ahead
-	to play nicely with non-blocking mode */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    SSL_CTX_set_read_ahead(ssl_ctx, 0);
-#else
-    SSL_CTX_set_read_ahead(ssl_ctx, 1);
-#endif
-
-    X509_STORE_set_flags(SSL_CTX_get_cert_store(ssl_ctx),
-			 X509_V_FLAG_PARTIAL_CHAIN);
-
-    goto out;
-
- err_free_ctx:
-    SSL_CTX_free(ssl_ctx);
-    ssl_ctx = NULL;
-    errno = EPROTO;
- out:
-    return ssl_ctx;
-}
-
-static struct ns_ssl_ctx *lazy_load_ssl_ctx(const char *ns)
-{
-    ut_mutex_lock(&ns_ssl_ctxs_lock);
-
-    struct ns_ssl_ctx *ctxs = find_ctx_for_ns(ns);
-
-    if (ctxs) {
-	LOG_TLS_CTX_REUSE(ns);
-        ns_ssl_ctx_ref(ctxs);
-	goto out;
-    }
-
-    int empty_slot = find_empty_ctx_slot();
-    if (empty_slot < 0) {
-	LOG_TLS_NO_CTX;
-	goto err_proto;
-    }
-
-    char tc_file[PATH_MAX];
-    LOG_TLS_CREATING_CLIENT_CTX(ns);
-    SSL_CTX *client_ssl_ctx = lazy_load_ssl_ctx_common(ns, tc_file,
-						       sizeof(tc_file));
-    if (!client_ssl_ctx)
-        goto err_proto;
-
-    LOG_TLS_CREATING_SERVER_CTX(ns);
-    SSL_CTX *server_ssl_ctx = lazy_load_ssl_ctx_common(ns, tc_file,
-						       sizeof(tc_file));
-    if (!server_ssl_ctx)
-        goto err_free_client_ctx;
-
-    SSL_CTX_set_verify(client_ssl_ctx, SSL_VERIFY_PEER, NULL);
-    SSL_CTX_set_verify(server_ssl_ctx,
-		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-    STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
-    if (!cert_names) {
-	LOG_TLS_ERR_LOADING_TC(tc_file);
-        goto err_free_client_ctx;
-    }
-    SSL_CTX_set_client_CA_list(server_ssl_ctx, cert_names);
-
-    ctxs = ns_ssl_ctx_alloc(ns, client_ssl_ctx, server_ssl_ctx);
-    ns_ssl_ctxs[empty_slot] = ctxs;
-
-    goto out;
-
- err_free_client_ctx:
-    SSL_CTX_free(client_ssl_ctx);
- err_proto:
-    errno = EPROTO;
- out:
-    ut_mutex_unlock(&ns_ssl_ctxs_lock);
-    return ctxs;
-}
-
-static void lazy_unload_ssl_ctx(const char *ns)
-{
-    ut_mutex_lock(&ns_ssl_ctxs_lock);
-
-    int slot = find_ctx_slot_for_ns(ns);
-    ut_assert(slot >= 0);
-
-    struct ns_ssl_ctx *ctx = ns_ssl_ctxs[slot];
-
-    if (ns_ssl_ctx_unref(ctx) == 0)
-	ns_ssl_ctxs[slot] = NULL;
-
-    ut_mutex_unlock(&ns_ssl_ctxs_lock);
-}
-
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 
 /* OpenSSL 1.0.x needs a number of locks for shared data structures */
@@ -441,7 +155,7 @@ static void setup_openssl_locks(void)
 
 static void init_ssl(void)
 {
-    init_ctx_slots();
+    ctx_store_init();
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
     setup_openssl_locks();
@@ -859,6 +573,12 @@ static int self_net_ns(char *name)
     return rc;
 }
 
+static const char *get_cert_dir(void)
+{
+    const char *cert_dir = getenv(TLS_CERT_ENV);
+    return cert_dir ? cert_dir : DEFAULT_CERT_DIR;
+}
+
 static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -877,16 +597,15 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 
     init_socket(s, ns);
 
-    struct ns_ssl_ctx *ns_ctx = lazy_load_ssl_ctx(ns);
-    if (!ns_ctx)
-	goto err_deinit_socket;
+    SSL_CTX *ctx = ctx_store_get_client_ctx(ns, get_cert_dir());
 
-    SSL_CTX *ctx = ns_ctx->client_ssl_ctx;
+    if (!ctx)
+	goto err_deinit_socket;
 
     ts->conn.ssl = SSL_new(ctx);
     if (!ts->conn.ssl) {
         errno = ENOMEM;
-	goto err_unload_ctx;
+	goto err_put_ctx;
     }
 
     if (ts->conn.remote_host.type == xcm_addr_type_name) {
@@ -914,8 +633,8 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 	UT_PROTECT_ERRNO(close(socket_fd(s)));
  err_free_ssl:
     SSL_free(ts->conn.ssl);
- err_unload_ctx:
-    lazy_unload_ssl_ctx(ns);
+ err_put_ctx:
+    ctx_store_put(ctx);
  err_deinit_socket:
     deinit_socket(s, true);
  err:
@@ -939,22 +658,36 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
     if (self_net_ns(ns) < 0)
 	goto err;
 
-    /* load SSL CTX here, just to catch non-existing/malformed key
-       files while it's still appropriate to signal the application */
-    if (!lazy_load_ssl_ctx(ns))
+    /*
+     * A SSL_CTX is kept with the server socket, even though it's not
+     * used for new connections (which retrieves their own context from
+     * the cache). The server SSL_CTX keeps the cache live, and avoids
+     * a situation where a server accepting many connections, but only
+     * from a single client and a single connection at a time, to keep
+     * reloading the certificate. Also, loading the certificates here
+     * allows for early error detection.
+     *
+     * This schema - both the performance optimization and the early
+     * error detection - is effectivily disabled if the application
+     * changes XCM_TLS_CERT during runtime.
+     */
+    SSL_CTX *ctx = ctx_store_get_server_ctx(ns, get_cert_dir());
+    if (!ctx)
 	goto err;
 
     init_socket(s, ns);
 
-    if (xcm_dns_resolve_sync(s, &host) < 0)
-        goto err_deinit;
-
     struct tls_socket *ts = TOTLS(s);
+
+    ts->server.ssl_ctx = ctx;
+
+    if (xcm_dns_resolve_sync(s, &host) < 0)
+        goto err_ctx_put;
 
     if ((ts->server.fd = socket(host.ip.family, SOCK_STREAM,
                                 IPPROTO_TCP)) < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
-	goto err_deinit;
+	goto err_ctx_put;
     }
 
     if (port > 0 && ut_tcp_reuse_addr(ts->server.fd) < 0) {
@@ -991,9 +724,9 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
  
  err_close:
     UT_PROTECT_ERRNO(close(ts->server.fd));
- err_deinit:
+ err_ctx_put:
+    ctx_store_put(ts->server.ssl_ctx);
     deinit_socket(s, true);
-    lazy_unload_ssl_ctx(ns);
  err:
     return -1;
 }
@@ -1011,10 +744,12 @@ static int terminate(struct xcm_socket *s, bool ssl_shutdown)
 	if (s->type == xcm_socket_type_conn) {
 	    if (ts->conn.state == conn_state_ready && ssl_shutdown)
 		SSL_shutdown(ts->conn.ssl);
+	    SSL *ssl = ts->conn.ssl;
+	    SSL_CTX *ctx = SSL_get_SSL_CTX(ssl);
 	    SSL_free(ts->conn.ssl);
-	}
-
-	lazy_unload_ssl_ctx(ts->ns);
+	    ctx_store_put(ctx);
+	} else
+	    ctx_store_put(ts->server.ssl_ctx);
 
         rc = fd >= 0 ? close(fd) : 0;
 
@@ -1083,18 +818,16 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     init_socket(conn_s, server_ts->ns);
 
-    struct ns_ssl_ctx *ns_ctx = lazy_load_ssl_ctx(conn_ts->ns);
-    if (!ns_ctx)
+    SSL_CTX *ctx = ctx_store_get_server_ctx(server_ts->ns, get_cert_dir());
+    if (!ctx) {
+	errno = EPROTO;
 	goto err_deinit_socket;
-
-    SSL_CTX *ctx = ns_ctx->server_ssl_ctx;
-    /* already loaded by server socket, so it can't fail */
-    ut_assert(ctx);
+    }
 
     conn_ts->conn.ssl = SSL_new(ctx);
     if (!conn_ts->conn.ssl) {
         errno = ENOMEM;
-	goto err_unload_ctx;
+	goto err_put_ctx;
     }
 
     if (SSL_set_fd(conn_ts->conn.ssl, conn_fd) != 1)
@@ -1113,8 +846,8 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
  err_free_ssl:
     SSL_free(conn_ts->conn.ssl);
- err_unload_ctx:
-    lazy_unload_ssl_ctx(conn_ts->ns);
+ err_put_ctx:
+    ctx_store_put(ctx);
  err_deinit_socket:
     deinit_socket(conn_s, true);
  err_close:

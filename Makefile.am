@@ -42,7 +42,8 @@ LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_addr.c libxcm/xcm_addr_compat.c \
 	libxcm/xcm_dns_glibc.c
 
 if TLS
-LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/xcm_tp_utls.c libxcm/log_tls.c
+LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/ctx_store.c \
+	libxcm/xcm_tp_utls.c libxcm/log_tls.c
 endif
 
 if SCTP

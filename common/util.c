@@ -27,6 +27,12 @@
 #include <arpa/inet.h>
 #include <poll.h>
 
+void ut_mutex_init(pthread_mutex_t *m)
+{
+    int rc = pthread_mutex_init(m, NULL);
+    ut_assert(rc == 0);
+}
+
 void ut_mutex_lock(pthread_mutex_t *m)
 {
     int rc = pthread_mutex_lock(m);
@@ -90,6 +96,22 @@ int ut_send_all(int fd, void* buf, size_t count, int flags) {
     } while (offset < count);
 
     return count;
+}
+
+int ut_snprintf(char *str, size_t size, const char *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+
+    int rc = vsnprintf(str, size, format, ap);
+
+    /* guarantee NUL-terminated strings */
+    if (rc >= size)
+	str[size-1] = '\0';
+
+    va_end(ap);
+
+    return rc;
 }
 
 int ut_set_blocking(int fd, bool should_block)

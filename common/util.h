@@ -18,8 +18,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdarg.h>
 
-
+void ut_mutex_init(pthread_mutex_t *m);
 void ut_mutex_lock(pthread_mutex_t *m);
 void ut_mutex_unlock(pthread_mutex_t *m);
 
@@ -32,6 +33,8 @@ char *ut_strdup(const char *str);
 void ut_free(void *ptr);
 
 int ut_send_all(int fd, void* buf, size_t count, int flags);
+
+int ut_snprintf(char *str, size_t size, const char *format, ...);
 
 int ut_set_blocking(int fd, bool should_block);
 bool ut_is_blocking(int fd);

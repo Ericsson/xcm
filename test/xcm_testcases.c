@@ -2262,6 +2262,39 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, tls_detect_cert_dir_env_var_changes)
+{
+    char *tls_addr = gen_ip4_port_addr("tls");
+
+    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1));
+
+    pid_t server_pid =
+	pingpong_run_forking_server(tls_addr, 0, 0, 32);
+
+    struct xcm_socket *conn0 = tu_connect_retry(tls_addr, 0);
+    CHK(conn0);
+
+    setenv("XCM_TLS_CERT", "/random/dir", 1);
+
+    CHK(xcm_connect(tls_addr, 0) == NULL);
+    CHKERRNOEQ(EPROTO);
+
+    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_2", 1));
+
+    struct xcm_socket *conn1 = tu_connect_retry(tls_addr, 0);
+    CHK(conn1);
+
+    CHKNOERR(xcm_close(conn0));
+    CHKNOERR(xcm_close(conn1));
+
+    kill(server_pid, SIGKILL);
+    tu_wait(server_pid);
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(xcm, tls_get_peer_subject_key_id)
 {
     const char *tls_addr = "tls:127.0.0.1:12234";

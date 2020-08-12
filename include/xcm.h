@@ -875,9 +875,9 @@ extern "C" {
  * key files to be found in a file system directory - the certificate
  * directory. The default path are configured at build-time, but can
  * be overriden on a per-process basis by means of a UNIX environment
- * variable. Prior to creating any TLS or UTLS sockets (typically
- * before program start), set @c XCM_TLS_CERT to change the
- * certificate directory.
+ * variable. The current value of @c XCM_TLS_CERT (at the time of
+ * xcm_connect() or xcm_accept()) determines the certificate directory
+ * used for that connection.
  *
  * The TLS transport will, at the time of XCM socket creation
  * (xcm_connect() or xcm_server()), look up the process' current

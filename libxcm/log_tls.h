@@ -29,28 +29,27 @@
 
 void ns_description(const char *ns, char *buf, size_t capacity);
 
-#define LOG_TLS_CREATING_CTX(type, ns)					\
+#define LOG_TLS_CREATING_CTX(type, ns, cert_dir)			\
     do {								\
 	char ns_desc[128];						\
 	ns_description(ns, ns_desc, sizeof(ns_desc));			\
-	log_debug("Creating %s SSL CTX for %s.", type, ns_desc); \
+	log_debug("Creating %s SSL CTX for %s, with certificate "	\
+		  "directory \"%s\".", type, ns_desc, cert_dir);	\
     } while (0)
 
-#define LOG_TLS_CREATING_CLIENT_CTX(ns) \
-    LOG_TLS_CREATING_CTX("client", ns)
+#define LOG_TLS_CREATING_CLIENT_CTX(ns, cert_dir)	\
+    LOG_TLS_CREATING_CTX("client", ns, cert_dir)
 
-#define LOG_TLS_CREATING_SERVER_CTX(ns) \
-    LOG_TLS_CREATING_CTX("server", ns)
+#define LOG_TLS_CREATING_SERVER_CTX(ns, cert_dir)	\
+    LOG_TLS_CREATING_CTX("server", ns, cert_dir)
 
-#define LOG_TLS_CTX_REUSE(ns)						\
+#define LOG_TLS_CTX_REUSE(ns, cert_dir)					\
     do {								\
 	char ns_desc[128];						\
 	ns_description(ns, ns_desc, sizeof(ns_desc));			\
-	log_debug("Using cached SSL CTX for %s.", ns_desc);		\
+	log_debug("Using cached SSL CTX for %s and certificate "	\
+		  "directory \"%s\".", ns_desc, cert_dir);		\
     } while (0)
-
-#define LOG_TLS_NO_CTX \
-    log_debug("Unable to find empty slot for new CTX.")
 
 void log_tls_get_error_stack(char *buf, size_t capacity);
 
