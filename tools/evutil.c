@@ -37,14 +37,24 @@ void evu_xcm_reg(struct evu_xcm_reg *reg, struct xcm_socket *sock,
     if (num_fds < 0)
 	ut_die("Error retrieving XCM fds");
 
-    reg->events_len = num_fds;
+    if (num_fds == 0 && xcm_cond != 0) {
+	/* conditions are already met - wake up as soon as possible */
+	reg->events_len = 1;
+	struct event *event = &reg->events[0];
+	event_assign(event, event_base, -1, 0, cb, cb_data);
+	event_add(event, NULL);
+	event_active(event, 0, 0);
+    } else {
+	reg->events_len = num_fds;
 
-    int i;
-    for (i=0; i<num_fds; i++) {
-	event_assign(&reg->events[i], event_base, fds[i],
-		     translate_events(fd_events[i]), cb, cb_data);
-	event_add(&reg->events[i], NULL);
+	int i;
+	for (i=0; i<num_fds; i++) {
+	    event_assign(&reg->events[i], event_base, fds[i],
+			 translate_events(fd_events[i]), cb, cb_data);
+	    event_add(&reg->events[i], NULL);
+	}
     }
+
 }
 
 void evu_xcm_unreg(struct evu_xcm_reg *reg)
