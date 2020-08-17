@@ -83,7 +83,7 @@ extern "C" {
  *
  * Addresses are represented as
  * strings with the following general syntax:
- * @tt <transport-name>:<transport-address> @endtt
+ * <tt><transport-name>:<transport-address></tt>
  *
  * For the UX UNIX Domain Socket transport, the addresses has this
  * more specific form: @n
@@ -943,12 +943,12 @@ extern "C" {
  * applications should not depend on this (or the fact that other
  * transports might return fewer).
  *
- * For an UTLS server socket with the address @tt utls:<ip>:<port>
- * @endtt, two underlying addresses will be allocated;
- * @tt tls:<ip>:<port> @endtt and @tt ux:<ip>:<port> @endtt .
+ * For an UTLS server socket with the address <tt>utls:<ip>:<port></tt>,
+ * two underlying addresses will be allocated;
+ * <tt>tls:<ip>:<port></tt> and <tt>ux:<ip>:<port></tt>.
  *
  * Or, in the case DNS is used:
- * @tt tls:<hostname>:<port> @endtt and @tt ux:<hostname>:<port> @endtt .
+ * <tt>tls:<hostname>:<port></tt> and <tt>ux:<hostname>:<port></tt>.
  *
  * @subsubsection utls_limitations UTLS Limitations
  *
