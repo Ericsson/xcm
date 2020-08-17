@@ -10,6 +10,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <signal.h>
+#include <sys/prctl.h>
 
 #include "xcm.h"
 
@@ -333,6 +335,8 @@ pid_t pingpong_run_async_server(const char *server_addr, int total_pings,
     else if (p > 0)
 	return p;
 
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+
     struct xcm_socket *server_sock = xcm_server(server_addr);
     if (!server_sock)
 	ut_die("Unable to create server socket");
@@ -417,6 +421,8 @@ pid_t run_client_handler(struct xcm_socket *conn, int num_pings,
     else if (p > 0)
 	return p;
 
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+
     int i;
     for (i=0; i<num_pings; i++) {
 	char rmsg[MAX_MSG];
@@ -446,6 +452,8 @@ pid_t pingpong_run_forking_server(const char *server_addr, int pings_per_client,
 	return -1;
     else if (p > 0)
 	return p;
+
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
 
     struct xcm_socket *server_sock = xcm_server(server_addr);
     if (!server_sock)

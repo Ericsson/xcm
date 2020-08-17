@@ -879,6 +879,25 @@ extern "C" {
  * xcm_connect() or xcm_accept()) determines the certificate directory
  * used for that connection.
  *
+ * In case the files in the certificate directory are modified, the
+ * new versions of the files will be used by new connections. The TLS
+ * transports works with differences between set of files, and thus
+ * the new generation of files need not nesserarily be newer
+ * (i.e. higher mtime).
+ * 
+ * The certificate directory must be updated in an atomic manner, or
+ * XCM may end up using the certificate file from one generation of
+ * files and the key file from another. One way of achieving an atomic
+ * update is to have the certificate directory being a symbolic link
+ * to the directory where the actual files are located. Upon update, a
+ * new directory is created and populated, and the old symbolic link
+ * is replace with a new one in an atomic manner (i.e. with
+ * rename(2)). It's legal to switch back-and-forth between two sets of
+ * files, but the time between the back and the forth switch (assuming
+ * the atomicity-by-symlink method is used) must be enough to result
+ * in different file system modification times on the symbolic link
+ * (usually ~10 ms).
+ *
  * The TLS transport will, at the time of XCM socket creation
  * (xcm_connect() or xcm_server()), look up the process' current
  * network namespace. In case the namespace is given a name per the

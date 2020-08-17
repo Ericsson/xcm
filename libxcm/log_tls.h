@@ -8,6 +8,8 @@
 
 #include "log.h"
 
+#include <stdint.h>
+
 #define LOG_TLS_HANDSHAKE(s)					\
     log_debug_sock(s, "Attempting to finish TLS handshake.")
 
@@ -27,6 +29,10 @@
     log_debug("Using certificate file \"%s\", key \"%s\" and trust chain " \
 	     "\"%s\".", cert_file, key_file, tc_file)
 
+#define LOG_TLS_CERT_STAT_FAILED(filename, reason_errno)		\
+    log_debug("Error retrieving meta data for file \"%s\"; errno %d (%s).", \
+	      filename, reason_errno, strerror(reason_errno))
+
 void ns_description(const char *ns, char *buf, size_t capacity);
 
 #define LOG_TLS_CREATING_CTX(type, ns, cert_dir)			\
@@ -43,12 +49,44 @@ void ns_description(const char *ns, char *buf, size_t capacity);
 #define LOG_TLS_CREATING_SERVER_CTX(ns, cert_dir)	\
     LOG_TLS_CREATING_CTX("server", ns, cert_dir)
 
+#define LOG_TLS_CTX_RETRY \
+    log_debug("Certificate files changed on disk during processing. " \
+	      "Retrying.")
+
 #define LOG_TLS_CTX_REUSE(ns, cert_dir)					\
     do {								\
 	char ns_desc[128];						\
 	ns_description(ns, ns_desc, sizeof(ns_desc));			\
 	log_debug("Using cached SSL CTX for %s and certificate "	\
 		  "directory \"%s\".", ns_desc, cert_dir);		\
+    } while (0)
+
+void hash_description(uint8_t *hash, size_t hash_len, char *buf);
+
+#define LOG_TLS_CTX_HASH_EVENT(ns, cert_dir, event, cert_dir_hash, hash_size) \
+    do {								\
+	char ns_desc[128];						\
+	ns_description(ns, ns_desc, sizeof(ns_desc));			\
+	char hash_desc[3 * hash_size + 1];				\
+	hash_description(cert_dir_hash, hash_size, hash_desc);		\
+	log_debug("File metadata hash for certificate files "		\
+		  "in \"%s\" and %s%s %s.", cert_dir, ns_desc,		\
+		  event, hash_desc);					\
+    } while (0)
+    
+#define LOG_TLS_CTX_HASH(ns, cert_dir, cert_dir_hash, hash_size)	\
+    LOG_TLS_CTX_HASH_EVENT(ns, cert_dir, ":", cert_dir_hash, hash_size)
+
+#define LOG_TLS_CTX_HASH_CHANGED(ns, cert_dir, new_cert_dir_hash, hash_size) \
+    LOG_TLS_CTX_HASH_EVENT(ns, cert_dir, " changed while reading to",	\
+			   new_cert_dir_hash, hash_size)
+
+#define LOG_TLS_CTX_FILES_CHANGED(ns, cert_dir) \
+    do { \
+	char ns_desc[128];						\
+	ns_description(ns, ns_desc, sizeof(ns_desc));			\
+	log_debug("Certificate files for %s in \"%s\" have changed. " \
+		  "Invalidating cache.", ns_desc, cert_dir);	      \
     } while (0)
 
 void log_tls_get_error_stack(char *buf, size_t capacity);
@@ -65,19 +103,16 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 			   "certificate.")
 
 #define LOG_TLS_PROTO_ERR(s) \
-    LOG_TLS_WITH_ERR_STACK("TLS protocol error occured.")
-
-#define LOG_TLS_EARLY_EOF(s) \
-    log_debug_sock(s, "TLS protocol violation; early EOF.");
+    LOG_TLS_WITH_ERR_STACK("TLS protocol error occured")
 
 #define LOG_TLS_ERR_LOADING_KEY(key_file) \
-    LOG_TLS_WITH_ERR_STACK("Error loading private key file \"%s\".", key_file)
+    LOG_TLS_WITH_ERR_STACK("Error loading private key file \"%s\"", key_file)
 
 #define LOG_TLS_ERR_LOADING_CERT(filename)				\
-    LOG_TLS_WITH_ERR_STACK("Error loading certificate file \"%s\".", filename)
+    LOG_TLS_WITH_ERR_STACK("Error loading certificate file \"%s\"", filename)
 
 #define LOG_TLS_ERR_LOADING_TC(tc_file) \
-    LOG_TLS_WITH_ERR_STACK("Error loading trust chain file \"%s\".", tc_file)
+    LOG_TLS_WITH_ERR_STACK("Error loading trust chain file \"%s\"", tc_file)
 
 #define LOG_TLS_OPENSSL_WANTS(s, action)		\
     log_debug_sock(s, "OpenSSL wants to %s.", action)

@@ -31,6 +31,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/prctl.h>
 
 /* For now, all transports are expected to support the below
    size. However, there's nothing in the API that forces a transport
@@ -149,6 +150,8 @@ static pid_t simple_server(const char *ns, const char *addr,
 	return -1;
     else if (p > 0)
 	return p;
+
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
 
     if (server_cert_dir)
         if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
@@ -2295,6 +2298,170 @@ TESTCASE(xcm, tls_detect_cert_dir_env_var_changes)
     return UTEST_SUCCESS;
 }
 
+static pid_t alternating_tls_server(const char *addr,
+				    int num_accepts,
+				    void *subject_key_id_0,
+				    size_t subject_key_id_0_len,
+				    void *subject_key_id_1,
+				    size_t subject_key_id_1_len)
+{
+    pid_t p = fork();
+    if (p < 0)
+	return -1;
+    else if (p > 0)
+	return p;
+
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+
+    struct xcm_socket *server_sock = xcm_server(addr);
+    if (!server_sock)
+	exit(EXIT_FAILURE);
+
+    int i;
+    for (i = 0; i < num_accepts; i++) {
+	struct xcm_socket *conn = xcm_accept(server_sock);
+
+	if (!conn)
+	    exit(EXIT_FAILURE);
+
+	char key_id[1024];
+	int len = xcm_attr_get(conn, "tls.peer_subject_key_id", NULL, key_id,
+			       sizeof(key_id));
+	const void *expected_key_id =
+	    i % 2 == 0 ? subject_key_id_0 : subject_key_id_1;
+	size_t expected_len =
+	    i % 2 == 0 ? subject_key_id_0_len : subject_key_id_1_len;
+
+	if (expected_key_id) {
+	    if (len != expected_len)
+		exit(EXIT_FAILURE);
+
+	    if (memcmp(key_id, expected_key_id, len) != 0)
+		exit(EXIT_FAILURE);
+	}
+
+	if (xcm_close(conn) < 0)
+	    exit(EXIT_FAILURE);
+    }
+
+    xcm_close(server_sock);
+
+    exit(EXIT_SUCCESS);
+}
+
+TESTCASE_SERIALIZED(xcm, tls_detect_changes_to_cert_files)
+{
+    char *tls_addr = gen_ip4_port_addr("tls");
+
+    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1));
+
+    uint8_t subca1_key_id[] = {
+	0x9F, 0x7C, 0x2E, 0xA3, 0x6C, 0xB1, 0x49, 0x06, 0x65, 0x7C,
+	0xC7, 0xE3, 0x94, 0xF4, 0xC6, 0x4B, 0x41, 0x57, 0xBC, 0xA9
+    };
+
+    uint8_t subca2_key_id[] = {
+	0x04, 0xF3, 0x52, 0xB0, 0x78, 0xEE, 0x7E, 0xC9, 0x33, 0x8F,
+	0x46, 0x09, 0x5C, 0x3F, 0x56, 0x6C, 0x0E, 0x52, 0xD0, 0x16
+    };
+
+    const size_t num_accepts = 16;
+    pid_t server_pid =
+	alternating_tls_server(tls_addr, num_accepts,
+			       subca1_key_id, sizeof(subca1_key_id), 
+			       subca2_key_id, sizeof(subca2_key_id));
+
+    setenv("XCM_TLS_CERT", "./test/tls/current", 1);
+
+    int i;
+    for (i = 0; i < num_accepts; i++) {
+	const char *actual_cert_dir = i % 2 == 0 ?
+	    "subca_only_cert_1" : "subca_only_cert_2";
+
+	CHKNOERR(tu_execute_es("rm -f ./test/tls/current"));
+        CHKNOERR(tu_executef_es("ln -s %s ./test/tls/current",
+				actual_cert_dir));
+
+	struct xcm_socket *conn = tu_connect_retry(tls_addr, 0);
+	CHK(conn);
+	CHKNOERR(xcm_close(conn));
+    }
+
+    tu_execute("rm ./test/tls/current");
+
+    CHKNOERR(tu_wait(server_pid));
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+static pid_t symlinker(const char *target0, const char *target1,
+		       const char *link_name, const char *tmp_link_name)
+{
+    pid_t p = fork();
+    if (p < 0)
+	return -1;
+    else if (p > 0)
+	return p;
+
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+
+    unlink(tmp_link_name);
+
+    uint64_t i;
+    for (i = 0;; i++) {
+	const char *target = i % 2 ? target0 : target1;
+	if (symlink(target, tmp_link_name) < 0)
+	    exit(EXIT_FAILURE);
+	if (rename(tmp_link_name, link_name) < 0)
+	    exit(EXIT_FAILURE);
+	tu_msleep(10); /* enough for mtime to be different on the symlink */
+    }
+
+    exit(EXIT_SUCCESS);
+}
+
+TESTCASE_SERIALIZED(xcm, tls_change_cert_files_like_crazy)
+{
+    REQUIRE_NOT_IN_VALGRIND;
+
+    char *tls_addr = gen_ip4_port_addr("tls");
+
+    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/current", 1));
+
+    tu_execute("rm -f ./test/tls/current");
+    CHKNOERR(tu_execute_es("ln -s subca_only_cert_2 ./test/tls/current"));
+
+    pid_t symlinker_pid =
+	symlinker("subca_only_cert_1", "subca_only_cert_2",
+		  "./test/tls/current", "./test/tls/current.tmp");
+
+    size_t num_accepts = 1000;
+    pid_t server_pid =
+	alternating_tls_server(tls_addr, num_accepts, NULL, 0, NULL, 0);
+
+    tu_msleep(250);
+
+    int i;
+    for (i = 0; i < num_accepts; i++) {
+	struct xcm_socket *conn = xcm_connect(tls_addr, 0);
+	CHK(conn);
+	CHKNOERR(xcm_close(conn));
+    }
+
+    tu_execute("rm ./test/tls/current");
+
+    CHKNOERR(tu_wait(server_pid));
+
+    kill(symlinker_pid, SIGKILL);
+    tu_wait(symlinker_pid);
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(xcm, tls_get_peer_subject_key_id)
 {
     const char *tls_addr = "tls:127.0.0.1:12234";
@@ -2358,6 +2525,8 @@ static pid_t resilient_server(const char *addr, int num_conns,
 	return -1;
     else if (p > 0)
 	return p;
+
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
 
     struct xcm_socket *server_sock = xcm_server(addr);
     if (!server_sock)
