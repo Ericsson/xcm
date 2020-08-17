@@ -91,6 +91,8 @@ struct fdfwd *fdfwd_create(int in_fd, int out_fd, struct xcm_socket *conn,
 
     ff->event_base = event_base;
 
+    ff->running = false;
+
     relay_init(&ff->to_xcm);
     relay_init(&ff->from_xcm);
 
