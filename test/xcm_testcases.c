@@ -790,9 +790,14 @@ TESTCASE(xcm, non_blocking_non_orderly_tls_close)
 	   ++retries < NB_MAX_RETRIES)
 	tu_msleep(10);
 
-    /* Dead process results in a TLS protocol violation */
-    CHKINTEQ(rc, -1);
-    CHKERRNOEQ(EPROTO);
+    /*
+     * One of three things may happen (all valid):
+     * 1) Normal TCP close (three-way handshake)
+     * 2) TCP reset
+     * 3) TLS protocol violation detected (i.e. early close)
+     */
+    CHK(rc == 0 || (rc == -1 && errno == EPIPE) ||
+	(rc == -1 && errno == EPROTO));
 
     CHKNOERR(xcm_close(client_conn));
 

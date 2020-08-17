@@ -622,7 +622,7 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
     case SSL_ERROR_SYSCALL:
         if (ERR_peek_error() != 0)
             handle_ssl_proto_error(s);
-        else if (ssl_rc == -1) {
+        else {
             LOG_TLS_OPENSSL_SYSCALL_FAILURE(s, ssl_errno);
             /* those should be SSL_ERROR_WANT_READ/WRITE */
             ut_assert(ssl_errno != EAGAIN && ssl_errno != EWOULDBLOCK);
@@ -641,11 +641,6 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
                 TLS_SET_STATE(s, conn_state_bad);
                 ts->conn.badness_reason = ssl_errno;
             }
-        } else {
-            ut_assert(ssl_rc == 0);
-            LOG_TLS_EARLY_EOF(s);
-            TLS_SET_STATE(s, conn_state_bad);
-            ts->conn.badness_reason = EPROTO;
         }
 	break;
     default:
