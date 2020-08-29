@@ -23,6 +23,11 @@ extern "C" {
  * @author Mattias Rönnblom
  * @version 0.12
  *
+ * The low version number is purely a result of all XCM releases being
+ * backward compatible, and thus left the major version at 0. It's not
+ * to be taken as a sign of immaturity. The API and its implementation
+ * has been stable for several years.
+ *
  * @section overview Overview
  *
  * XCM provides a connection-oriented, reliable messaging service with
