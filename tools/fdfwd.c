@@ -5,7 +5,6 @@
 
 #include "fdfwd.h"
 
-#include "evutil.h"
 #include "util.h"
 
 #include <event.h>
@@ -20,8 +19,6 @@
 
 enum relay_state { relay_state_waiting_for_input,
 		   relay_state_waiting_to_output };
-
-#define MAX_FDS (8)
 
 struct relay
 {
@@ -50,8 +47,7 @@ struct fdfwd
 
     struct event fd_readable_event;
     struct event fd_writable_event;
-
-    struct evu_xcm_reg xcm_reg;
+    struct event xcm_fd_event;
 };
 
 static void receive_from_fd(struct fdfwd *ff);
@@ -65,7 +61,7 @@ static void listen_fd_writable(struct fdfwd *ff);
 static void send_to_xcm(struct fdfwd *ff);
 static void receive_from_xcm(struct fdfwd *ff);
 
-static void on_xcm_change(int fd, short ev, void *arg);
+static void on_xcm_active(int fd, short ev, void *arg);
 static void listen_xcm(struct fdfwd *ff);
 static void unlisten_xcm(struct fdfwd *ff);
 
@@ -95,8 +91,6 @@ struct fdfwd *fdfwd_create(int in_fd, int out_fd, struct xcm_socket *conn,
 
     relay_init(&ff->to_xcm);
     relay_init(&ff->from_xcm);
-
-    evu_xcm_reg_init(&ff->xcm_reg);
 
     return ff;
 }
@@ -234,7 +228,7 @@ static void receive_from_xcm(struct fdfwd *ff)
     listen_xcm(ff);
 }
 
-static void on_xcm_change(int fd, short ev, void *arg)
+static void on_xcm_active(int fd, short ev, void *arg)
 {
     struct fdfwd *ff = arg;
     bool used_xcm = false;
@@ -257,7 +251,8 @@ static void on_xcm_change(int fd, short ev, void *arg)
 
 static void unlisten_xcm(struct fdfwd *ff)
 {
-    evu_xcm_unreg(&ff->xcm_reg);
+    int rc = xcm_await(ff->conn, 0);
+    assert(rc == 0);
 }
 
 static void listen_xcm(struct fdfwd *ff)
@@ -268,8 +263,8 @@ static void listen_xcm(struct fdfwd *ff)
     if (ff->from_xcm.state == relay_state_waiting_for_input)
 	cond |= XCM_SO_RECEIVABLE;
 
-    evu_xcm_reg(&ff->xcm_reg, ff->conn, cond, ff->event_base,
-		on_xcm_change, ff);
+    int rc = xcm_await(ff->conn, cond);
+    assert(rc == 0);
 }
 
 int fdfwd_start(struct fdfwd *ff)
@@ -286,6 +281,13 @@ int fdfwd_start(struct fdfwd *ff)
 
 	ff->from_xcm.state = relay_state_waiting_for_input;
 	ff->to_xcm.state = relay_state_waiting_for_input;
+
+	int fd = xcm_fd(ff->conn);
+	assert(fd >= 0);
+
+	event_assign(&ff->xcm_fd_event, ff->event_base,
+		     fd, EV_READ|EV_PERSIST, on_xcm_active, ff);
+	event_add(&ff->xcm_fd_event, NULL);
 
 	listen_xcm(ff);
 	listen_fd_readable(ff);
@@ -305,6 +307,8 @@ void fdfwd_stop(struct fdfwd *ff)
 
 	if (ff->to_xcm.state == relay_state_waiting_for_input)
 	    event_del(&ff->fd_readable_event);
+
+	event_del(&ff->xcm_fd_event);
 
 	ff->running = false;
     }

@@ -83,7 +83,7 @@ xcmpong_LDADD = libxcm.la
 xcmpong_LDFLAGS = -lrt
 
 if XCM_TOOL
-xcm_SOURCES = tools/xcm.c tools/fdfwd.c tools/evutil.c common/util.c
+xcm_SOURCES = tools/xcm.c tools/fdfwd.c common/util.c
 # You might think of _CFLAGS setting as a no-op, but in fact this
 # makes 'xcmmon/util.c' to be built in a separate version for
 # 'umpong', which is needed since the other version is built by
@@ -136,13 +136,13 @@ clean-local:
 	rm -rf doc/html
 	rm -rf doc/latex
 	rm -f common/*.d libxcm/*.d libxcmc/*.d example/*.d tools/*.d
-	rm -f .doxygenerated py-compile
+	rm -f .doxygenerated
 
 distclean-local:
 	rm -rf autom4te.cache m4
 	rm -f Makefile.in aclocal.m4 compile config.guess include/stamp-h1 \
 		config.sub configure depcomp install-sh ltmain.sh missing \
-		common/config.h.in
+		common/config.h.in py-compile
 	find . -name \*~ -print0 | xargs -0 rm -f
 
 xcmtest-run: xcmtest

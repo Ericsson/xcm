@@ -17,7 +17,6 @@
 #include "util.h"
 
 #include "fdfwd.h"
-#include "evutil.h"
 
 static void usage(const char *name)
 {
@@ -79,20 +78,21 @@ struct server
 {
     struct event_base *event_base;
     struct xcm_socket *server_socket;
-    struct evu_xcm_reg xcm_reg;
+    struct event xcm_fd_event;
 
     struct fdfwd *ff;
 };
 
 static void unlisten_xcm(struct server *server)
 {
-    evu_xcm_unreg(&server->xcm_reg);
+    int rc = xcm_await(server->server_socket, 0);
+    assert(rc == 0);
 }
 
 static void handle_client_term(int rc, const char *msg, void *data);
 static void listen_xcm(struct server *server);
 
-static void on_xcm_change(int fd, short ev, void *arg)
+static void on_xcm_active(int fd, short ev, void *arg)
 {
     struct server *server = arg;
 
@@ -117,8 +117,8 @@ static void listen_xcm(struct server *server)
 {
     int cond = (server->ff == NULL ? XCM_SO_ACCEPTABLE : 0);
 
-    evu_xcm_reg(&server->xcm_reg, server->server_socket, cond,
-		server->event_base, on_xcm_change, server);
+    int rc = xcm_await(server->server_socket, cond);
+    assert(rc == 0);
 }
 
 static void handle_client_term(int rc, const char *msg, void *data)
@@ -153,13 +153,21 @@ static void run_server(const char *addr, struct event_base *event_base)
 	.server_socket = server_socket,
 	.ff = NULL
     };
-    evu_xcm_reg_init(&server.xcm_reg);
+
+    int fd = xcm_fd(server_socket);
+    assert(fd >= 0);
+
+    event_assign(&server.xcm_fd_event, event_base, fd, EV_READ|EV_PERSIST,
+		 on_xcm_active, &server);
+    event_add(&server.xcm_fd_event, NULL);
 
     listen_xcm(&server);
 
     event_base_dispatch(event_base);
 
     unlisten_xcm(&server);
+
+    event_del(&server.xcm_fd_event);
 
     if (xcm_close(server_socket) < 0)
 	ut_die("Error closing server socket");
