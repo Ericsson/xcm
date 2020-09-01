@@ -318,12 +318,17 @@ static void accept_client(struct ctl *ctl)
     return;
 }
 
-#define CALLS_PER_ACTUAL_PROCESS (25)
+#define CALLS_PER_ACCEPT (64)
+#define CALLS_PER_SEND_RECEIVE (8)
 
 void ctl_process(struct ctl *ctl)
 {
     ctl->calls_since_process++;
-    if (ctl->calls_since_process != CALLS_PER_ACTUAL_PROCESS)
+
+    int min_calls = ctl->num_clients > 0 ?
+	CALLS_PER_SEND_RECEIVE : CALLS_PER_ACCEPT;
+
+    if (ctl->calls_since_process < min_calls)
 	return;
 
     ctl->calls_since_process = 0;
