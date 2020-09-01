@@ -175,7 +175,8 @@ endif
 
 verify-versioning:
 	./test/verify_versioning.py $(srcdir)/include/xcm.h \
-		$(builddir) 0 $(XCM_VERSION_CURRENT) $(XCM_VERSION_REVISION)
+		$(srcdir)/README.md $(builddir) 0 $(XCM_VERSION_CURRENT) \
+		$(XCM_VERSION_REVISION)
 
 BASIC_TEST_TARGETS=xcmtest-run verify-versioning
 

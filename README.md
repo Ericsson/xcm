@@ -38,8 +38,8 @@ API documentation and a short user manual are available in
 xcm.h. `make doxygen` will create HTML version. If the `pdflatex` tool
 is installed, a PDF version will also be produced.
 
-An online copy of the latest documentation can be found here:
-https://ericsson.github.io/xcm/api/latest/
+An online copy of this API version's documentation can be found here:
+https://ericsson.github.io/xcm/api/0.12/
 
 ## Building
 
