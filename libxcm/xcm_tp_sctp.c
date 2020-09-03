@@ -12,6 +12,7 @@
 
 #include "util.h"
 #include "common_tp.h"
+#include "active_fd.h"
 #include "log_tp.h"
 #include "xcm_dns.h"
 #include "epoll_reg.h"
@@ -47,6 +48,8 @@ struct sctp_socket
 	    enum conn_state state;
 
             int badness_reason;
+
+	    struct epoll_reg active_fd_reg;
 
             /* for conn_state_resolving */
             struct xcm_addr_host remote_host;
@@ -162,7 +165,7 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static void init_socket(struct xcm_socket *s)
+static int init_socket(struct xcm_socket *s)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -172,16 +175,30 @@ static void init_socket(struct xcm_socket *s)
 
     if (s->type == xcm_socket_type_conn) {
 	ss->conn.state = conn_state_none;
+
 	ss->conn.badness_reason = 0;
+
+	int active_fd = active_fd_get();
+	if (active_fd < 0)
+	    return -1;
+	epoll_reg_init(&ss->conn.active_fd_reg, s->epoll_fd, active_fd, s);
+
         ss->conn.query = NULL;
+
 	ss->conn.raddr[0] = '\0';
     }
+
+    return 0;
 }
 
 static void deinit_socket(struct xcm_socket *s)
 {
-    if (s->type == xcm_socket_type_conn)
+    if (s->type == xcm_socket_type_conn) {
+	struct sctp_socket *ss = TOSCTP(s);
+	epoll_reg_reset(&ss->conn.active_fd_reg);
+	active_fd_put();
 	xcm_dns_query_free(TOSCTP(s)->conn.query);
+    }
 }
 
 static int create_socket(struct xcm_socket *s, sa_family_t family)
@@ -379,7 +396,8 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(remote_addr);
 
-    init_socket(s);
+    if (init_socket(s) < 0)
+	goto err;
 
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -414,6 +432,7 @@ err_close:
 	UT_PROTECT_ERRNO(close(ss->fd));
 err_deinit:
     deinit_socket(s);
+err:
     return -1;
 }
 
@@ -431,7 +450,8 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 	goto err;
     }
 
-    init_socket(s);
+    if (init_socket(s) < 0)
+	goto err;
 
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -625,42 +645,69 @@ static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity)
 }
 
 
-static int conn_event(int condition)
-{
-    int event = 0;
-    if (condition & XCM_SO_RECEIVABLE)
-        event |= EPOLLIN;
-    if (condition & XCM_SO_SENDABLE)
-        event |= EPOLLOUT;
-
-    return event;
-}
-
-static int server_event(int condition)
-{
-    return condition == XCM_SO_ACCEPTABLE ? EPOLLIN : 0;
-}
-
-static void sctp_update(struct xcm_socket *s)
+static void conn_update(struct xcm_socket *s)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
-    int event;
-    switch (s->type) {
-    case xcm_socket_type_conn:
-        event = conn_event(s->condition);
+    bool ready = false;
+    int event = 0;
+
+    switch (ss->conn.state) {
+    case conn_state_resolving:
+	ready = xcm_dns_query_completed(ss->conn.query);
 	break;
-    case xcm_socket_type_server:
-        event = server_event(s->condition);
+    case conn_state_connecting:
+	event = EPOLLOUT;
+	break;
+    case conn_state_ready:
+	if (s->condition & XCM_SO_RECEIVABLE)
+	    event |= EPOLLIN;
+	if (s->condition & XCM_SO_SENDABLE)
+	    event |= EPOLLOUT;
+	break;
+    case conn_state_closed:
+    case conn_state_bad:
+	ready = true;
 	break;
     default:
-        ut_assert(0);
+	ut_assert(0);
     }
+
+    if (ready) {
+	epoll_reg_ensure(&ss->conn.active_fd_reg, EPOLLIN);
+	return;
+    }
+
+    epoll_reg_reset(&ss->conn.active_fd_reg);
 
     if (event)
 	epoll_reg_ensure(&ss->fd_reg, event);
     else
-        epoll_reg_reset(&ss->fd_reg);
+	epoll_reg_reset(&ss->fd_reg);
+}
+
+static void server_update(struct xcm_socket *s)
+{
+    struct sctp_socket *ss = TOSCTP(s);
+
+    if (s->condition & XCM_SO_ACCEPTABLE)
+	epoll_reg_ensure(&ss->fd_reg, EPOLLIN);
+    else
+	epoll_reg_reset(&ss->fd_reg);
+}
+
+static void sctp_update(struct xcm_socket *s)
+{
+    switch (s->type) {
+    case xcm_socket_type_conn:
+        conn_update(s);
+	break;
+    case xcm_socket_type_server:
+        server_update(s);
+	break;
+    default:
+        ut_assert(0);
+    }
 }
 
 static int sctp_finish(struct xcm_socket *s)
