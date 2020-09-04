@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 #
 # echod.py -- a simple Python-based XCM echo server.
@@ -9,73 +9,17 @@
 
 import xcm
 import sys
-import select
 import errno
-
-def translate(select_rfds, select_wrfds, xcm_fds, xcm_events):
-    for fd, event in zip(xcm_fds, xcm_events):
-        if event&xcm.FD_READABLE:
-            select_rfds.append(fd)
-        if event&xcm.FD_WRITABLE:
-            select_wrfds.append(fd)
-
-def map_handler(m, fds, events, event_type, handler):
-    for fd, event in zip(fds, events):
-        if event & event_type:
-            assert not fd in m
-            m[fd] = handler
-
-def call_ready(m, active):
-    for fd in active:
-        if fd in m:
-            m[fd].ready()
-
-class SocketDispatcher:
-    def __init__(self):
-        self.handlers = {}
-    def add(self, handler, sock):
-        self.handlers[handler] = sock
-    def remove(self, handler):
-        del self.handlers[handler]
-    def complete_pending(self):
-        pending = True
-        while pending:
-            pending = False
-            for handler, sock in self.handlers.items():
-                condition = handler.condition()
-                if condition:
-                    fds, events = sock.want(condition)
-                    if len(fds) == 0:
-                        handler.ready()
-                        pending = True
-    def gather_events(self):
-        rfds = []
-        wrfds = []
-        rfd_handlers = {}
-        wfd_handlers = {}
-        for handler, sock in self.handlers.items():
-            condition = handler.condition()
-            fds, events = sock.want(condition)
-            assert condition == 0 or len(fds) > 0
-            translate(rfds, wrfds, fds, events)
-            map_handler(rfd_handlers, fds, events, xcm.FD_READABLE, handler)
-            map_handler(wfd_handlers, fds, events, xcm.FD_WRITABLE, handler)
-        return (rfds, wrfds, rfd_handlers, wfd_handlers)
-    def run(self):
-        while True:
-            self.complete_pending()
-            rfds, wrfds, rfd_handlers, wfd_handlers = self.gather_events()
-            ractive, wactive, eactive = select.select(rfds, wrfds, [])
-            call_ready(rfd_handlers, ractive)
-            call_ready(wfd_handlers, wactive)
+import asyncio
 
 class Client:
-    def __init__(self, dispatcher, conn_sock):
+    def __init__(self, event_loop, conn_sock):
         self.conn_sock = conn_sock
+        conn_sock.set_target(xcm.SO_RECEIVABLE)
         self.msg = None
-        self.dispatcher = dispatcher
-        self.dispatcher.add(self, self.conn_sock)
-    def ready(self):
+        self.event_loop = event_loop
+        self.event_loop.add_reader(conn_sock, self.activate)
+    def activate(self):
         try:
             if self.msg:
                 self.conn_sock.send(self.msg)
@@ -86,36 +30,39 @@ class Client:
                     self.terminate()
         except xcm.error as e:
             if e.errno != errno.EAGAIN:
-                raise e
+                self.terminate()
+        finally:
+            if self.conn_sock != None:
+                self.conn_sock.set_target(self.condition())
     def condition(self):
         if self.msg:
             return xcm.SO_SENDABLE
         else:
             return xcm.SO_RECEIVABLE
     def terminate(self):
-        self.dispatcher.remove(self)
+        self.event_loop.remove_reader(self.conn_sock)
         self.conn_sock.close()
+        self.conn_sock = None
 
 class EchoServer:
-    def __init__(self, dispatcher, addr):
+    def __init__(self, event_loop, addr):
+        self.event_loop = event_loop
         self.sock = xcm.server(addr)
         self.sock.set_blocking(False)
-        self.dispatcher = dispatcher
-        self.dispatcher.add(self, self.sock)
-    def ready(self):
+        self.sock.set_target(xcm.SO_ACCEPTABLE)
+        self.event_loop.add_reader(self.sock, self.activate)
+    def activate(self):
         try:
             conn_sock = self.sock.accept()
-            Client(self.dispatcher, conn_sock)
+            Client(self.event_loop, conn_sock)
         except xcm.error as e:
             if e.errno != errno.EAGAIN:
                 raise e
-    def condition(self):
-        return xcm.SO_ACCEPTABLE
 
 def run(addr):
-    dispatcher = SocketDispatcher()
-    server = EchoServer(dispatcher, addr)
-    dispatcher.run()
+    event_loop = asyncio.get_event_loop()
+    server = EchoServer(event_loop, addr)
+    event_loop.run_forever()
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:

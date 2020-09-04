@@ -38,6 +38,14 @@ xcm_accept_c = xcm_c.xcm_accept
 xcm_accept_c.restype = c_void_p
 xcm_accept_c.argtypes = [c_void_p]
 
+xcm_await_c = xcm_c.xcm_await
+xcm_await_c.restype = c_int
+xcm_await_c.argtypes = [c_void_p, c_int]
+
+xcm_fd_c = xcm_c.xcm_fd
+xcm_fd_c.restype = c_int
+xcm_fd_c.argtypes = [c_void_p]
+
 xcm_want_c = xcm_c.xcm_want
 xcm_want_c.restype = c_int
 xcm_want_c.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_long]
@@ -110,6 +118,18 @@ class Socket:
     @_assure_open
     def is_blocking(self):
         return xcm_is_blocking_c(self.xcm_socket)
+    @_assure_open
+    # await is a keyword in recent Python versions
+    def set_target(self, condition):
+        rc = xcm_await_c(self.xcm_socket, condition)
+        if rc < 0:
+            raise ValueError("invalid condition: '%d'" % condition)
+    @_assure_open
+    def fileno(self):
+        rc = xcm_fd_c(self.xcm_socket)
+        if rc < 0:
+            _raise_io_err()
+        return rc
     @_assure_open
     def want(self, condition):
         int_ary_len = 16
