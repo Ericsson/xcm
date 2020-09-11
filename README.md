@@ -64,7 +64,7 @@ When all packages are installed, run:
 
 If you don't have OpenSSL installed, and don't need the TLS and UTLS
 transports, those can be disabled with:
-`./configure --disabled-tls`
+`./configure --disable-tls`
 
 If you for some reason don't want LTTng tracing support, you may
 disable LTTng UST with:
