@@ -630,15 +630,39 @@ const char *dns_supporting_transports[] = {
 const size_t dns_supporting_transports_len =
     sizeof(dns_supporting_transports)/sizeof(dns_supporting_transports[0]);
 
+static int run_dns_test_non_existent(const char *proto, const char *name)
+{
+    char addr[512];
+
+    snprintf(addr, sizeof(addr), "%s:%s:4711", proto, name);
+
+    CHKNULLERRNO(xcm_connect(addr, 0), ENOENT);
+
+    return UTEST_SUCCESS;
+}
+
 static int run_dns_test(const char *proto)
 {
     REQUIRE_NOT_IN_PRIVATE_NS;
 
+    int rc;
+
+    /* these test also makes sure that the syntax validation is not
+       too strict */
+    if ((rc = run_dns_test_non_existent(proto, "surelydoesnotexist")) < 0)
+	return rc;
+    if ((rc = run_dns_test_non_existent(proto, "also.dont.exist")) < 0)
+	return rc;
+    if ((rc = run_dns_test_non_existent(proto, "4711.foo")) < 0)
+	return rc;
+    if ((rc = run_dns_test_non_existent(proto, "a-b")) < 0)
+	return rc;
+    if ((rc = run_dns_test_non_existent(proto, "a-b.-")) < 0)
+	return rc;
+    if ((rc = run_dns_test_non_existent(proto, "CAPITAL")) < 0)
+	return rc;
+
     char addr[512];
-
-    snprintf(addr, sizeof(addr), "%s:surelydoesnotexist:4711", proto);
-
-    CHKNULLERRNO(xcm_connect(addr, 0), ENOENT);
 
     char hostname[HOST_NAME_MAX+1];
     CHKNOERR(gethostname(hostname, sizeof(hostname)));

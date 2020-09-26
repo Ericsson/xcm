@@ -127,7 +127,7 @@ int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_name,
 }
 
 #define DNS_MAX_LEN (253)
-#define DNS_RE "^[a-z0-9]+(\\.[a-z0-9]+\\.?)*$"
+#define DNS_RE "^[a-z0-9\\-]+(\\.[a-z0-9\\-]+\\.?)*$"
 
 static bool is_valid_dns_name(const char *name)
 {
