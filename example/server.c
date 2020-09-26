@@ -35,7 +35,7 @@ int main(int argc, char **argv)
 	die("Unable to create server socket");
 
     const char *laddr = xcm_local_addr(s);
-    if (laddr == NULL)
+    if (!laddr)
 	die("Unable to retrieve local socket address");
 
     printf("Serving \"%s\".\n", laddr);
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 	die("Unable to accept new connections");
 
     for (;;) {
-	char msg[64*1024];
+	char msg[65535];
 
 	int len = xcm_receive(c, msg, sizeof(msg));
 	if (len < 0)
