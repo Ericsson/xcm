@@ -42,6 +42,15 @@ AS_IF([test "x$enable_tls" != "xno"], [
 	AC_CHECK_DECLS([OPENSSL_THREADS], [],
 	               [AC_MSG_ERROR([OpenSSL is built w/o threads support.])],
 		       [#include <openssl/ssl.h>])
+	AC_MSG_CHECKING([OpenSSL version])
+	AC_PREPROC_IFELSE([AC_LANG_PROGRAM([#include <openssl/opensslv.h>],
+	                                   [
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#error OpenSSL version is not recent enough
+#endif
+                                           ])],
+                          [AC_MSG_RESULT(yes)],
+                          [AC_MSG_FAILURE([OpenSSL 1.1.x or later is required])])
 	AC_DEFINE([XCM_TLS], [1], [XCM TLS and UTLS Transports.])
 	AC_SUBST(XCM_TLS, 1)
 ])

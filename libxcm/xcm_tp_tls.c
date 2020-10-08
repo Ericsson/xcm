@@ -127,45 +127,9 @@ static size_t tls_priv_size(enum xcm_socket_type type)
     return sizeof(struct tls_socket);
 }
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-
-/* OpenSSL 1.0.x needs a number of locks for shared data structures */
-static pthread_mutex_t *ssl_locks = NULL;
-
-static unsigned long thread_id(void)
-{
-    return pthread_self();
-}
-
-static void access_lock(int mode, int n, const char * file, int line)
-{
-    if (mode & CRYPTO_LOCK)
-	ut_mutex_lock(&ssl_locks[n]);
-    else
-	ut_mutex_unlock(&ssl_locks[n]);
-}
-
-static void setup_openssl_locks(void)
-{
-    const int num_locks = CRYPTO_num_locks();
-    ssl_locks = ut_malloc(num_locks * sizeof(pthread_mutex_t));
-
-    int i;
-    for (i=0; i<num_locks; i++)
-        pthread_mutex_init(&ssl_locks[i], NULL);
-
-    CRYPTO_set_id_callback(thread_id);
-    CRYPTO_set_locking_callback(access_lock);
-}
-#endif
-
 static void init_ssl(void)
 {
     ctx_store_init();
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    setup_openssl_locks();
-#endif
 
     (void)SSL_library_init();
 
@@ -1026,12 +990,10 @@ static bool ssl_pending(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
     if (SSL_has_pending(ts->conn.ssl)) {
         LOG_TLS_OPENSSL_PENDING_UNPROCESSED(s);
         return true;
     }
-#endif
 
     int pending_ssl = SSL_pending(ts->conn.ssl);
 

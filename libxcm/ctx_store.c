@@ -22,10 +22,6 @@
 
 #define TLS_CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305"
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-#define SSL_OP_NO_TLSv1_3 0
-#endif
-
 #define TLS_OPT_SET					\
     (SSL_OP_NO_SSLv2|					\
      SSL_OP_NO_SSLv3|					\
@@ -369,10 +365,6 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *ns, const char *cert_dir,
     int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_CIPHER_LIST);
     ut_assert(rc == 1);
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    SSL_CTX_set_ecdh_auto(ssl_ctx, 1);
-#endif
-
     char cert_file[PATH_MAX];
     char key_file[PATH_MAX];
 
@@ -416,13 +408,7 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *ns, const char *cert_dir,
 	goto err_free;
     }
 
-    /*  SSL_has_pending() and OpenSSL 1.1 is needed for read-ahead
-	to play nicely with non-blocking mode */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    SSL_CTX_set_read_ahead(ssl_ctx, 0);
-#else
     SSL_CTX_set_read_ahead(ssl_ctx, 1);
-#endif
 
     X509_STORE_set_flags(SSL_CTX_get_cert_store(ssl_ctx),
 			 X509_V_FLAG_PARTIAL_CHAIN);
