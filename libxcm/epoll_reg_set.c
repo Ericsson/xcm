@@ -73,10 +73,12 @@ void epoll_reg_set_del(struct epoll_reg_set *reg, int fd)
     int rc = epoll_ctl(reg->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
     UT_RESTORE_ERRNO(epoll_errno);
 
-    /* ignore missing fds, since they may have been implicitly removed
-       by the kernel */
-    if (rc < 0 && epoll_errno != EBADF) {
-        LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, fd, errno);
+    /* Ignore missing fds, since they may have been implicitly removed
+       (and potentially reused) by the kernel */
+    if (rc < 0 && (epoll_errno != EBADF &&
+		   epoll_errno != ENOENT &&
+		   epoll_errno != EPERM)) {
+        LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, fd, epoll_errno);
         abort();
     }
 
