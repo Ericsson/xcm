@@ -144,7 +144,8 @@ static bool is_wildcard_addr(const char *addr)
 
 static pid_t simple_server(const char *ns, const char *addr,
 			   const char *in_msg, const char *out_msg,
-			   const char *server_cert_dir)
+			   const char *server_cert_dir,
+			   bool polling_accept)
 {
     pid_t p = fork();
     if (p < 0)
@@ -185,9 +186,19 @@ static pid_t simple_server(const char *ns, const char *addr,
         tu_assure_str_attr(server_sock, "xcm.local_addr", addr) < 0)
 	exit(EXIT_FAILURE);
 
-    struct xcm_socket *conn = xcm_accept(server_sock);
+    if (polling_accept)
+	CHKNOERR(xcm_set_blocking(server_sock, false));
+
+    struct xcm_socket *conn;
+    do {
+	conn = xcm_accept(server_sock);
+    } while (polling_accept && conn == NULL && errno == EAGAIN);
+
     if (!conn)
 	exit(ERRNO_TO_STATUS(errno));
+
+    if (polling_accept)
+	CHKNOERR(xcm_set_blocking(server_sock, true));
 
     if (tu_assure_str_attr(conn, "xcm.type", "connection") < 0)
 	exit(EXIT_FAILURE);
@@ -430,7 +441,7 @@ TESTCASE(xcm, basic)
 	const char *server_msg = "hello";
 
 	pid_t server_pid = simple_server(NULL, test_addrs[i], client_msg,
-					 server_msg, NULL);
+					 server_msg, NULL, false);
 
 	char test_proto[64] = { 0 };
 
@@ -669,7 +680,8 @@ static int run_dns_test(const char *proto)
     snprintf(addr, sizeof(addr), "%s:%s:4711", proto, hostname);
 
     pid_t server_pid;
-    CHKNOERR((server_pid = simple_server(NULL, addr, "hello", "hi", NULL)));
+    CHKNOERR((server_pid = simple_server(NULL, addr, "hello", "hi", NULL,
+					 false)));
 
     struct xcm_socket *client_conn = tu_connect_retry(addr, 0);
     CHK(client_conn);
@@ -799,7 +811,8 @@ TESTCASE(xcm, non_blocking_non_orderly_tls_close)
     snprintf(addr, sizeof(addr), "tls:127.0.0.1:%d", tcp_port);
 
     pid_t server_pid;
-    CHKNOERR((server_pid = simple_server(NULL, addr, "hello", "hi", NULL)));
+    CHKNOERR((server_pid = simple_server(NULL, addr, "hello", "hi", NULL,
+					 false)));
 
     struct xcm_socket *client_conn = tu_connect_retry(addr, 0);
     CHK(client_conn);
@@ -1155,7 +1168,7 @@ TESTCASE(xcm, non_blocking_connect_with_finish)
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
 	CHKNOERR((server_pid = simple_server(NULL, test_addrs[i], client_msg,
-					     server_msg, NULL)));
+					     server_msg, NULL, false)));
 
 	sleep(1);
 
@@ -1218,7 +1231,7 @@ TESTCASE(xcm, non_blocking_connect_lazy)
 	const char *server_msg = "hello";
 
 	CHKNOERR((server_pid = simple_server(NULL, test_addrs[i], client_msg,
-					     server_msg, NULL)));
+					     server_msg, NULL, false)));
 
 	sleep(1);
 
@@ -1379,7 +1392,7 @@ TESTCASE(xcm, undersized_receive_buffer)
 	const char *server_msg = "hello";
 
 	pid_t server_pid = simple_server(NULL, test_addrs[i], client_msg,
-					 server_msg, NULL);
+					 server_msg, NULL, false);
 
 	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
 	CHK(client_conn);
@@ -1412,7 +1425,7 @@ TESTCASE(xcm, oversized_send)
     int i;
     for (i=0; i<test_addrs_len; i++) {
 	pid_t server_pid =
-	    simple_server(NULL, test_addrs[i], "none", "none", NULL);
+	    simple_server(NULL, test_addrs[i], "none", "none", NULL, false);
 
 	char *msg = malloc(too_large_len);
 	CHK(msg);
@@ -1444,7 +1457,7 @@ TESTCASE(xcm, zerosized_send)
     int i;
     for (i=0; i<test_addrs_len; i++) {
 	pid_t server_pid =
-	    simple_server(NULL, test_addrs[i], "none", "none", NULL);
+	    simple_server(NULL, test_addrs[i], "none", "none", NULL, false);
 
 	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
 	CHK(client_conn);
@@ -1579,7 +1592,8 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
     snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
 
     pid_t server_pid;
-    CHKNOERR((server_pid = simple_server(NULL, addr, "hello", "hi", NULL)));
+    CHKNOERR((server_pid = simple_server(NULL, addr, "hello", "hi", NULL,
+					 false)));
 
     struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
     CHK(conn_socket);
@@ -1724,7 +1738,7 @@ static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
         const char *server_msg = "hello";
         pid_t server_pid;
         CHKNOERR((server_pid = simple_server(NULL, addr, client_msg,
-                                             server_msg, NULL)));
+                                             server_msg, NULL, false)));
 
 
         struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
@@ -1921,7 +1935,7 @@ static int run_dscp_marking(const char *proto, sa_family_t ip_version)
     const char *server_msg = "salute";
 
     pid_t server_pid =
-        simple_server(NULL, addr, client_msg, server_msg, NULL);
+        simple_server(NULL, addr, client_msg, server_msg, NULL, false);
 
     struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
 
@@ -2067,7 +2081,7 @@ TESTCASE(xcm, tls_missing_certificate)
 
     const char *tls_addr = "tls:127.0.0.1:12234";
 
-    pid_t server_pid = simple_server(NULL, tls_addr, "", "", NULL);
+    pid_t server_pid = simple_server(NULL, tls_addr, "", "", NULL, false);
 
     CHKNULLERRNO(tu_connect_retry(tls_addr, 0), EPROTO);
 
@@ -2086,7 +2100,8 @@ TESTCASE_SERIALIZED(xcm, utls_remote_addr)
     char *addr = gen_ip4_port_addr("utls");
 
     pid_t server_pid;
-    CHKNOERR((server_pid = simple_server(NULL, addr, client_msg, server_msg, NULL)));
+    CHKNOERR((server_pid = simple_server(NULL, addr, client_msg, server_msg,
+					 NULL, false)));
 
     /* wait for both UX and TLS sockets to be created */
     tu_msleep(500);
@@ -2120,7 +2135,8 @@ TESTCASE(xcm, tls_sub_ca_as_trust_anchor)
     if (setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_2", 1) < 0)
 	return UTEST_FAIL;
 
-    pid_t server_pid = simple_server(NULL, tls_addr, client_msg, server_msg, "./test/tls/subca_only_cert_1");
+    pid_t server_pid = simple_server(NULL, tls_addr, client_msg, server_msg,
+				     "./test/tls/subca_only_cert_1", false);
 
     struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
 
@@ -2159,7 +2175,9 @@ TESTCASE(xcm, tls_sub_ca_as_trust_anchor_2)
     if (setenv("XCM_TLS_CERT", "./test/tls/tc_with_root_and_subca_cert_1", 1) < 0)
 	return UTEST_FAIL;
 
-    pid_t server_pid = simple_server(NULL, tls_addr, client_msg, server_msg, "./test/tls/tc_with_root_and_subca_cert_2");
+    pid_t server_pid =
+	simple_server(NULL, tls_addr, client_msg, server_msg,
+		      "./test/tls/tc_with_root_and_subca_cert_2", false);
 
     struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
 
@@ -2189,7 +2207,8 @@ static int run_handshake_test(const char *server_cert_dir,
 {
     const char *tls_addr = "tls:127.0.0.1:12234";
 
-    pid_t server_pid = simple_server(NULL, tls_addr, "", "", server_cert_dir);
+    pid_t server_pid = simple_server(NULL, tls_addr, "", "", server_cert_dir,
+				     false);
     CHKNOERR(server_pid);
 
     if (client_cert_dir)
@@ -2258,7 +2277,7 @@ TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
 
     const char *utls_addr = "utls:127.0.0.1:32123";
 
-    pid_t server_pid = simple_server(TEST_NS, utls_addr, "", "", NULL);
+    pid_t server_pid = simple_server(TEST_NS, utls_addr, "", "", NULL, false);
 
     tu_msleep(500);
 
@@ -2289,7 +2308,7 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert)
 
     const char *tls_addr = "tls:127.0.0.1:12234";
 
-    pid_t server_pid = simple_server(TEST_NS, tls_addr, "", "", NULL);
+    pid_t server_pid = simple_server(TEST_NS, tls_addr, "", "", NULL, false);
 
     int old_ns_fd = tu_enter_ns(TEST_NS);
     CHKNOERR(old_ns_fd);
@@ -2558,7 +2577,8 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 	return UTEST_FAIL;
 
     pid_t server_pid =
-	simple_server(NULL, tls_addr, "", "", "./test/tls/subca_only_cert_2");
+	simple_server(NULL, tls_addr, "", "", "./test/tls/subca_only_cert_2",
+		      false);
 
     tu_msleep(250);
 
@@ -3076,16 +3096,17 @@ TESTCASE(xcm, ctl_open_nonexisting)
     return UTEST_SUCCESS;
 }
 
-#define NUM_SESSIONS (2)
+#define NUM_ACTIVE_SESSIONS (2)
+#define MAX_PENDING_SESSIONS (1000)
 
-TESTCASE(xcm, ctl_concurrent_clients)
+static int ctl_concurrent_clients(bool active)
 {
     const char *test_addr = test_addrs[0];
 
     const char *client_msg = "greetings";
     const char *server_msg = "hello";
     pid_t server_pid = simple_server(NULL, test_addr, client_msg,
-                                     server_msg, NULL);
+                                     server_msg, NULL, active);
 
     struct ctl_ary data = { .num_ctls = 0 };
 
@@ -3103,13 +3124,32 @@ TESTCASE(xcm, ctl_concurrent_clients)
             }
     }
 
-    struct xcmc_session *sessions[NUM_SESSIONS];
+    struct xcmc_session *sessions[NUM_ACTIVE_SESSIONS];
 
-    for (i=0; i<NUM_SESSIONS; i++) {
+    for (i=0; i<NUM_ACTIVE_SESSIONS; i++) {
         sessions[i] = xcmc_open(creator_pid, sock_ref);
 
         CHK(sessions[i] != NULL);
     }
+
+    /* make sure the process stops accepting incoming control
+     * sessions, at some point */
+    struct xcmc_session *pending_sessions[MAX_PENDING_SESSIONS];
+
+    int num_pending;
+    for (num_pending=0; num_pending < MAX_PENDING_SESSIONS; num_pending++) {
+	struct xcmc_session *session = xcmc_open(creator_pid, sock_ref);
+
+	if (!session)
+	    break;
+
+	pending_sessions[num_pending] = session;
+    }
+
+    CHK(num_pending < MAX_PENDING_SESSIONS);
+
+    for (i=0; i<num_pending; i++)
+	CHKNOERR(xcmc_close(pending_sessions[i]));
 
     tu_msleep(100);
 
@@ -3119,7 +3159,7 @@ TESTCASE(xcm, ctl_concurrent_clients)
 
     tu_msleep(100);
 
-    for (i=0; i<NUM_SESSIONS; i++)
+    for (i=0; i<NUM_ACTIVE_SESSIONS; i++)
         if (i != closed_idx) {
             CHKNOERR(test_attr_get(sessions[i]));
             CHKNOERR(xcmc_close(sessions[i]));
@@ -3138,4 +3178,15 @@ TESTCASE(xcm, ctl_concurrent_clients)
 
     return UTEST_SUCCESS;
 }
+
+TESTCASE(xcm, ctl_concurrent_clients_idle_socket)
+{
+    return ctl_concurrent_clients(false);
+}
+
+TESTCASE(xcm, ctl_concurrent_clients_active_socket)
+{
+    return ctl_concurrent_clients(true);
+}
+
 #endif

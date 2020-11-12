@@ -338,7 +338,8 @@ void ctl_process(struct ctl *ctl)
 	}
     }
 
-    accept_client(ctl);
+    if (ctl->num_clients < MAX_CLIENTS)
+	accept_client(ctl);
 
     UT_RESTORE_ERRNO_DC;
 }
