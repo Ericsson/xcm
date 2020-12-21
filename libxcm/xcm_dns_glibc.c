@@ -197,12 +197,25 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
     }
 }
 
+static void cancel_request(struct xcm_dns_query *query)
+{
+    gai_cancel(query->request);
+
+    char m;
+    int rc;
+    do {
+	rc = read(query->pipefds[0], &m, 1);
+    } while (rc < 0 && errno == EINTR);
+
+    if (rc < 0)
+	abort();
+}
+
 void xcm_dns_query_free(struct xcm_dns_query *query)
 {
     if (query) {
         if (query->state == query_state_resolving)
-            while (gai_cancel(query->request) == EAI_NOTCANCELED)
-                ;
+	    cancel_request(query);
 
         epoll_reg_reset(&query->reg);
 

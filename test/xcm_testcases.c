@@ -652,6 +652,23 @@ static int run_dns_test_non_existent(const char *proto, const char *name)
     return UTEST_SUCCESS;
 }
 
+
+static int run_dns_immediate_close(const char *proto)
+{
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:no.such.domain:4711", proto);
+
+    struct xcm_socket *conn = xcm_connect(addr, XCM_NONBLOCK);
+
+    if (conn == NULL)
+	return errno == ENOENT ? UTEST_SUCCESS : UTEST_FAIL;
+
+    if (xcm_close(conn) < 0)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
+
 static int run_dns_test(const char *proto)
 {
     REQUIRE_NOT_IN_PRIVATE_NS;
@@ -671,6 +688,9 @@ static int run_dns_test(const char *proto)
     if ((rc = run_dns_test_non_existent(proto, "a-b.-")) < 0)
 	return rc;
     if ((rc = run_dns_test_non_existent(proto, "CAPITAL")) < 0)
+	return rc;
+
+    if ((rc = run_dns_immediate_close(proto)) < 0)
 	return rc;
 
     char addr[512];
