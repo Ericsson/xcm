@@ -145,12 +145,16 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
     query->state = query_state_resolving;
 
     if (initiate_query(query) < 0)
-	goto err_free;
+	goto err_reset;
 
     try_retrieve_query_result(query);
 
     return query;
 
+ err_reset:
+    epoll_reg_reset(&query->reg);
+    close(query->pipefds[0]);
+    close(query->pipefds[1]);
  err_free:
     ut_free(query->domain_name);
     ut_free(query->request);
