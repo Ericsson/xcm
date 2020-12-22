@@ -218,8 +218,7 @@ static void cancel_request(struct xcm_dns_query *query)
 void xcm_dns_query_free(struct xcm_dns_query *query)
 {
     if (query) {
-        if (query->state == query_state_resolving)
-	    cancel_request(query);
+	cancel_request(query);
 
         epoll_reg_reset(&query->reg);
 
