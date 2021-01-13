@@ -56,6 +56,8 @@ static void utls_cleanup(struct xcm_socket *s);
 static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static void utls_update(struct xcm_socket *s);
 static int utls_finish(struct xcm_socket *s);
+static const char *utls_remote_addr(struct xcm_socket *s,
+				    bool suppress_tracing);
 static const char *utls_local_addr(struct xcm_socket *socket,
 				   bool suppress_tracing);
 static void utls_get_attrs(struct xcm_tp_attr **attr_list,
@@ -72,6 +74,7 @@ static struct xcm_tp_ops utls_ops = {
     .receive = NULL,
     .update = utls_update,
     .finish = utls_finish,
+    .remote_addr = utls_remote_addr,
     .local_addr = utls_local_addr,
     .get_attrs = utls_get_attrs,
     .priv_size = utls_priv_size
@@ -118,13 +121,6 @@ static size_t utls_priv_size(enum xcm_socket_type type)
 	size_t ux_priv_data = ux_proto()->ops->priv_size(type);
 	return UT_MAX(tls_priv_data, ux_priv_data);
     }
-}
-
-static void init_server_socket(struct xcm_socket *s)
-{
-    struct utls_socket *us = TOUTLS(s);
-
-    us->laddr[0] = '\0';
 }
 
 #define PROTO_SEP_LEN (1)
@@ -209,8 +205,6 @@ static int utls_server(struct xcm_socket *s, const char *local_addr)
 	LOG_ADDR_PARSE_ERR(local_addr, errno);
 	goto err;
     }
-
-    init_server_socket(s);
 
     /* XXX: how to handle "wildcard" 0.0.0.0 correctly? So the client
        can connect with 127.0.0.1, or any local IP, but end up on UX socket */
@@ -320,6 +314,17 @@ static int utls_finish(struct xcm_socket *s)
 	return -1;
     else
 	return 0;
+}
+
+/* utls_remote_addr() is only called by XCM-internal logging, at early
+ * stages of socket creation, when the correct ops are not yet
+ * set. After proper ops has been set (i.e. after utls_accept() has
+ * finished), tls_remote_addr() or ux_remote_addr() will be called
+ * (depending on connection type. */
+static const char *utls_remote_addr(struct xcm_socket *s,
+				    bool suppress_tracing)
+{
+    return NULL;
 }
 
 const char *xcm_local_addr_notrace(struct xcm_socket *conn_socket);

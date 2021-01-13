@@ -217,7 +217,6 @@ static int init_socket(struct xcm_socket *s, const char *ns)
     struct tls_socket *ts = TOTLS(s);
 
     strcpy(ts->ns, ns);
-    ts->laddr[0] = '\0';
     epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
 
     switch (s->type) {
@@ -228,15 +227,10 @@ static int init_socket(struct xcm_socket *s, const char *ns)
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
 	    return -1;
-	ts->conn.ssl = NULL;
 	ts->conn.state = conn_state_none;
 	epoll_reg_init(&ts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
-        ts->conn.query = NULL;
-	ts->conn.ssl_events = 0;
-	ts->conn.badness_reason = 0;
 	mbuf_init(&ts->conn.send_mbuf);
 	mbuf_init(&ts->conn.receive_mbuf);
-	ts->conn.raddr[0] = '\0';
 	break;
     }
     }

@@ -122,9 +122,6 @@ static void init_socket(struct xcm_socket *s, int fd)
 {
     struct ux_socket *us = TOUX(s);
 
-    us->raddr[0] = '\0';
-    us->laddr[0] = '\0';
-    us->path[0] = '\0';
     us->fd = fd;
 
     epoll_reg_init(&us->reg, s->epoll_fd, us->fd, s);

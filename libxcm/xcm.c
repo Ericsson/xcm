@@ -136,7 +136,7 @@ static struct xcm_socket *socket_create(struct xcm_tp_proto *proto,
 					bool is_blocking)
 {
     size_t priv_size = proto->ops->priv_size(type);
-    struct xcm_socket *s = ut_malloc(sizeof(struct xcm_socket) + priv_size);
+    struct xcm_socket *s = ut_calloc(sizeof(struct xcm_socket) + priv_size);
     s->proto = proto;
     s->type = type;
     s->is_blocking = is_blocking;

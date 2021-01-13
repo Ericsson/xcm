@@ -169,23 +169,16 @@ static int init_socket(struct xcm_socket *s)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
-    ss->laddr[0] = '\0';
     ss->fd = -1;
     epoll_reg_init(&ss->fd_reg, s->epoll_fd, -1, s);
 
     if (s->type == xcm_socket_type_conn) {
 	ss->conn.state = conn_state_none;
 
-	ss->conn.badness_reason = 0;
-
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
 	    return -1;
 	epoll_reg_init(&ss->conn.active_fd_reg, s->epoll_fd, active_fd, s);
-
-        ss->conn.query = NULL;
-
-	ss->conn.raddr[0] = '\0';
     }
 
     return 0;

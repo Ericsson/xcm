@@ -178,14 +178,11 @@ static int init_socket(struct xcm_socket *s)
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    ts->laddr[0] = '\0';
     ts->fd = -1;
     epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
 
     if (s->type == xcm_socket_type_conn) {
 	ts->conn.state = conn_state_none;
-
-	ts->conn.badness_reason = 0;
 
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
@@ -193,14 +190,9 @@ static int init_socket(struct xcm_socket *s)
 
 	epoll_reg_init(&ts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
 
-        ts->conn.query = NULL;
-
 	mbuf_init(&ts->conn.send_mbuf);
-	ts->conn.mbuf_sent = 0;
 
 	mbuf_init(&ts->conn.receive_mbuf);
-
-	ts->conn.raddr[0] = '\0';
     }
 
     return 0;
