@@ -68,14 +68,12 @@ struct tcp_info_4_3 {
 
 #define GEN_INFO_GET(xcm_field_name, tcp_field_name)			\
     int tcp_get_ ## xcm_field_name ## _attr(struct xcm_socket *s, int fd, \
-					    enum xcm_attr_type *type,	\
 					    void *value, size_t capacity) \
     {									\
 	if (capacity < sizeof(int64_t)) {				\
 	    errno = EOVERFLOW;						\
 	    return -1;							\
 	}								\
-	*type = xcm_attr_type_int64;					\
 	if (s->type == xcm_socket_type_conn) {				\
 	    struct tcp_info_4_3 info;					\
 	    socklen_t len = sizeof(info);				\

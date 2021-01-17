@@ -2,10 +2,13 @@
 {
  global:
     xcm_connect;
+    xcm_connect_a;
     xcm_server;
+    xcm_server_a;
     xcm_close;
     xcm_cleanup;
     xcm_accept;
+    xcm_accept_a;
     xcm_send;
     xcm_receive;
     xcm_want;
@@ -16,8 +19,25 @@
     xcm_is_blocking;
     xcm_remote_addr;
     xcm_local_addr;
+    xcm_attr_set;
     xcm_attr_get;
     xcm_attr_get_all;
+    xcm_attr_map_create;
+    xcm_attr_map_clone;
+    xcm_attr_map_add;
+    xcm_attr_map_add_bool;
+    xcm_attr_map_add_int64;
+    xcm_attr_map_add_str;
+    xcm_attr_map_get;
+    xcm_attr_map_get_bool;
+    xcm_attr_map_get_int64;
+    xcm_attr_map_get_str;
+    xcm_attr_map_exists;
+    xcm_attr_map_del;
+    xcm_attr_map_size;
+    xcm_attr_map_foreach;
+    xcm_attr_map_equal;
+    xcm_attr_map_destroy;
     xcm_addr_parse_proto;
     xcm_addr_parse_utls;
     xcm_addr_parse_tls;
@@ -42,7 +62,7 @@
     xcm_addr_tcp6_make;
     xcm_addr_sctp6_make;
     xcm_addr_ux_make;
-# Obsolete pre-IPv4 address parsing
+# Obsolete pre-IPv6 address parsing
     xcm_addr_utls_parse;
     xcm_addr_tls_parse;
     xcm_addr_tcp_parse;

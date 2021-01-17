@@ -337,15 +337,15 @@ pid_t pingpong_run_async_server(const char *server_addr, int total_pings,
 
     prctl(PR_SET_PDEATHSIG, SIGKILL);
 
-    struct xcm_socket *server_sock = xcm_server(server_addr);
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+    struct xcm_socket *server_sock = xcm_server_a(server_addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
     if (!server_sock)
 	ut_die("Unable to create server socket");
-
-    if (!xcm_is_blocking(server_sock))
-	ut_die("Server socket in non-blocking mode when it shouldn't");
-
-    if (xcm_set_blocking(server_sock, false) < 0)
-	ut_die("Error setting server socket into non-blocking mode");
 
     if (xcm_is_blocking(server_sock))
 	ut_die("Server socket in blocking mode when it shouldn't");
@@ -465,11 +465,25 @@ pid_t pingpong_run_forking_server(const char *server_addr, int pings_per_client,
     for (i=0; i<num_clients; i++) {
 	struct xcm_socket *client_conn;
         do {
-            client_conn = xcm_accept(server_sock);
+	    struct xcm_attr_map *attrs = xcm_attr_map_create();
+	    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+            client_conn = xcm_accept_a(server_sock, attrs);
+
+	    xcm_attr_map_destroy(attrs);
         } while (!client_conn && errno == EINTR);
 
 	if (!client_conn)
 	    ut_die("Error accepting client");
+
+	if (xcm_is_blocking(client_conn))
+	    ut_die("Connection socket in blocking mode when it shouldn't");
+
+	bool v = true;
+	if (xcm_attr_set(client_conn, "xcm.blocking", xcm_attr_type_bool,
+			 &v, sizeof(v)) < 0)
+	    ut_die("Unable to set the connection socket into non-blocking "
+		   "mode");
 
 	if (!xcm_is_blocking(client_conn))
 	    ut_die("Connection socket in non-blocking mode when it shouldn't");

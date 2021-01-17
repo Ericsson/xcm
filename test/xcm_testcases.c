@@ -433,10 +433,40 @@ static int teardown_xcm(void)
 
 TESTSUITE(xcm, setup_xcm, teardown_xcm)
 
+static int set_blocking(struct xcm_socket *s, bool value)
+{
+    if (random() & 1)
+	return xcm_set_blocking(s, value);
+    else
+	return xcm_attr_set(s, "xcm.blocking", xcm_attr_type_bool,
+			    &value, sizeof(value));
+}
+
+static int check_blocking(struct xcm_socket *s, bool expected)
+{
+    if (xcm_is_blocking(s) != expected)
+	return UTEST_FAIL;
+
+    bool actual = !expected;
+    enum xcm_attr_type type;
+    if (xcm_attr_get(s, "xcm.blocking", &type, &actual, sizeof(actual)) < 0)
+	return UTEST_FAIL;
+
+    if (type != xcm_attr_type_bool)
+	return UTEST_FAIL;
+
+    if (actual != expected)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
+    
 TESTCASE(xcm, basic)
 {
     int i;
     for (i=0; i<test_addrs_len; i++) {
+	if (strncmp(test_addrs[i], "utls", 4) == 0)
+	    continue;
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
 
@@ -458,7 +488,7 @@ TESTCASE(xcm, basic)
 	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
 	CHK(client_conn);
 
-	CHK(xcm_is_blocking(client_conn));
+	CHKNOERR(check_blocking(client_conn, true));
 
 	CHKNOERR(tu_assure_str_attr(client_conn, "xcm.type", "connection"));
 
@@ -726,6 +756,56 @@ TESTCASE(xcm, dns)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, nonexistent_attr)
+{
+    int i;
+    for (i=0; i<test_addrs_len; i++) {
+	struct xcm_attr_map *attrs = xcm_attr_map_create();
+	xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+	xcm_attr_map_add_str(attrs, "xcm.nonexistent", "foo");
+
+	//CHKNULLERRNO(xcm_server_a(test_addrs[i], attrs), ENOENT);
+	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), ENOENT);
+
+	xcm_attr_map_destroy(attrs);
+    }
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, invalid_generic_attr_type)
+{
+    int i;
+    for (i=0; i<test_addrs_len; i++) {
+	struct xcm_attr_map *attrs = xcm_attr_map_create();
+	xcm_attr_map_add_str(attrs, "xcm.blocking", "foo");
+
+	CHKNULLERRNO(xcm_server_a(test_addrs[i], attrs), EINVAL);
+	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), EINVAL);
+
+	xcm_attr_map_destroy(attrs);
+    }
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, invalid_tp_attr_type)
+{
+    int i;
+    for (i=0; i<test_addrs_len; i++) {
+	if (strstr(test_addrs[i], "tls") == NULL)
+	    continue;
+	struct xcm_attr_map *attrs = xcm_attr_map_create();
+	xcm_attr_map_add_str(attrs, "xcm.local_addr", "foo");
+
+	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), EINVAL);
+
+	xcm_attr_map_destroy(attrs);
+    }
+
+    return UTEST_SUCCESS;
+}
+
 #define BACKPRESSURE_TEST_DURATION (10.0)
 
 /* serialized because of the load it generates, and its more strict timing
@@ -750,9 +830,9 @@ TESTCASE_SERIALIZED(xcm, backpressure_with_slow_server)
 	struct xcm_socket *conn = tu_connect_retry(test_addrs[i], 0);
 	CHK(conn);
 
-	CHK(xcm_is_blocking(conn));
-	CHKNOERR(xcm_set_blocking(conn, false));
-	CHK(!xcm_is_blocking(conn));
+	CHKNOERR(check_blocking(conn, true));
+	CHKNOERR(set_blocking(conn, false));
+	CHKNOERR(check_blocking(conn, false));
 
 	char buf[65535];
 	memset(buf, 0, sizeof(buf));
@@ -837,7 +917,7 @@ TESTCASE(xcm, non_blocking_non_orderly_tls_close)
     struct xcm_socket *client_conn = tu_connect_retry(addr, 0);
     CHK(client_conn);
 
-    CHKNOERR(xcm_set_blocking(client_conn, false));
+    CHKNOERR(set_blocking(client_conn, false));
 
     /* dead server -> connection is closed on remote end */
     kill(server_pid, SIGKILL);
@@ -886,7 +966,7 @@ static void *accepting_server_thread(void *arg)
 	close(old_fd);
     }
 
-    struct xcm_socket *server_sock = xcm_server(info->addr);
+    struct xcm_socket *server_sock = xcm_server_a(info->addr, NULL);
     if (!server_sock)
 	goto err;
 
@@ -978,7 +1058,7 @@ static int wait_for_xcm(struct xcm_socket *conn_socket, int condition)
 	return wait_for_xcm_by_want(conn_socket, condition);
 }
 
-int wait_until_finished(struct xcm_socket *s, int max_retries)
+static int wait_until_finished(struct xcm_socket *s, int max_retries)
 {
     int retries;
     for (retries = 0; retries < max_retries; retries++) {
@@ -1045,7 +1125,7 @@ static int run_ops_on_closed_connections(bool blocking)
 	int msg = 42;
 
 	if (!blocking)
-	    CHKNOERR(xcm_set_blocking(client_conn, false));
+	    CHKNOERR(set_blocking(client_conn, false));
 
 	int successes = 0;
 	int rc;
@@ -1195,14 +1275,14 @@ TESTCASE(xcm, non_blocking_connect_with_finish)
 	struct xcm_socket *conn_socket;
 	CHK((conn_socket = xcm_connect(test_addrs[i], XCM_NONBLOCK)));
 
-	CHK(!xcm_is_blocking(conn_socket));
+	CHKNOERR(check_blocking(conn_socket, false));
 
 	/* regardless of protocol, there shouldn't be too many retries
 	   needed, since we use select() to wait for the appropriate
 	   moment */
 	CHKNOERR(wait_until_finished(conn_socket, 16));
 
-	CHKNOERR(xcm_set_blocking(conn_socket, true));
+	CHKNOERR(set_blocking(conn_socket, true));
 
 	CHKNOERR(xcm_send(conn_socket, client_msg, strlen(client_msg)));
 
@@ -1212,12 +1292,10 @@ TESTCASE(xcm, non_blocking_connect_with_finish)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, dead_server_doesnt_block_nonblocking_connect)
+TESTCASE(xcm, unresponsive_server_doesnt_block_nonblocking_connect)
 {
     int i;
     for (i=0; i<test_addrs_len; i++) {
-	/* create a socket we never do xcm_accept() on -> "dead"
-	   server */
 	struct xcm_socket *server_socket = xcm_server(test_addrs[i]);
 	CHK(server_socket);
 
@@ -1258,7 +1336,7 @@ TESTCASE(xcm, non_blocking_connect_lazy)
 	struct xcm_socket *conn_socket;
 	CHK((conn_socket = xcm_connect(test_addrs[i], XCM_NONBLOCK)));
 
-	CHK(!xcm_is_blocking(conn_socket));
+	CHKNOERR(check_blocking(conn_socket, false));
 
 	int retries = 0;
 	int rc;
@@ -1277,7 +1355,7 @@ TESTCASE(xcm, non_blocking_connect_lazy)
 
 	CHKNOERR(wait_until_finished(conn_socket, 16));
 
-	CHKNOERR(xcm_set_blocking(conn_socket, true));
+	CHKNOERR(set_blocking(conn_socket, true));
 
 	char buf[1024];
 	memset(buf, 0, sizeof(buf));
@@ -1310,7 +1388,7 @@ TESTCASE(xcm, invalid_await_and_fd_argument)
 
 	CHKERRNO(xcm_await(server, 0), EINVAL);
 
-	CHKNOERR(xcm_set_blocking(server, false));
+	CHKNOERR(set_blocking(server, false));
 
 	CHK(xcm_fd(server) >= 0);
 
@@ -1618,9 +1696,9 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
     struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
     CHK(conn_socket);
 
-    CHK(xcm_is_blocking(conn_socket));
+    CHKNOERR(check_blocking(conn_socket, true));
 
-    CHKNOERR(xcm_set_blocking(conn_socket, false));
+    CHKNOERR(set_blocking(conn_socket, false));
 
     manage_tcp_filter(ip_version, tcp_port, true);
 
@@ -2004,6 +2082,124 @@ TESTCASE(xcm, dscp_marking)
     return UTEST_SUCCESS;
 }
 
+static int run_bind_addr(sa_family_t ip_version, const char *client_proto,
+			 const char *client_ip, uint16_t client_port,
+			 const char *server_proto,
+			 const char *server_ip, uint16_t server_port)
+{
+    char server_addr[512];
+    snprintf(server_addr, sizeof(server_addr), "%s:%s:%d",
+	     server_proto, server_ip, server_port);
+
+    char client_local_addr[512];
+    snprintf(client_local_addr, sizeof(client_local_addr), "%s:%s:%d",
+	     client_proto, client_ip, client_port);
+
+    char client_remote_addr[512];
+    snprintf(client_remote_addr, sizeof(client_remote_addr), "%s:%s:%d",
+	     client_proto, server_ip, server_port);
+
+    struct xcm_socket *server_sock = xcm_server(server_addr);
+
+    CHKNOERR(set_blocking(server_sock, false));
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+    xcm_attr_map_add_str(attrs, "xcm.local_addr", client_local_addr);
+
+    struct xcm_socket *client_sock = xcm_connect_a(client_remote_addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
+    CHK(client_sock);
+
+    struct xcm_socket *accept_sock;
+
+    for (;;) {
+	CHK(xcm_finish(client_sock) == 0 || errno == EAGAIN);
+	accept_sock = xcm_accept(server_sock);
+	if (accept_sock)
+	    break;
+	if (errno == EAGAIN)
+	    continue;
+	return UTEST_FAIL;
+    }
+
+    char expected_addr[512];
+    snprintf(expected_addr, sizeof(expected_addr), "%s:%s:%d",
+	     server_proto, client_ip, client_port);
+
+    if (client_port == 0) {
+	char *delim = strrchr(client_local_addr, ':');
+	int offset = delim - client_local_addr;
+	CHKSTRNEQ(xcm_local_addr(client_sock), expected_addr, offset);
+	CHKSTRNEQ(xcm_remote_addr(accept_sock), expected_addr, offset);
+    } else {
+	CHKSTREQ(xcm_local_addr(client_sock), expected_addr);
+	CHKSTREQ(xcm_remote_addr(accept_sock), expected_addr);
+    }
+
+    CHKSTREQ(xcm_remote_addr(client_sock), server_addr);
+
+    CHKERRNO(xcm_attr_set(client_sock, "xcm.local_addr", xcm_attr_type_str,
+			  client_local_addr, strlen(client_local_addr) + 1),
+	     EACCES);
+    CHKERRNO(xcm_attr_set(server_sock, "xcm.local_addr", xcm_attr_type_str,
+			  client_local_addr, strlen(client_local_addr) + 1),
+	     EACCES);
+    CHKERRNO(xcm_attr_set(accept_sock, "xcm.local_addr", xcm_attr_type_str,
+			  client_local_addr, strlen(client_local_addr) + 1),
+	     EACCES);
+
+    CHKNOERR(xcm_close(server_sock));
+    CHKNOERR(xcm_close(client_sock));
+    CHKNOERR(xcm_close(accept_sock));
+
+    return UTEST_SUCCESS;
+}
+
+static int run_bind_addr_ver(sa_family_t ip_version, const char *client_proto,
+			     const char *server_proto)
+{
+    /* IPv6 has only one localhost IP */
+    const char *client_ip = ip_version == AF_INET ? "127.42.42.42" : "[::1]";
+    const char *server_ip = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
+
+    if (run_bind_addr(ip_version, client_proto, client_ip, 0,
+		      server_proto, server_ip, gen_tcp_port()) < 0)
+	return UTEST_FAIL;
+    if (run_bind_addr(ip_version, client_proto, client_ip, gen_tcp_port(),
+		      server_proto, server_ip, gen_tcp_port()) < 0)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
+
+static int run_bind_addr_proto(const char *client_proto,
+			       const char *server_proto)
+{
+    if (run_bind_addr_ver(AF_INET, client_proto, server_proto) < 0)
+	return UTEST_FAIL;
+    if (run_bind_addr_ver(AF_INET6, client_proto, server_proto) < 0)
+	return UTEST_FAIL;
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, bind_to_source_addr)
+{
+    if (run_bind_addr_proto("tcp", "tcp") < 0)
+	return UTEST_FAIL;
+
+#ifdef XCM_TLS
+    if (run_bind_addr_proto("tls", "tls") < 0)
+	return UTEST_FAIL;
+    if (run_bind_addr_proto("utls", "tls") < 0)
+	return UTEST_FAIL;
+#endif
+
+    return UTEST_SUCCESS;
+}
+
 #define GEN_PORT_TEST(proto)						\
     const char *addr = #proto ":0.0.0.0:0";				\
 									\
@@ -2055,7 +2251,7 @@ TESTCASE(xcm, utls_dynamic_local_is_unix)
 
     CHK(server_socket);
 
-    CHKNOERR(xcm_set_blocking(server_socket, false));
+    CHKNOERR(set_blocking(server_socket, false));
 
     const char *actual_addr = xcm_local_addr(server_socket);
     CHK(actual_addr);
@@ -2091,6 +2287,36 @@ TESTCASE(xcm, utls_dynamic_local_is_unix)
     CHKNOERR(xcm_close(client_conn));
     CHKNOERR(xcm_close(server_conn));
     CHKNOERR(xcm_close(server_socket));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, utls_tls_fallback)
+{
+    const char *tmpl = "%s:127.0.0.42:%d";
+    uint16_t port = gen_tcp_port();
+
+    char tls_addr[512];
+    snprintf(tls_addr, sizeof(tls_addr), tmpl, "tls", port);
+    char utls_addr[512];
+    snprintf(utls_addr, sizeof(utls_addr), tmpl, "utls", port);
+
+    struct server_info info = {
+	.ns = NULL,
+	.addr = tls_addr
+    };
+    pthread_t server_thread;
+    CHK(pthread_create(&server_thread, NULL, accepting_server_thread, &info)
+	== 0);
+
+    struct xcm_socket *client_conn = tu_connect_retry(utls_addr, 0);
+    CHK(client_conn);
+
+    CHKNOERR(tu_assure_str_attr(client_conn, "xcm.transport", "tls"));
+
+    CHKNOERR(xcm_close(client_conn));
+
+    CHK(pthread_join(server_thread, NULL) == 0);
 
     return UTEST_SUCCESS;
 }
@@ -2986,7 +3212,7 @@ static int test_attr_get(struct xcmc_session *s)
     enum xcm_attr_type type;
     if (xcmc_attr_get(s, "xcm.transport", &type, value,
                       sizeof(value)) < 0) {
-        perror("attr_get_all");
+	perror("xcmc_attr_get");
         return -1;
     }
     if (type != xcm_attr_type_str)
@@ -3027,6 +3253,9 @@ static int test_ctl_access(struct ctl_ary *d)
 	    return -1;
         }
 
+	if (is_in_valgrind())
+	    tu_msleep(250);
+
         /* we won't respond to our own requests, since the thread is busy
            with the test code */
         if (d->creator_pids[i] != getpid() &&
@@ -3050,8 +3279,6 @@ TESTCASE(xcm, ctl_iter)
 
     int i;
     for (i=0; i<test_addrs_len; i++) {
-        if (strncmp(test_addrs[i], "sctp", 4) == 0)
-            continue;
         pid_t server_pid =
             pingpong_run_async_server(test_addrs[i], 1, true);
 

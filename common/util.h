@@ -30,11 +30,14 @@ void *ut_malloc(size_t size);
 void *ut_realloc(void *ptr, size_t size);
 void *ut_calloc(size_t size);
 char *ut_strdup(const char *str);
+void *ut_memdup(const char *ptr, size_t size);
 void ut_free(void *ptr);
 
 int ut_send_all(int fd, void* buf, size_t count, int flags);
 
-int ut_snprintf(char *str, size_t size, const char *format, ...);
+int ut_snprintf(char *buf, size_t capacity, const char *format, ...);
+void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap);
+void ut_aprintf(char *buf, size_t capacity, const char *format, ...);
 
 int ut_set_blocking(int fd, bool should_block);
 bool ut_is_blocking(int fd);
@@ -120,5 +123,7 @@ void _ut_lassert_failed(const char* expr, const char* file, int line);
 	typeof(b) _b = b;			\
 	_a < _b ? _a : _b;			\
     })
+
+#define UT_ARRAY_LEN(ary) (sizeof(ary) / sizeof(ary[0]))
 
 #endif

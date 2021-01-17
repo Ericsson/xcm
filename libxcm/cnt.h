@@ -14,7 +14,7 @@ struct cnt_msg
 
 #define CNT_MSG_INC(conn_cnt, cnt_name, msg_len)		\
     do {							\
-	struct cnt_conn *c = (conn_cnt);				\
+	struct cnt_conn *c = (conn_cnt);			\
 	c->cnt_name.bytes += (msg_len);				\
 	c->cnt_name.msgs++;					\
     } while (0)

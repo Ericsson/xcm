@@ -19,24 +19,48 @@
 #include <sched.h>
 #include <limits.h>
 #include <sys/utsname.h>
+#include <stdarg.h>
 
 #include "util.h"
 
 #define RETRIES (300)
 
+#define CONNECT_RETRY(connect_fun, ...)					\
+    ({									\
+	struct xcm_socket *conn = NULL;					\
+        int i;								\
+	for (i=0; i<RETRIES; i++) {					\
+	    conn = connect_fun(__VA_ARGS__);		\
+	    if (conn || (errno != ECONNREFUSED && errno != ETIMEDOUT &&	\
+			 errno != EAGAIN))				\
+		break;							\
+	    tu_msleep(10);						\
+	}								\
+	if (i == RETRIES)						\
+	    errno = ETIMEDOUT;						\
+	conn;								\
+    })
+
 struct xcm_socket *tu_connect_retry(const char *addr, int flags)
 {
-    int i;
-    for (i=0; i<RETRIES; i++) {
-	struct xcm_socket *conn = xcm_connect(addr, flags);
-	if (conn || (errno != ECONNREFUSED && errno != ETIMEDOUT &&
-		     errno != EAGAIN))
-	    return conn;
-	tu_msleep(10);
-    }
+    int attr_version = tu_randint(0, 1);
 
-    errno = ETIMEDOUT;
-    return NULL;
+    if (attr_version)
+	return CONNECT_RETRY(xcm_connect, addr, flags);
+    else {
+	struct xcm_attr_map *attrs = xcm_attr_map_create();
+	if (flags & XCM_NONBLOCK)
+	    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+	struct xcm_socket *conn = CONNECT_RETRY(xcm_connect_a, addr, attrs);
+	xcm_attr_map_destroy(attrs);
+	return conn;
+    }
+}
+
+struct xcm_socket *tu_connect_attr_retry(const char *addr,
+					 const struct xcm_attr_map *attrs)
+{
+    return CONNECT_RETRY(xcm_connect_a, addr, attrs);
 }
 
 void tu_msleep(int ms)

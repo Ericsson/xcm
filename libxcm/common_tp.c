@@ -28,19 +28,56 @@ void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip,
     }
 }
 
+static int proto_addr_to_sockaddr(const char *addr,
+				  int (*parse_fun)(const char *,
+						   struct xcm_addr_host *,
+						   uint16_t *),
+				  struct sockaddr *sockaddr)
+{
+    struct xcm_addr_host host;
+    uint16_t port;
+
+    if (parse_fun(addr, &host, &port) < 0)
+	return -1;
+
+    if (host.type != xcm_addr_type_ip)
+	return -1;
+
+    tp_ip_to_sockaddr(&host.ip, port, sockaddr);
+
+    return 0;
+}
+
+int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr)
+{
+    return proto_addr_to_sockaddr(tcp_addr, xcm_addr_parse_tcp, sockaddr);
+}
+
+int tp_tls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr)
+{
+    return proto_addr_to_sockaddr(tls_addr, xcm_addr_parse_tls, sockaddr);
+}
+
 static void sockaddr_to_ip(struct sockaddr_storage *sock_addr,
 			   struct xcm_addr_ip *xcm_ip, uint16_t *port)
 {
     xcm_ip->family = sock_addr->ss_family;
 
-    if (sock_addr->ss_family == AF_INET) {
+    switch(sock_addr->ss_family) {
+    case AF_INET: {
 	struct sockaddr_in *sockaddr4 = (struct sockaddr_in*)sock_addr;
 	xcm_ip->addr.ip4 = sockaddr4->sin_addr.s_addr;
 	*port = sockaddr4->sin_port;
-    } else {
+	break;
+    }
+    case AF_INET6: {
 	struct sockaddr_in6 *sockaddr6 = (struct sockaddr_in6*)sock_addr;
 	memcpy(xcm_ip->addr.ip6, sockaddr6->sin6_addr.s6_addr, 16);
 	*port = sockaddr6->sin6_port;
+	break;
+    }
+    default:
+	ut_assert(0);
     }
 }
 
@@ -77,6 +114,10 @@ void tp_sockaddr_to_tls_addr(struct sockaddr_storage *sock_addr,
     sockaddr_to_ip(sock_addr, &xcm_ip, &port);
 
     int rc = xcm_addr_tls6_make(&xcm_ip, port, xcm_addr, capacity);
+    if (rc < 0) {
+	printf("family %d\n", sock_addr->ss_family);
+	perror("make");
+    }
     ut_assert(rc == 0);
 }
 

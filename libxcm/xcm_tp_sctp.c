@@ -32,16 +32,22 @@
 
 #define SCTP_MAX_MSG (65535)
 
-enum conn_state { conn_state_none, conn_state_resolving,
-                  conn_state_connecting, conn_state_ready, conn_state_closed,
-                  conn_state_bad };
+enum conn_state {
+    conn_state_none,
+    conn_state_initialized,
+    conn_state_resolving,
+    conn_state_connecting,
+    conn_state_ready,
+    conn_state_closed,
+    conn_state_bad
+};
 
 struct sctp_socket
 {
     int fd;
     struct epoll_reg fd_reg;
 
-    char laddr[XCM_ADDR_MAX];
+    char laddr[XCM_ADDR_MAX+1];
 
     union {
 	struct {
@@ -56,7 +62,7 @@ struct sctp_socket
             uint16_t remote_port;
             struct xcm_dns_query *query;
 
-	    char raddr[XCM_ADDR_MAX];
+	    char raddr[XCM_ADDR_MAX+1];
 	} conn;
     };
 };
@@ -66,6 +72,7 @@ struct sctp_socket
 #define SCTP_SET_STATE(_s, _state)		\
     TP_SET_STATE(_s, TOSCTP(_s), _state)
 
+static int sctp_init(struct xcm_socket *s);
 static int sctp_connect(struct xcm_socket *s, const char *remote_addr);
 static int sctp_server(struct xcm_socket *s, const char *local_addr);
 static int sctp_close(struct xcm_socket *s);
@@ -75,16 +82,18 @@ static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len);
 static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity);
 static void sctp_update(struct xcm_socket *conn_s);
 static int sctp_finish(struct xcm_socket *conn_s);
-static const char *sctp_remote_addr(struct xcm_socket *conn_s,
-				   bool suppress_tracing);
-static const char *sctp_local_addr(struct xcm_socket *socket,
-				  bool suppress_tracing);
+static const char *sctp_get_remote_addr(struct xcm_socket *conn_s,
+					bool suppress_tracing);
+static const char *sctp_get_local_addr(struct xcm_socket *socket,
+				       bool suppress_tracing);
 static size_t sctp_max_msg(struct xcm_socket *conn_s);
-static void sctp_get_attrs(struct xcm_tp_attr **attr_list,
+static void sctp_get_attrs(struct xcm_socket *s,
+			   const struct xcm_tp_attr **attr_list,
                            size_t *attr_list_len);
 static size_t sctp_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops sctp_ops = {
+    .init = sctp_init,
     .connect = sctp_connect,
     .server = sctp_server,
     .close = sctp_close,
@@ -94,15 +103,15 @@ static struct xcm_tp_ops sctp_ops = {
     .receive = sctp_receive,
     .update = sctp_update,
     .finish = sctp_finish,
-    .remote_addr = sctp_remote_addr,
-    .local_addr = sctp_local_addr,
+    .get_remote_addr = sctp_get_remote_addr,
+    .get_local_addr = sctp_get_local_addr,
     .max_msg = sctp_max_msg,
     .get_attrs = sctp_get_attrs,
     .priv_size = sctp_priv_size
 };
 
-static void init(void) __attribute__((constructor));
-static void init(void)
+static void reg(void) __attribute__((constructor));
+static void reg(void)
 {
     xcm_tp_register(XCM_SCTP_PROTO, &sctp_ops);
 }
@@ -116,6 +125,7 @@ static const char *state_name(enum conn_state state)
 {
     switch (state) {
     case conn_state_none: return "none";
+    case conn_state_initialized: return "initialized";
     case conn_state_resolving: return "resolving";
     case conn_state_connecting: return "connecting";
     case conn_state_ready: return "ready";
@@ -132,6 +142,9 @@ static void assert_conn_socket(struct xcm_socket *s)
     switch (ss->conn.state) {
     case conn_state_none:
 	ut_assert(0);
+	break;
+    case conn_state_initialized:
+	ut_assert(ss->fd == -1);
 	break;
     case conn_state_resolving:
         ut_assert(ss->conn.query);
@@ -165,7 +178,7 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static int init_socket(struct xcm_socket *s)
+static int sctp_init(struct xcm_socket *s)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -173,7 +186,7 @@ static int init_socket(struct xcm_socket *s)
     epoll_reg_init(&ss->fd_reg, s->epoll_fd, -1, s);
 
     if (s->type == xcm_socket_type_conn) {
-	ss->conn.state = conn_state_none;
+	ss->conn.state = conn_state_initialized;
 
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
@@ -184,7 +197,7 @@ static int init_socket(struct xcm_socket *s)
     return 0;
 }
 
-static void deinit_socket(struct xcm_socket *s)
+static void deinit(struct xcm_socket *s)
 {
     if (s->type == xcm_socket_type_conn) {
 	struct sctp_socket *ss = TOSCTP(s);
@@ -389,9 +402,6 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(remote_addr);
 
-    if (init_socket(s) < 0)
-	goto err;
-
     struct sctp_socket *ss = TOSCTP(s);
 
      if (xcm_addr_parse_sctp(remote_addr, &ss->conn.remote_host,
@@ -424,8 +434,8 @@ err_close:
     if (ss->fd >= 0)
 	UT_PROTECT_ERRNO(close(ss->fd));
 err_deinit:
-    deinit_socket(s);
-err:
+    deinit(s);
+
     return -1;
 }
 
@@ -440,11 +450,8 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 
     if (xcm_addr_parse_sctp(local_addr, &host, &port) < 0) {
 	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err;
+	goto err_deinit;
     }
-
-    if (init_socket(s) < 0)
-	goto err;
 
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -483,27 +490,35 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
     LOG_SERVER_CREATED_FD(s, ss->fd);
 
     return 0;
+
 err_close:
     UT_PROTECT_ERRNO(close(ss->fd));
 err_deinit:
-    deinit_socket(s);
-err:
+    deinit(s);
+
     return -1;
 }
 
 static int do_close(struct xcm_socket *s)
 {
-    struct sctp_socket *ss = TOSCTP(s);
+    int rc = 0;
 
-    assert_socket(s);
+    if (s) {
+	assert_socket(s);
 
-    int fd = ss->fd;
+	struct sctp_socket *ss = TOSCTP(s);
 
-    epoll_reg_reset(&ss->fd_reg);
+	int fd = ss->fd;
 
-    deinit_socket(s);
+	epoll_reg_reset(&ss->fd_reg);
 
-    return fd >= 0 ? close(fd): 0;
+	deinit(s);
+
+	if (fd >= 0)
+	    rc = close(fd);
+    }
+
+    return rc;
 }
 
 static int sctp_close(struct xcm_socket *s)
@@ -530,7 +545,7 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     int conn_fd;
     if ((conn_fd = ut_accept(server_ss->fd, NULL, NULL)) < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
-	goto err;
+	goto err_deinit;
     }
 
     if (set_sctp_conn_opts(conn_fd) < 0)
@@ -540,8 +555,6 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	LOG_SET_BLOCKING_FAILED_FD(NULL, errno);
 	goto err_close;
     }
-
-    init_socket(conn_s);
 
     conn_ss->fd = conn_fd;
     epoll_reg_set_fd(&conn_ss->fd_reg, conn_fd);
@@ -556,7 +569,9 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
  err_close:
     UT_PROTECT_ERRNO(close(conn_fd));
- err:
+ err_deinit:
+    deinit(conn_s);
+
     return -1;
 }
 
@@ -732,8 +747,8 @@ static int sctp_finish(struct xcm_socket *s)
     return 0;
 }
 
-static const char *sctp_remote_addr(struct xcm_socket *s,
-				    bool suppress_tracing)
+static const char *sctp_get_remote_addr(struct xcm_socket *s,
+					bool suppress_tracing)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -754,8 +769,8 @@ static const char *sctp_remote_addr(struct xcm_socket *s,
     return ss->conn.raddr;
 }
 
-static const char *sctp_local_addr(struct xcm_socket *s,
-				   bool suppress_tracing)
+static const char *sctp_get_local_addr(struct xcm_socket *s,
+				       bool suppress_tracing)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -781,7 +796,8 @@ static size_t sctp_max_msg(struct xcm_socket *s)
     return SCTP_MAX_MSG;
 }
 
-static void sctp_get_attrs(struct xcm_tp_attr **attr_list,
+static void sctp_get_attrs(struct xcm_socket *s,
+			   const struct xcm_tp_attr **attr_list,
                            size_t *attr_list_len)
 {
     *attr_list_len = 0;

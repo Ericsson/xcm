@@ -9,6 +9,7 @@
 #include "log.h"
 
 #include "xcm_attr_types.h"
+#include <xcm_attr_map.h>
 #include <string.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -22,35 +23,12 @@
     log_debug_sock(s, "Connection going from state \"%s\" to \"%s\"",	\
 		   state_name(from_state), state_name(to_state))
 
-#define LOG_CONN_REQ(addr)					\
+#define LOG_CONN_REQ(addr)				\
     log_debug("Attempting to connect to \"%s\".", addr)
 
 #define LOG_CONN_CHECK(proto_name, s)				   \
     log_debug_sock(s, "Checking status of on-going %s connection " \
 		   "establishment attempt.", proto_name)
-
-static inline const char *log_ip_str(sa_family_t family, const void *ip)
-{
-    static __thread char name[INET6_ADDRSTRLEN];
-
-    name[0] = '\0';
-    inet_ntop(family, ip, name, sizeof(name));
-
-    return name;
-}
-
-static inline const char *log_family_str(sa_family_t family)
-{
-    switch (family) {
-    case AF_INET:
-        return "IPv4";
-    case AF_INET6:
-        return "IPv6";
-    case AF_UNSPEC:
-    default:
-        return "";
-    }
-}
 
 #define LOG_DNS_ERROR(s, domain_name)                                   \
     log_debug_sock(s, "Unable to resolve address for \"%s\".", domain_name)
@@ -98,13 +76,18 @@ static inline const char *log_family_str(sa_family_t family)
     log_debug("Failed to create OS-level socket; errno %d (%s).", \
 	      reason_errno, strerror(reason_errno))
 
-#define LOG_NET_NS_LOOKUP_FAILED(ns_name, reason_errno)              \
-    log_debug("Failed retrieve netns fd for namespace \"%s\"; errno %d (%s).", \
-              ns_name, reason_errno, strerror(reason_errno))
-
 #define LOG_SERVER_REUSEADDR_FAILED(reason_reason) \
     log_debug("Error setting SO_REUSEADDR on underlying TCP socket: " \
 	      "errno %d (%s).", errno, strerror(errno))
+
+#define LOG_CLIENT_BIND_ADDR_ERROR(s, addr)				\
+    log_debug_sock(s, "Local address \"%s\" is malformed or not an IP " \
+		   "address.", addr)
+
+#define LOG_CLIENT_BIND_FAILED(s, addr, fd, reason_errno)		\
+    log_debug_sock(s, "Failed to bind local address \"%s\" to fd %d; "	\
+		   "errno %d (%s).", addr, fd, reason_errno,		\
+		   strerror(reason_errno))
 
 #define LOG_SERVER_BIND_FAILED(reason_errno)				\
     log_debug("Failed to bind server socket; errno %d (%s).", reason_errno, \
@@ -259,8 +242,8 @@ static inline const char *log_family_str(sa_family_t family)
 	}								\
     } while (0)
 
-#define LOG_UPDATE_REQ(s)				\
-    log_debug_sock(s, "Updating internal epoll fd.")
+#define LOG_UPDATE_REQ(s, fd)						\
+    log_debug_sock(s, "Updating internal epoll fd %d.", fd)
 
 #define LOG_FINISH_REQ(s)						\
     log_debug_sock(s, "Received request to finish outstanding operations.")
@@ -310,53 +293,33 @@ static inline const char *log_family_str(sa_family_t family)
 #define LOG_REMOTE_SOCKET_NAME_FAILED(s, reason_errno)	     \
     LOG_SOCKET_NAME_FAILED(s, "remote", reason_errno)
 
-#define LOG_GET_ATTR_REQ(s, attr_name)				 \
-    log_debug_sock(s, "Application requesting value of "	 \
-		   "attribute \"%s\".", attr_name)
+#define LOG_ATTR_SET_REQ(s, attr_name, attr_type, attr_value, attr_len) \
+    do {								\
+	char value_s[4096];						\
+	log_attr_str_value(attr_type, attr_value, attr_len,		\
+			   value_s, sizeof(value_s));			\
+	log_debug_sock(s, "Set attribute \"%s\" to %s.",		\
+		       attr_name, value_s);				\
+    } while (0)
 
-static inline void log_attr_str_value(enum xcm_attr_type type, void *value,
-				      size_t len, char *buf, size_t capacity)
-{
-    switch (type) {
-    case xcm_attr_type_bool:
-	if (*((bool *)value))
-	    strcpy(buf, "true");
-	else
-	    strcpy(buf, "false");
-	break;
-    case xcm_attr_type_int64:
-	snprintf(buf, capacity, "%" PRId64, *((int64_t*)value));
-	break;
-    case xcm_attr_type_str:
-	snprintf(buf, capacity, "\"%s\"", (char *)value);
-	buf[capacity-1] = '\0';
-	break;
-    case xcm_attr_type_bin: {
-	if (len == 0) {
-	    strcpy(buf, "<zero-length binary data>");
-	    break;
-	}
-	size_t offset = 0;
-	int i;
-	uint8_t *value_bin = value;
-	for (i = 0; i < len; i++) {
-	    size_t left = capacity - offset;
-	    if (left < 4) {
-		strcpy(buf, "<%zd bytes of data>");
-		break;
-	    }
-	    if (i != 0) {
-		buf[offset] = ':';
-		offset++;
-	    }
-	    snprintf(buf + offset, capacity - offset, "%02x", value_bin[i]);
-	    offset += 2;
-	}
-	buf[offset] = '\0';
-	break;
-    }
-    }
-}
+#define LOG_ATTR_SET_INVALID_LEN(s, attr_name, attr_len)		\
+    log_debug_sock(s, "Attempt to set attribute \"%s\" to value with "	\
+		   "invalid length %zd bytes.", attr_name, attr_len)
+
+#define LOG_ATTR_SET_INVALID_TYPE(s, expected_type, actual_type)	\
+    log_debug_sock(s, "Attribute is of type %s, but new value of type "	\
+		   "%s.", log_attr_type_name(expected_type),		\
+		   log_attr_type_name(actual_type))
+
+#define LOG_ATTR_SET_RO(s)				\
+    log_debug_sock(s, "Attribute is read-only.")
+
+#define LOG_ATTR_SET_FAILED(s, reason_errno)				\
+    log_debug_sock(s, "Failed to set attribute value; errno %d (%s).",	\
+		   reason_errno, strerror(reason_errno))
+
+#define LOG_GET_ATTR_REQ(s, attr_name)					\
+    log_debug_sock(s, "Application getting attribute \"%s\".", attr_name)
 
 #define LOG_GET_ATTR_RESULT(s, attr_name, attr_type, attr_value, attr_len) \
     do {								\
@@ -367,7 +330,6 @@ static inline void log_attr_str_value(enum xcm_attr_type type, void *value,
 		       value_s);					\
     } while (0)
 
-
 #define LOG_GET_ATTR_FAILED(s, reason_errno)				\
     log_debug_sock(s, "Attribute retrieval failed; errno %d (%s).", \
 		   reason_errno, strerror(reason_errno))
@@ -375,5 +337,14 @@ static inline void log_attr_str_value(enum xcm_attr_type type, void *value,
 #define LOG_GET_ALL_ATTR_REQ(s)						\
     log_debug_sock(s, "Attempting to retrieve the name and values of all " \
 		   "attributes.")
+
+const char *log_ip_str(sa_family_t family, const void *ip);
+const char *log_family_str(sa_family_t family);
+
+void log_attr_str_value(enum xcm_attr_type type, const void *value, size_t len,
+			char *buf, size_t capacity);
+const char *log_attr_type_name(enum xcm_attr_type type);
+void log_attrs_aprintf(char *buf, size_t capacity,
+		       const struct xcm_attr_map *attrs);
 
 #endif

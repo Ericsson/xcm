@@ -16,6 +16,8 @@
 #define UTEST_FAIL (-3)
 #define UTEST_CRASHED (-4)
 
+#include <errno.h>
+
 #define CHKNOERR(x)                                                     \
     do {                                                                \
 	int err;                                                        \
@@ -93,6 +95,16 @@
 	if (strcmp(x,y)) {						\
 	    fprintf(stderr, "\n%s:%d: %s \"%s\" != \"%s\".\n", __FILE__, \
 		    __LINE__, __func__, x, y);                          \
+	    return UTEST_FAIL;                                          \
+	}                                                               \
+    } while(0)
+
+#define CHKSTRNEQ(x,y,n)						\
+    do {                                                                \
+	if (strncmp(x,y,n)) {						\
+	    fprintf(stderr, "\n%s:%d: %s \"%s\" != \"%s\" (<= %zd "	\
+		    "bytes considered).\n", __FILE__,			\
+		    __LINE__, __func__, x, y, (size_t)n);		\
 	    return UTEST_FAIL;                                          \
 	}                                                               \
     } while(0)

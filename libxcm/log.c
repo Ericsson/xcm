@@ -42,9 +42,9 @@
         vsnprintf(msg+strlen(msg), sizeof(msg)-strlen(msg), format, ap); \
 									\
         const char *laddr =						\
-	    sock ? XCM_TP_CALL(local_addr, sock, true) : NULL;		\
+	    sock ? XCM_TP_CALL(get_local_addr, sock, true) : NULL;	\
         const char *raddr =						\
-	    sock ? XCM_TP_CALL(remote_addr, sock, true) : NULL;		\
+	    sock ? XCM_TP_CALL(get_remote_addr, sock, true) : NULL;	\
 									\
         char sock_ref[64];						\
         format_sock_ref(sock, sock_ref, sizeof(sock_ref));              \

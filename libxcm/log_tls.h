@@ -140,4 +140,8 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 #define LOG_TLS_REMOTE_CLOSED_CONN(s) \
     log_debug_sock(s, "Remote host closed the connection.")
 
+#define LOG_TLS_NET_NS_LOOKUP_FAILED(s, reason_errno)			\
+    log_debug_sock(s, "Failed retrieve current network namespace name; " \
+		   "errno %d (%s).", reason_errno, strerror(reason_errno))
+
 #endif

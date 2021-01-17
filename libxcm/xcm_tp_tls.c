@@ -36,24 +36,33 @@
 #include <openssl/x509v3.h>
 
 /*
- * TSL XCM Transport
+ * TLS XCM Transport
  */
 
 #define TLS_CERT_ENV "XCM_TLS_CERT"
 
 #define DEFAULT_CERT_DIR (SYSCONFDIR "/xcm/tls")
 
-enum conn_state { conn_state_none, conn_state_resolving,
-                  conn_state_tcp_connecting, conn_state_tls_connecting,
-                  conn_state_tls_accepting, conn_state_ready,
-                  conn_state_bad, conn_state_closed };
+enum conn_state {
+    conn_state_none,
+    conn_state_initialized,
+    conn_state_resolving,
+    conn_state_tcp_connecting,
+    conn_state_tls_connecting,
+    conn_state_tls_accepting,
+    conn_state_ready,
+    conn_state_bad,
+    conn_state_closed
+};
 
 struct tls_socket
 {
     char ns[NAME_MAX];
-    char laddr[XCM_ADDR_MAX];
+    char laddr[XCM_ADDR_MAX+1];
 
     struct epoll_reg fd_reg;
+
+    SSL_CTX *ssl_ctx;
 
     union {
 	struct {
@@ -72,10 +81,9 @@ struct tls_socket
 	    struct mbuf receive_mbuf;
 	    struct mbuf send_mbuf;
 	    int badness_reason;
-	    char raddr[XCM_ADDR_MAX];
+	    char raddr[XCM_ADDR_MAX+1];
 	} conn;
 	struct {
-	    SSL_CTX *ssl_ctx;
 	    int fd;
 	} server;
     };
@@ -86,6 +94,7 @@ struct tls_socket
 #define TLS_SET_STATE(_s, _state)		\
     TP_SET_STATE(_s, TOTLS(_s), _state)
 
+static int tls_init(struct xcm_socket *s);
 static int tls_connect(struct xcm_socket *s, const char *remote_addr);
 static int tls_server(struct xcm_socket *s, const char *local_addr);
 static int tls_close(struct xcm_socket *s);
@@ -95,17 +104,21 @@ static int tls_send(struct xcm_socket *s, const void *buf, size_t len);
 static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity);
 static void tls_update(struct xcm_socket *s);
 static int tls_finish(struct xcm_socket *s);
-static const char *tls_remote_addr(struct xcm_socket *s, bool suppress_tracing);
-static const char *tls_local_addr(struct xcm_socket *conn_socket,
-				  bool suppress_tracing);
-static size_t tls_max_msg(struct xcm_socket *conn_socket);
-static void tls_get_attrs(struct xcm_tp_attr **attr_list,
+static const char *tls_get_remote_addr(struct xcm_socket *s,
+				       bool suppress_tracing);
+static int tls_set_local_addr(struct xcm_socket *s, const char *local_addr);
+static const char *tls_get_local_addr(struct xcm_socket *conn_s,
+				      bool suppress_tracing);
+static size_t tls_max_msg(struct xcm_socket *conn_s);
+static void tls_get_attrs(struct xcm_socket* s,
+			  const struct xcm_tp_attr **attr_list,
                           size_t *attr_list_len);
 static size_t tls_priv_size(enum xcm_socket_type type);
 
 static void try_finish_in_progress(struct xcm_socket *s);
 
-static struct xcm_tp_ops tls_ops = {
+const static struct xcm_tp_ops tls_ops = {
+    .init = tls_init,
     .connect = tls_connect,
     .server = tls_server,
     .close = tls_close,
@@ -115,8 +128,9 @@ static struct xcm_tp_ops tls_ops = {
     .receive = tls_receive,
     .update = tls_update,
     .finish = tls_finish,
-    .remote_addr = tls_remote_addr,
-    .local_addr = tls_local_addr,
+    .get_remote_addr = tls_get_remote_addr,
+    .set_local_addr = tls_set_local_addr,
+    .get_local_addr = tls_get_local_addr,
     .max_msg = tls_max_msg,
     .get_attrs = tls_get_attrs,
     .priv_size = tls_priv_size
@@ -143,8 +157,8 @@ static void init_ssl(void)
 
 }
 
-static void init(void) __attribute__((constructor));
-static void init(void)
+static void reg(void) __attribute__((constructor));
+static void reg(void)
 {
     xcm_tp_register(XCM_TLS_PROTO, &tls_ops);
 
@@ -158,6 +172,8 @@ static void assert_conn_socket(struct xcm_socket *s)
     switch (ts->conn.state) {
     case conn_state_none:
 	ut_assert(0);
+	break;
+    case conn_state_initialized:
 	break;
     case conn_state_resolving:
         ut_assert(ts->conn.query);
@@ -195,7 +211,6 @@ static void assert_socket(struct xcm_socket *s)
 	assert_conn_socket(s);
 	break;
     case xcm_socket_type_server:
-        ut_assert(TOTLS(s)->server.fd >= 0);
 	break;
     default:
 	ut_assert(0);
@@ -212,12 +227,9 @@ static int set_tcp_conn_opts(int fd)
     return 0;
 }
 
-static int init_socket(struct xcm_socket *s, const char *ns)
+static int tls_init(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
-
-    strcpy(ts->ns, ns);
-    epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
 
     switch (s->type) {
     case xcm_socket_type_server:
@@ -227,7 +239,7 @@ static int init_socket(struct xcm_socket *s, const char *ns)
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
 	    return -1;
-	ts->conn.state = conn_state_none;
+	ts->conn.state = conn_state_initialized;
 	epoll_reg_init(&ts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
 	mbuf_init(&ts->conn.send_mbuf);
 	mbuf_init(&ts->conn.receive_mbuf);
@@ -235,19 +247,65 @@ static int init_socket(struct xcm_socket *s, const char *ns)
     }
     }
 
+    epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
+
     return 0;
 }
 
-static void deinit_socket(struct xcm_socket *s, bool owner)
+static int conn_deinit(struct xcm_socket *s, bool owner)
 {
-    if (s && s->type == xcm_socket_type_conn) {
-	struct tls_socket *ts = TOTLS(s);
-	epoll_reg_reset(&ts->conn.active_fd_reg);
-	active_fd_put();
-	xcm_dns_query_free(ts->conn.query);
-	mbuf_deinit(&ts->conn.send_mbuf);
-	mbuf_deinit(&ts->conn.receive_mbuf);
+    int rc = 0;
+
+    struct tls_socket *ts = TOTLS(s);
+
+    if (ts->conn.state == conn_state_ready && owner)
+	SSL_shutdown(ts->conn.ssl);
+
+    if (ts->conn.ssl) {
+	int fd = SSL_get_fd(ts->conn.ssl);
+	if (fd >= 0)
+	    rc = close(fd);
+
+	SSL_free(ts->conn.ssl);
+	/* to have socket_fd() still callable (i.e. for logging) */
+	ts->conn.ssl = NULL;
     }
+
+    epoll_reg_reset(&ts->conn.active_fd_reg);
+    active_fd_put();
+    xcm_dns_query_free(ts->conn.query);
+    mbuf_deinit(&ts->conn.send_mbuf);
+    mbuf_deinit(&ts->conn.receive_mbuf);
+
+    return rc;
+}
+
+static int server_deinit(struct xcm_socket *s, bool owner)
+{
+    int fd = TOTLS(s)->server.fd;
+
+    if (fd >= 0)
+	return close(fd);
+
+    return 0;
+}
+
+static int deinit(struct xcm_socket *s, bool owner)
+{
+    int rc = 0;
+    if (s) {
+	struct tls_socket *ts = TOTLS(s);
+
+	if (s->type == xcm_socket_type_conn)
+	    rc = conn_deinit(s, owner);
+	else
+	    rc = server_deinit(s, owner);
+
+	if (ts->ssl_ctx)
+	    ctx_store_put(ts->ssl_ctx);
+    }
+
+    return rc;
 }
 
 static const char *state_name(enum conn_state state)
@@ -255,6 +313,7 @@ static const char *state_name(enum conn_state state)
     switch (state)
     {
     case conn_state_none: return "none";
+    case conn_state_initialized: return "initialized";
     case conn_state_resolving: return "resolving";
     case conn_state_tcp_connecting: return "tcp connecting";
     case conn_state_tls_connecting: return "tls connecting";
@@ -337,23 +396,6 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
     }
 }
 
-static int socket_fd(struct xcm_socket *s)
-{
-    struct tls_socket *ts = TOTLS(s);
-
-    switch (s->type) {
-    case xcm_socket_type_conn:
-        if (ts->conn.ssl == NULL || ts->conn.state == conn_state_resolving)
-            return -1;
-	return SSL_get_fd(ts->conn.ssl);
-    case xcm_socket_type_server:
-	return ts->server.fd;
-    default:
-	ut_assert(0);
-	return -1;
-    }
-}
-
 static void verify_peer_cert(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -379,6 +421,47 @@ static void verify_peer_cert(struct xcm_socket *s)
     }
 }
 
+static int socket_fd(struct xcm_socket *s)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    switch (s->type) {
+    case xcm_socket_type_conn:
+        if (ts->conn.ssl == NULL)
+            return -1;
+	return SSL_get_fd(ts->conn.ssl);
+    case xcm_socket_type_server:
+	return ts->server.fd;
+    default:
+	ut_assert(0);
+	return -1;
+    }
+}
+
+static int bind_local_addr(struct xcm_socket *s)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (strlen(ts->laddr) == 0)
+	return 0;
+
+    struct sockaddr_storage addr;
+
+    if (tp_tls_to_sockaddr(ts->laddr, (struct sockaddr *)&addr) < 0) {
+	LOG_CLIENT_BIND_ADDR_ERROR(s, ts->laddr);
+	return -1;
+    }
+
+    if (bind(socket_fd(s), (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+	LOG_CLIENT_BIND_FAILED(s, ts->laddr, socket_fd(s), errno);
+	return -1;
+    }
+
+    ts->laddr[0] = '\0';
+
+    return 0;
+}
+
 static void try_finish_connect(struct xcm_socket *s);
 
 static void begin_connect(struct xcm_socket *s)
@@ -399,22 +482,25 @@ static void begin_connect(struct xcm_socket *s)
     if (SSL_set_fd(ts->conn.ssl, conn_fd) != 1)
 	goto err_close;
 
+    if (bind_local_addr(s) < 0)
+	goto err;
+
     if (ut_set_blocking(conn_fd, false) < 0) {
 	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err_close;
+	goto err;
     }
 
     if (ut_tcp_set_dscp(ts->conn.remote_host.ip.family, conn_fd) < 0) {
         LOG_TCP_SOCKET_OPTIONS_FAILED(errno);
-	goto err_close;
+	goto err;
     }
 
     if (set_tcp_conn_opts(conn_fd) < 0)
-	goto err_close;
+	goto err;
 
     if (ut_tcp_reduce_max_syn(conn_fd) < 0) {
         LOG_TCP_MAX_SYN_FAILED(errno);
-        goto err_close;
+        goto err;
     }
 
     struct sockaddr_storage servaddr;
@@ -424,7 +510,7 @@ static void begin_connect(struct xcm_socket *s)
     if (connect(conn_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
 	    LOG_CONN_FAILED(s, errno);
-            goto err_close;
+            goto err;
 	} else
 	    LOG_CONN_IN_PROGRESS(s);
     } else
@@ -533,12 +619,20 @@ static void try_finish_connect(struct xcm_socket *s)
     }
 }
 
-static int self_net_ns(char *name)
+static const char *get_cert_dir(void)
 {
-    int rc = ut_self_net_ns(name);
+    const char *cert_dir = getenv(TLS_CERT_ENV);
+    return cert_dir ? cert_dir : DEFAULT_CERT_DIR;
+}
+
+static int get_self_net_ns(struct xcm_socket *s)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    int rc = ut_self_net_ns(ts->ns);
 
     if (rc < 0) {
-        LOG_NET_NS_LOOKUP_FAILED(name, errno);
+        LOG_TLS_NET_NS_LOOKUP_FAILED(s, errno);
         /* the underlying syscall errors aren't allowed (by the API)
            as return codes */
         errno = EPROTO;
@@ -547,40 +641,30 @@ static int self_net_ns(char *name)
     return rc;
 }
 
-static const char *get_cert_dir(void)
-{
-    const char *cert_dir = getenv(TLS_CERT_ENV);
-    return cert_dir ? cert_dir : DEFAULT_CERT_DIR;
-}
-
 static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct tls_socket *ts = TOTLS(s);
 
     LOG_CONN_REQ(remote_addr);
 
-    char ns[NAME_MAX];
-    if (self_net_ns(ns) < 0)
-	goto err;
+    if (get_self_net_ns(s) < 0)
+	goto err_deinit;
 
     if (xcm_addr_parse_tls(remote_addr, &ts->conn.remote_host,
                            &ts->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err;
+	goto err_deinit;
     }
 
-    if (init_socket(s, ns) < 0)
-	goto err;
+    ts->ssl_ctx = ctx_store_get_client_ctx(ts->ns, get_cert_dir());
 
-    SSL_CTX *ctx = ctx_store_get_client_ctx(ns, get_cert_dir());
+    if (!ts->ssl_ctx)
+	goto err_deinit;
 
-    if (!ctx)
-	goto err_deinit_socket;
-
-    ts->conn.ssl = SSL_new(ctx);
+    ts->conn.ssl = SSL_new(ts->ssl_ctx);
     if (!ts->conn.ssl) {
         errno = ENOMEM;
-	goto err_put_ctx;
+	goto err_deinit;
     }
 
     if (ts->conn.remote_host.type == xcm_addr_type_name) {
@@ -588,7 +672,7 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
         ts->conn.query = xcm_dns_resolve(ts->conn.remote_host.name,
 					 s->epoll_fd, s);
         if (!ts->conn.query)
-            goto err_free_ssl;
+            goto err_deinit;
     } else {
         TLS_SET_STATE(s, conn_state_tcp_connecting);
         begin_connect(s);
@@ -598,22 +682,13 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 
     if (ts->conn.state == conn_state_bad) {
 	errno = ts->conn.badness_reason;
-	goto err_close;
+	goto err_deinit;
     }
 
     return 0;
 
- err_close:
-    if (socket_fd(s) >= 0)
-	UT_PROTECT_ERRNO(close(socket_fd(s)));
- err_free_ssl:
-    SSL_free(ts->conn.ssl);
-    ts->conn.ssl = NULL;
- err_put_ctx:
-    ctx_store_put(ctx);
- err_deinit_socket:
-    deinit_socket(s, true);
- err:
+ err_deinit:
+    deinit(s, true);
     return -1;
 }
 
@@ -621,22 +696,23 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 
 static int tls_server(struct xcm_socket *s, const char *local_addr)
 {
+    struct tls_socket *ts = TOTLS(s);
+
     LOG_SERVER_REQ(local_addr);
 
     struct xcm_addr_host host;
     uint16_t port;
     if (xcm_addr_parse_tls(local_addr, &host, &port) < 0) {
 	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err;
+	goto err_deinit;
     }
 
-    char ns[NAME_MAX];
-    if (self_net_ns(ns) < 0)
-	goto err;
-
+    if (get_self_net_ns(s) < 0)
+	goto err_deinit;
+    
     /*
      * A SSL_CTX is kept with the server socket, even though it's not
-     * used for new connections (which retrieves their own context from
+     * used for new connections (which retrieve their own context from
      * the cache). The server SSL_CTX keeps the cache live, and avoids
      * a situation where a server accepting many connections, but only
      * from a single client and a single connection at a time, to keep
@@ -647,34 +723,27 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
      * error detection - is effectivily disabled if the application
      * changes XCM_TLS_CERT during runtime.
      */
-    SSL_CTX *ctx = ctx_store_get_server_ctx(ns, get_cert_dir());
-    if (!ctx)
-	goto err;
-
-    struct tls_socket *ts = TOTLS(s);
-
-    if (init_socket(s, ns) < 0)
-	goto err_ctx_put;
-
-    ts->server.ssl_ctx = ctx;
+    ts->ssl_ctx = ctx_store_get_server_ctx(ts->ns, get_cert_dir());
+    if (!ts->ssl_ctx)
+	goto err_deinit;
 
     if (xcm_dns_resolve_sync(&host, s) < 0)
-        goto err_ctx_put;
+        goto err_deinit;
 
     if ((ts->server.fd = socket(host.ip.family, SOCK_STREAM,
                                 IPPROTO_TCP)) < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
-	goto err_ctx_put;
+	goto err_deinit;
     }
 
     if (port > 0 && ut_tcp_reuse_addr(ts->server.fd) < 0) {
         LOG_SERVER_REUSEADDR_FAILED(errno);
-        goto err_close;
+        goto err_deinit;
     }
 
     if (ut_tcp_set_dscp(host.ip.family, ts->server.fd) < 0) {
         LOG_TCP_SOCKET_OPTIONS_FAILED(errno);
-	goto err_close;
+	goto err_deinit;
     }
 
     struct sockaddr_storage addr;
@@ -682,17 +751,17 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
 
     if (bind(ts->server.fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
-	goto err_close;
+	goto err_deinit;
     }
 
     if (listen(ts->server.fd, TCP_CONN_BACKLOG) < 0) {
 	LOG_SERVER_LISTEN_FAILED(errno);
-	goto err_close;
+	goto err_deinit;
     }
 
     if (ut_set_blocking(ts->server.fd, false) < 0) {
 	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err_close;
+	goto err_deinit;
     }
 
     epoll_reg_set_fd(&ts->fd_reg, ts->server.fd);
@@ -701,53 +770,23 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
 
     return 0;
  
- err_close:
-    UT_PROTECT_ERRNO(close(ts->server.fd));
- err_ctx_put:
-    ctx_store_put(ts->server.ssl_ctx);
-    deinit_socket(s, true);
- err:
+ err_deinit:
+    deinit(s, true);
     return -1;
-}
-
-static int terminate(struct xcm_socket *s, bool ssl_shutdown)
-{
-    struct tls_socket *ts = TOTLS(s);
-
-    int rc = 0;
-    if (s) {
-	assert_socket(s);
-
-	const int fd = socket_fd(s);
-
-	if (s->type == xcm_socket_type_conn) {
-	    if (ts->conn.state == conn_state_ready && ssl_shutdown)
-		SSL_shutdown(ts->conn.ssl);
-	    SSL *ssl = ts->conn.ssl;
-	    SSL_CTX *ctx = SSL_get_SSL_CTX(ssl);
-	    SSL_free(ts->conn.ssl);
-	    ts->conn.ssl = NULL;
-	    ctx_store_put(ctx);
-	} else
-	    ctx_store_put(ts->server.ssl_ctx);
-
-        rc = fd >= 0 ? close(fd) : 0;
-
-	deinit_socket(s, true);
-    }
-    return rc;
 }
 
 static int tls_close(struct xcm_socket *s)
 {
+    assert_socket(s);
     LOG_CLOSING(s);
-    return terminate(s, true);
+    return deinit(s, true);
 }
 
 static void tls_cleanup(struct xcm_socket *s)
 {
+    assert_socket(s);
     LOG_CLEANING_UP(s);
-    (void)terminate(s, false);
+    deinit(s, false);
 }
 
 static void try_finish_accept(struct xcm_socket *s)
@@ -787,7 +826,7 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     int conn_fd;
     if ((conn_fd = ut_accept(server_ts->server.fd, NULL, NULL)) < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
-	goto err;
+	goto err_deinit;
     }
 
     if (set_tcp_conn_opts(conn_fd) < 0)
@@ -796,23 +835,22 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (ut_set_blocking(conn_fd, false) < 0)
 	goto err_close;
 
-    if (init_socket(conn_s, server_ts->ns) < 0)
-	goto err_close;
+    strcpy(conn_ts->ns, server_ts->ns);
 
-    SSL_CTX *ctx = ctx_store_get_server_ctx(server_ts->ns, get_cert_dir());
-    if (!ctx) {
+    conn_ts->ssl_ctx = ctx_store_get_server_ctx(server_ts->ns, get_cert_dir());
+    if (!conn_ts->ssl_ctx) {
 	errno = EPROTO;
-	goto err_deinit_socket;
+	goto err_close;
     }
 
-    conn_ts->conn.ssl = SSL_new(ctx);
+    conn_ts->conn.ssl = SSL_new(conn_ts->ssl_ctx);
     if (!conn_ts->conn.ssl) {
         errno = ENOMEM;
-	goto err_put_ctx;
+	goto err_close;
     }
 
     if (SSL_set_fd(conn_ts->conn.ssl, conn_fd) != 1)
-	goto err_free_ssl;
+	goto err_close;
 
     epoll_reg_set_fd(&conn_ts->fd_reg, conn_fd);
 
@@ -822,21 +860,15 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     if (conn_ts->conn.state == conn_state_bad) {
 	errno = conn_ts->conn.badness_reason;
-	goto err_free_ssl;
+	goto err_close;
     }
 
     return 0;
 
- err_free_ssl:
-    SSL_free(conn_ts->conn.ssl);
-    conn_ts->conn.ssl = NULL;
- err_put_ctx:
-    ctx_store_put(ctx);
- err_deinit_socket:
-    deinit_socket(conn_s, true);
  err_close:
     UT_PROTECT_ERRNO(close(conn_fd));
- err:
+ err_deinit:
+    deinit(conn_s, true);
     return -1;
 }
 
@@ -1147,7 +1179,7 @@ static void tls_update(struct xcm_socket *s)
 {
     assert_socket(s);
 
-    LOG_UPDATE_REQ(s);
+    LOG_UPDATE_REQ(s, s->epoll_fd);
 
     switch (s->type) {
     case xcm_socket_type_conn:
@@ -1193,21 +1225,25 @@ static int tls_finish(struct xcm_socket *s)
     case conn_state_closed:
 	errno = EPIPE;
 	return -1;
-    case conn_state_none:
     default:
 	ut_assert(0);
 	return -1;
     }
 }
 
-static const char *tls_remote_addr(struct xcm_socket *s, bool suppress_tracing)
+static const char *tls_get_remote_addr(struct xcm_socket *s,
+				       bool suppress_tracing)
 {
     struct tls_socket *ts = TOTLS(s);
 
+    int fd = socket_fd(s);
+    if (fd < 0)
+        return NULL;
+    
     struct sockaddr_storage raddr;
     socklen_t raddr_len = sizeof(raddr);
 
-    if (getpeername(socket_fd(s), (struct sockaddr*)&raddr, &raddr_len) < 0) {
+    if (getpeername(fd, (struct sockaddr*)&raddr, &raddr_len) < 0) {
 	if (!suppress_tracing)
 	    LOG_REMOTE_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
@@ -1219,7 +1255,27 @@ static const char *tls_remote_addr(struct xcm_socket *s, bool suppress_tracing)
     return ts->conn.raddr;
 }
 
-static const char *tls_local_addr(struct xcm_socket *s, bool suppress_tracing)
+static int tls_set_local_addr(struct xcm_socket *s, const char *local_addr)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    if (strlen(local_addr) > XCM_ADDR_MAX) {
+	errno = EINVAL;
+	return -1;
+    }
+
+    strcpy(ts->laddr, local_addr);
+
+    return 0;
+}
+
+static const char *tls_get_local_addr(struct xcm_socket *s,
+				      bool suppress_tracing)
 {
     struct tls_socket *ts = TOTLS(s);
 
@@ -1241,7 +1297,7 @@ static const char *tls_local_addr(struct xcm_socket *s, bool suppress_tracing)
     return ts->laddr;
 }
 
-static size_t tls_max_msg(struct xcm_socket *conn_socket)
+static size_t tls_max_msg(struct xcm_socket *conn_s)
 {
     return MBUF_MSG_MAX;
 }
@@ -1263,11 +1319,11 @@ static void try_finish_in_progress(struct xcm_socket *s)
 
 #define GEN_TCP_GET(field_name)						\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   enum xcm_attr_type *type,	\
+					   const struct xcm_tp_attr *attr, \
 					   void *value, size_t capacity) \
     {									\
 	return tcp_get_ ## field_name ##_attr(s, socket_fd(s),		\
-					      type, value, capacity);	\
+					      value, capacity);		\
     }
 
 GEN_TCP_GET(rtt)
@@ -1276,7 +1332,7 @@ GEN_TCP_GET(segs_in)
 GEN_TCP_GET(segs_out)
 
 static int get_peer_subject_key_id(struct xcm_socket *s,
-				   enum xcm_attr_type *type,
+				   const struct xcm_tp_attr *attr,
 				   void *value, size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1284,9 +1340,6 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
 	errno = ENOENT;
 	return -1;
     }
-
-    if (type)
-	*type = xcm_attr_type_bin;
 
     if (ts->conn.state != conn_state_ready)
 	goto empty;
@@ -1318,20 +1371,32 @@ overflow:
     return -1;
 }
 
-static struct xcm_tp_attr attrs[] = {
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
-			  get_peer_subject_key_id),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_RTT, get_rtt_attr),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, get_total_retrans_attr),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_SEGS_IN, get_segs_in_attr),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_SEGS_OUT, get_segs_out_attr)
+static struct xcm_tp_attr conn_attrs[] = {
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
+			xcm_attr_type_bin, get_peer_subject_key_id),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
+			get_rtt_attr),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,
+			get_total_retrans_attr),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_IN, xcm_attr_type_int64,
+			get_segs_in_attr),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_OUT, xcm_attr_type_int64,
+			get_segs_out_attr)
 };
 
-#define ATTRS_LEN (sizeof(attrs)/sizeof(attrs[0]))
-
-static void tls_get_attrs(struct xcm_tp_attr **attr_list,
+static void tls_get_attrs(struct xcm_socket* s,
+			  const struct xcm_tp_attr **attr_list,
 			  size_t *attr_list_len)
 {
-    *attr_list = attrs;
-    *attr_list_len = ATTRS_LEN;
+    switch (s->type) {
+    case xcm_socket_type_conn:
+	*attr_list = conn_attrs;
+	*attr_list_len = UT_ARRAY_LEN(conn_attrs);
+	break;
+    case xcm_socket_type_server:
+	*attr_list_len = 0;
+	break;
+    default:
+	ut_assert(0);
+    }
 }

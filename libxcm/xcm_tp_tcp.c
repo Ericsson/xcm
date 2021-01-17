@@ -32,15 +32,22 @@
  * TCP XCM Transport
  */
 
-enum conn_state { conn_state_none, conn_state_resolving, conn_state_connecting,
-                  conn_state_ready, conn_state_closed, conn_state_bad };
+enum conn_state {
+    conn_state_none,
+    conn_state_initialized,
+    conn_state_resolving,
+    conn_state_connecting,
+    conn_state_ready,
+    conn_state_closed,
+    conn_state_bad
+};
 
 struct tcp_socket
 {
     int fd;
     struct epoll_reg fd_reg;
 
-    char laddr[XCM_ADDR_MAX];
+    char laddr[XCM_ADDR_MAX+1];
 
     union {
 	struct {
@@ -60,7 +67,7 @@ struct tcp_socket
 
 	    struct mbuf receive_mbuf;
 
-	    char raddr[XCM_ADDR_MAX];
+	    char raddr[XCM_ADDR_MAX+1];
 	} conn;
     };
 };
@@ -70,6 +77,7 @@ struct tcp_socket
 #define TCP_SET_STATE(_s, _state)		\
     TP_SET_STATE(_s, TOTCP(_s), _state)
 
+static int tcp_init(struct xcm_socket *s);
 static int tcp_connect(struct xcm_socket *s, const char *remote_addr);
 static int tcp_server(struct xcm_socket *s, const char *local_addr);
 static int tcp_close(struct xcm_socket *s);
@@ -79,18 +87,21 @@ static int tcp_send(struct xcm_socket *s, const void *buf, size_t len);
 static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity);
 static void tcp_update(struct xcm_socket *conn_s);
 static int tcp_finish(struct xcm_socket *conn_s);
-static const char *tcp_remote_addr(struct xcm_socket *conn_s,
-				   bool suppress_tracing);
-static const char *tcp_local_addr(struct xcm_socket *socket,
-				  bool suppress_tracing);
+static const char *tcp_get_remote_addr(struct xcm_socket *conn_s,
+				       bool suppress_tracing);
+static int tcp_set_local_addr(struct xcm_socket *s, const char *local_addr);
+static const char *tcp_get_local_addr(struct xcm_socket *socket,
+				      bool suppress_tracing);
 static size_t tcp_max_msg(struct xcm_socket *conn_s);
-static void tcp_get_attrs(struct xcm_tp_attr **attr_list,
+static void tcp_get_attrs(struct xcm_socket *s,
+			  const struct xcm_tp_attr **attr_list,
                           size_t *attr_list_len);
 static size_t tcp_priv_size(enum xcm_socket_type type);
 
 static void try_finish_in_progress(struct xcm_socket *s);
 
 static struct xcm_tp_ops tcp_ops = {
+    .init = tcp_init,
     .connect = tcp_connect,
     .server = tcp_server,
     .close = tcp_close,
@@ -100,15 +111,16 @@ static struct xcm_tp_ops tcp_ops = {
     .receive = tcp_receive,
     .update = tcp_update,
     .finish = tcp_finish,
-    .remote_addr = tcp_remote_addr,
-    .local_addr = tcp_local_addr,
+    .get_remote_addr = tcp_get_remote_addr,
+    .set_local_addr = tcp_set_local_addr,
+    .get_local_addr = tcp_get_local_addr,
     .max_msg = tcp_max_msg,
     .get_attrs = tcp_get_attrs,
     .priv_size = tcp_priv_size
 };
 
-static void init(void) __attribute__((constructor));
-static void init(void)
+static void reg(void) __attribute__((constructor));
+static void reg(void)
 {
     xcm_tp_register(XCM_TCP_PROTO, &tcp_ops);
 }
@@ -123,6 +135,7 @@ static const char *state_name(enum conn_state state)
     switch (state)
     {
     case conn_state_none: return "none";
+    case conn_state_initialized: return "initialized";
     case conn_state_resolving: return "resolving";
     case conn_state_connecting: return "connecting";
     case conn_state_ready: return "ready";
@@ -139,6 +152,9 @@ static void assert_conn_socket(struct xcm_socket *s)
     switch (ts->conn.state) {
     case conn_state_none:
 	ut_assert(0);
+	break;
+    case conn_state_initialized:
+	ut_assert(ts->fd == -1);
 	break;
     case conn_state_resolving:
         ut_assert(ts->conn.query);
@@ -174,7 +190,7 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static int init_socket(struct xcm_socket *s)
+static int tcp_init(struct xcm_socket *s)
 {
     struct tcp_socket *ts = TOTCP(s);
 
@@ -182,7 +198,7 @@ static int init_socket(struct xcm_socket *s)
     epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
 
     if (s->type == xcm_socket_type_conn) {
-	ts->conn.state = conn_state_none;
+	ts->conn.state = conn_state_initialized;
 
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
@@ -198,7 +214,7 @@ static int init_socket(struct xcm_socket *s)
     return 0;
 }
 
-static void deinit_socket(struct xcm_socket *s)
+static void deinit(struct xcm_socket *s)
 {
     if (s->type == xcm_socket_type_conn) {
 	struct tcp_socket *ts = TOTCP(s);
@@ -250,6 +266,30 @@ static int create_socket(struct xcm_socket *s, sa_family_t family)
     return -1;
 }
 
+static int bind_local_addr(struct xcm_socket *s)
+{
+    struct tcp_socket *ts = TOTCP(s);
+
+    if (strlen(ts->laddr) == 0)
+	return 0;
+
+    struct sockaddr_storage addr;
+
+    if (tp_tcp_to_sockaddr(ts->laddr, (struct sockaddr *)&addr) < 0) {
+	LOG_CLIENT_BIND_ADDR_ERROR(s, ts->laddr);
+	return -1;
+    }
+
+    if (bind(ts->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+	LOG_CLIENT_BIND_FAILED(s, ts->laddr, ts->fd, errno);
+	return -1;
+    }
+
+    ts->laddr[0] = '\0';
+
+    return 0;
+}
+
 static void begin_connect(struct xcm_socket *s)
 {
     struct tcp_socket *ts = TOTCP(s);
@@ -259,6 +299,9 @@ static void begin_connect(struct xcm_socket *s)
     UT_SAVE_ERRNO;
 
     if (create_socket(s, ts->conn.remote_host.ip.family) < 0)
+	goto err;
+
+    if (bind_local_addr(s) < 0)
 	goto err;
 
     if (ut_tcp_reduce_max_syn(ts->fd) < 0) {
@@ -351,6 +394,7 @@ static void try_finish_connect(struct xcm_socket *s)
 	}
         break;
     case conn_state_none:
+    case conn_state_initialized:
         ut_assert(0);
         break;
     case conn_state_ready:
@@ -363,8 +407,6 @@ static void try_finish_connect(struct xcm_socket *s)
 static int tcp_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(remote_addr);
-
-    init_socket(s);
 
     struct tcp_socket *ts = TOTCP(s);
 
@@ -398,7 +440,7 @@ static int tcp_connect(struct xcm_socket *s, const char *remote_addr)
     if (ts->fd >= 0)
 	UT_PROTECT_ERRNO(close(ts->fd));
  err_deinit:
-    deinit_socket(s);
+    deinit(s);
     return -1;
 }
 
@@ -413,10 +455,8 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
 
     if (xcm_addr_parse_tcp(local_addr, &host, &port) < 0) {
 	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err;
+	goto err_deinit;
     }
-
-    init_socket(s);
 
     struct tcp_socket *ts = TOTCP(s);
 
@@ -453,24 +493,29 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
 err_close:
     UT_PROTECT_ERRNO(close(ts->fd));
 err_deinit:
-    deinit_socket(s);
-err:
+    deinit(s);
     return -1;
 }
 
 static int do_close(struct xcm_socket *s)
 {
-    assert_socket(s);
+    int rc = 0;
 
-    struct tcp_socket *ts = TOTCP(s);
+    if (s) {
+	assert_socket(s);
 
-    int fd = ts->fd;
+	struct tcp_socket *ts = TOTCP(s);
 
-    epoll_reg_reset(&ts->fd_reg);
+	int fd = ts->fd;
 
-    deinit_socket(s);
+	epoll_reg_reset(&ts->fd_reg);
 
-    return fd >= 0 ? close(fd) : 0;
+	deinit(s);
+
+	if (fd >= 0)
+	    rc = close(fd);
+    }
+    return rc;
 }
 
 static int tcp_close(struct xcm_socket *s)
@@ -497,7 +542,7 @@ static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     int conn_fd;
     if ((conn_fd = ut_accept(server_ts->fd, NULL, NULL)) < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
-	goto err;
+	goto err_deinit;
     }
 
     if (set_tcp_conn_opts(conn_fd) < 0)
@@ -507,8 +552,6 @@ static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	LOG_SET_BLOCKING_FAILED_FD(NULL, errno);
 	goto err_close;
     }
-
-    init_socket(conn_s);
 
     conn_ts->fd = conn_fd;
     epoll_reg_set_fd(&conn_ts->fd_reg, conn_fd);
@@ -523,7 +566,8 @@ static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
  err_close:
     UT_PROTECT_ERRNO(close(conn_fd));
- err:
+ err_deinit:
+    deinit(conn_s);
     return -1;
 }
 
@@ -850,8 +894,8 @@ static int tcp_finish(struct xcm_socket *s)
     return 0;
 }
 
-static const char *tcp_remote_addr(struct xcm_socket *conn_s,
-				   bool suppress_tracing)
+static const char *tcp_get_remote_addr(struct xcm_socket *conn_s,
+				       bool suppress_tracing)
 {
     struct tcp_socket *ts = TOTCP(conn_s);
 
@@ -872,10 +916,29 @@ static const char *tcp_remote_addr(struct xcm_socket *conn_s,
     return ts->conn.raddr;
 }
 
-static const char *tcp_local_addr(struct xcm_socket *socket,
-				  bool suppress_tracing)
+static int tcp_set_local_addr(struct xcm_socket *s, const char *local_addr)
 {
-    struct tcp_socket *ts = TOTCP(socket);
+    struct tcp_socket *ts = TOTCP(s);
+
+    if (ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    if (strlen(local_addr) > XCM_ADDR_MAX) {
+	errno = EINVAL;
+	return -1;
+    }
+
+    strcpy(ts->laddr, local_addr);
+
+    return 0;
+}
+
+static const char *tcp_get_local_addr(struct xcm_socket *s,
+				      bool suppress_tracing)
+{
+    struct tcp_socket *ts = TOTCP(s);
 
     if (ts->fd < 0)
         return NULL;
@@ -885,7 +948,7 @@ static const char *tcp_local_addr(struct xcm_socket *socket,
 
     if (getsockname(ts->fd, (struct sockaddr*)&laddr, &laddr_len) < 0) {
 	if (!suppress_tracing)
-	    LOG_LOCAL_SOCKET_NAME_FAILED(socket, errno);
+	    LOG_LOCAL_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
     }
 
@@ -901,11 +964,11 @@ static size_t tcp_max_msg(struct xcm_socket *conn_s)
 
 #define GEN_TCP_GET(field_name)						\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   enum xcm_attr_type *type,	\
+					   const struct xcm_tp_attr *attr, \
 					   void *value, size_t capacity) \
     {									\
 	return tcp_get_ ## field_name ##_attr(s, TOTCP(s)->fd,		\
-					      type, value, capacity);	\
+					      value, capacity);		\
     }
 
 
@@ -914,17 +977,30 @@ GEN_TCP_GET(total_retrans)
 GEN_TCP_GET(segs_in)
 GEN_TCP_GET(segs_out)
 
-static struct xcm_tp_attr attrs[] = {
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_RTT, get_rtt_attr),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, get_total_retrans_attr),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_SEGS_IN, get_segs_in_attr),
-    XCM_TP_DECL_CONN_ATTR(XCM_ATTR_TCP_SEGS_OUT, get_segs_out_attr)
+const static struct xcm_tp_attr conn_attrs[] = {
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
+			get_rtt_attr),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,
+			get_total_retrans_attr),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_IN, xcm_attr_type_int64,
+			get_segs_in_attr),
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_OUT, xcm_attr_type_int64,
+			get_segs_out_attr)
 };
 
-#define ATTRS_LEN (sizeof(attrs)/sizeof(attrs[0]))
-
-static void tcp_get_attrs(struct xcm_tp_attr **attr_list, size_t *attr_list_len)
+static void tcp_get_attrs(struct xcm_socket *s,
+			  const struct xcm_tp_attr **attr_list,
+			  size_t *attr_list_len)
 {
-    *attr_list = attrs;
-    *attr_list_len = ATTRS_LEN;
+    switch (s->type) {
+    case xcm_socket_type_conn:
+	*attr_list = conn_attrs;
+	*attr_list_len = UT_ARRAY_LEN(conn_attrs);
+	break;
+    case xcm_socket_type_server:
+	*attr_list_len = 0;
+	break;
+    default:
+	ut_assert(0);
+    }
 }

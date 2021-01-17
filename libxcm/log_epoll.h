@@ -5,12 +5,12 @@
 
 #include <sys/epoll.h>
 
-#define LOG_EPOLL_FD_CREATED(s, fd)                                     \
-    log_debug_sock(s, "Socket epoll instance created with fd %d.", fd)
+#define LOG_EPOLL_FD_CREATED(fd)				\
+    log_debug("Epoll instance created with fd %d.", fd)
 
-#define LOG_EPOLL_FD_FAILED(s, reason_errno)                            \
-    log_debug_sock(s, "Failed to create epoll instance; errno %d (%s).", \
-                   reason_errno, strerror(reason_errno))
+#define LOG_EPOLL_FD_FAILED(reason_errno)                            \
+    log_debug("Failed to create epoll instance; errno %d (%s).",     \
+	      reason_errno, strerror(reason_errno))
 
 #define LOG_EVENT_FD_FAILED(reason_errno)				\
     log_error("Failed to create global event fd singleton; "		\

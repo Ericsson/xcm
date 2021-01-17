@@ -14,6 +14,8 @@
 #define XCM_ATTR_XCM_LOCAL_ADDR "xcm.local_addr"
 #define XCM_ATTR_XCM_REMOTE_ADDR "xcm.remote_addr"
 
+#define XCM_ATTR_XCM_BLOCKING "xcm.blocking"
+
 #define XCM_ATTR_XCM_MAX_MSG_SIZE "xcm.max_msg_size"
 
 #define XCM_ATTR_XCM_TO_APP_MSGS "xcm.to_app_msgs"

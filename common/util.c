@@ -81,6 +81,13 @@ char *ut_strdup(const char *str)
     return copy;
 }
 
+void *ut_memdup(const char *ptr, size_t size)
+{
+    void *copy = ut_malloc(size);
+    memcpy(copy, ptr, size);
+    return copy;
+}
+
 void ut_free(void *ptr)
 {
     free(ptr);
@@ -98,20 +105,46 @@ int ut_send_all(int fd, void* buf, size_t count, int flags) {
     return count;
 }
 
-int ut_snprintf(char *str, size_t size, const char *format, ...)
+int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
 {
     va_list ap;
     va_start(ap, format);
 
-    int rc = vsnprintf(str, size, format, ap);
+    int rc = vsnprintf(buf, capacity, format, ap);
 
     /* guarantee NUL-terminated strings */
-    if (rc >= size)
-	str[size-1] = '\0';
+    if (rc >= capacity)
+	buf[capacity-1] = '\0';
 
     va_end(ap);
 
     return rc;
+}
+
+void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
+{
+    size_t len = strlen(buf);
+    size_t used = len + 1;
+    ut_assert(used <= capacity);
+
+    size_t left = capacity - used;
+
+    if (left == 0)
+        return;
+
+    int rc = vsnprintf(buf+len, left, format, ap);
+    ut_assert(rc >= 0);
+
+    if (rc >= left) /* NUL-terminate on truncation */
+	buf[left - 1] = '\0';
+}
+
+void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+    ut_vaprintf(buf, capacity, format, ap);
+    va_end(ap);
 }
 
 int ut_set_blocking(int fd, bool should_block)

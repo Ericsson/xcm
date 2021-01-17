@@ -11,19 +11,21 @@ extern "C" {
 
 /*! @mainpage Extensible Connection-oriented Messaging
  *
+ * @tableofcontents
+ *
  * @section introduction Introduction
  *
  * This is the documentation for the Extensible Connection-oriented
  * Messaging (XCM) programming APIs.
  *
- * XCM consists of of three parts; the core API in xcm.h, an address
- * helper library API in xcm_addr.h, and the attribute access API in
- * xcm_attr.h. Obsolete, but still present, functions are available
- * in xcm_compat.h
+ * XCM consists the core API in xcm.h, an address helper library API
+ * in xcm_addr.h, and the attribute APIs in xcm_attr.h and
+ * xcm_attr_map.h. Obsolete, but still present, functions are
+ * available in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.13 [API]
- * @version 1.0.1 [Implementation]
+ * @version 0.14 [API]
+ * @version 1.1.0 [Implementation]
  *
  * The low API/ABI version number is purely a result of all XCM
  * releases being backward compatible, and thus left the major version
@@ -99,7 +101,7 @@ extern "C" {
  * @code ux:<UNIX domain socket name> @endcode
  *
  * The addresses of the UXF UNIX Domain Socket transport variant
- * follow the following format: @n
+ * have the following format: @n
  * @code uxf:<file system path> @endcode
  *
  * For the TCP, TLS, UTLS and SCTP transports the syntax is: @n
@@ -114,7 +116,7 @@ extern "C" {
  * interfaces).  '[*]' is the IPv6 equivalent, creating a server
  * socket accepting connections on all IPv4 and IPv6 addresses.
  *
- * For example:
+ * Some examples addresses:
  * @code
  * tcp:*:4711
  * tls:192.168.1.42:4711
@@ -126,7 +128,7 @@ extern "C" {
  *
  * For TCP, TLS, UTLS and SCTP server socket addresses, the port can
  * be set to 0, in which case XCM (or rather, the Linux kernel) will
- * allocate a free TCP port.
+ * allocate a free TCP port from the local port range.
  *
  * @subsubsection dns DNS Resolution
  *
@@ -149,7 +151,7 @@ extern "C" {
  *
  * @section dpd Dead Peer Detection
  *
- * XCM transports attempts to detect a number of conditions which can
+ * XCM transports attempt to detect a number of conditions which can
  * lead to lost connectivity, and does so even on idle connections.
  *
  * If the remote end closes the connection, the local xcm_receive()
@@ -236,8 +238,9 @@ extern "C" {
  * @subsection non_blocking_ops Non-blocking Operation
  *
  * An event-driven application needs to set the XCM sockets it handles
- * into non-blocking mode, by calling xcm_set_blocking() or setting
- * the XCM_NONBLOCK flag in xcm_connect().
+ * into non-blocking mode, by calling xcm_set_blocking(), setting the
+ * "xcm.blocking" socket attribute, or using the XCM_NONBLOCK flag in
+ * xcm_connect().
  *
  * For XCM sockets in non-blocking mode, all potentially blocking API
  * calls related to XCM connections - xcm_connect(), xcm_accept(),
@@ -494,35 +497,65 @@ extern "C" {
  *
  * @section attributes Socket Attributes
  *
- * Tied to an XCM server or connection socket is a set of read-only
- * key-value pairs known as attributes. Which attributes are available
- * varies across different transports, and different socket types.
+ * Tied to an XCM server or connection socket is a set of key-value
+ * pairs known as attributes. Which attributes are available varies
+ * across different transports, and different socket types.
  *
- * The attribute names are strings, and follows a hierarchical naming
- * schema. For example, all generic XCM attributes, expected to be
- * implemented by all transports, have the prefix
- * "xcm.". Transport-specific attributes are prefixed with the
- * transport or protocol name (e.g. "tcp." for TCP-specific attributes
- * applicable to the TLS and TCP transports).
+ * An attribute's name is a string, and follows a hierarchical naming
+ * schema. For example, all generic XCM attributes, available in all
+ * transports, have the prefix "xcm.". Transport-specific attributes
+ * are prefixed with the transport or protocol name (e.g. "tcp." for
+ * TCP-specific attributes applicable to the TLS and TCP transports).
  *
- * The attribute value is coded in the native C data types and byte
+ * An attribute may be read-only, write-only or available both for
+ * reading and writing. This is referred to as the attribute's mode.
+ * The mode may vary across the lifetime of the socket. For example,
+ * an attribute may be writable at the time of the xcm_connect()
+ * call, and read-only thereafter.
+ *
+ * The attribute value is coded in the native C data type and byte
  * order. Strings are NUL-terminated, and the NUL character is
- * included in the length of the attribute. There are three value
- * types; a boolean type, a 64-bit signed integer type and a string
- * type. See xcm_attr_types.h for details.
+ * included in the length of the attribute. There are four value
+ * types; a boolean type, a 64-bit signed integer type, a string type
+ * and a type for arbitrary binary data. See xcm_attr_types.h for
+ * details.
  *
  * The attribute access API is in xcm_attr.h.
  *
- * Retrieving an integer attribute may look like this (minus error
- * handling):
+ * Retrieving an integer attribute's value may look like this:
  * ~~~~~~~~~~~~~{.c}
  * int64_t rtt;
  * xcm_attr_get(tcp_conn_socket, "tcp.rtt", NULL, &rtt, sizeof(rtt));
  * printf("Current TCP round-trip time estimate is %ld us.", rtt);
  * ~~~~~~~~~~~~~
  *
- * Process-wide and/or read/write attributes may be supported in the
- * future.
+ * Changing an integer attribyte value may be done in the following manner:
+ * ~~~~~~~~~~~~~{.c}
+ * int64_t interval = 10;
+ * xcm_attr_set(tcp_conn_socket, "tcp.keepalive_interval", xcm_attr_type_int64, &interval, sizeof(interval));
+ * ~~~~~~~~~~~~~
+ *
+ * Both of these examples are missing error handling.
+ *
+ * @subsubsection attr_map Attribute Maps
+ *
+ * XCM allows supplying a set of writable attributes at the time of
+ * socket creation, by using the xcm_connect_a(),
+ * xcm_server_a(), or xcm_accept_a() functions.
+ *
+ * The attribute sets are represented by the @ref xcm_attr_map type in
+ * xcm_attr_map.h.
+ *
+ * An example:
+ * ~~~~~~~~~~~~~{.c}
+ * struct xcm_attr_map *attrs = xcm_attr_map_create();
+ * xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+ * xcm_attr_map_add_str(attrs, "xcm.local_addr", "tls:192.168.1.42:0");
+ *
+ * int rc = xcm_connect_a("tls:192.168.1.99:4711", attrs);
+ *
+ * xcm_attr_map_destroy(attrs);
+ * ~~~~~~~~~~~~~
  *
  * @subsection xcm_attr Generic Attributes
  *
@@ -532,13 +565,14 @@ extern "C" {
  * For TCP transport-specific attributes, see @ref
  * tcp_attr, and for TLS, see @ref tls_attr.
  *
- * Attribute Name | Socket Type | Value Type | Description
- * ---------------|-------------|------------|------------
- * xcm.type       | All         | String     | The socket type - "server" or "connection".
- * xcm.transport  | All         | String     | The transport type.
- * xcm.local_addr | All         | String     | See xcm_local_addr().
- * xcm.remote_addr | Connection | String     | See xcm_remote_addr().
- * xcm.max_msg_size | Connection | Integer | The maximum size of any message transported by this connection.
+ * Attribute Name | Socket Type | Value Type | Mode | Description
+ * ---------------|-------------|------------|------|------------
+ * xcm.type       | All         | String     | R    | The socket type: "server" or "connection".
+ * xcm.transport  | All         | String     | R    | The transport type.
+ * xcm.local_addr | All         | String     | RW   | The local address of a socket. Writable only if supplied to xcm_connect_a().
+ * xcm.blocking   | All         | Boolean    | RW    | See xcm_set_blocking() and xcm_is_blocking().
+ * xcm.remote_addr | Connection | String     | R    | See xcm_remote_addr().
+ * xcm.max_msg_size | Connection | Integer   | R    | The maximum size of any message transported by this connection.
  *
  * @subsubsection cnt_attr Generic Message Counter Attributes
  *
@@ -563,16 +597,16 @@ extern "C" {
  * The message counters only count messages succesfully sent and/or
  * received.
  *
- * Attribute Name | Socket Type | Value Type | Description
- * ---------------|-------------|------------|------------
- * xcm.from_app_msgs | Connection | Integer | Messages sent from the application and accepted into XCM.
- * xcm.from_app_bytes | Connection | Integer | The sum of the size of all messages counted by xcm.from_app_msgs.
- * xcm.to_app_msgs | Connection | Integer | Messages delivered from XCM to the application.
- * xcm.to_app_bytes | Connection | Integer | The sum of the size of all messages counter by xcm.to_app_msgs.
- * xcm.from_lower_msgs | Connection | Integer | Messages received by XCM from the lower layer.
- * xcm.from_lower_bytes | Connection | Integer | The sum of the size of all messages counted by xcm.from_lower_msgs.
- * xcm.to_lower_msgs | Connection | Integer | Messages successfully sent by XCM into the lower layer.
- * xcm.to_lower_bytes | Connection | Integer | The sum of the size of all messages counted by xcm.to_lower_msgs.
+ * Attribute Name       | Socket Type | Value Type | Mode | Description
+ * ---------------------|-------- ----|------------|------|------------
+ * xcm.from_app_msgs    | Connection  | Integer    | R    | Messages sent from the application and accepted into XCM.
+ * xcm.from_app_bytes   | Connection  | Integer    | R    | The sum of the size of all messages counted by xcm.from_app_msgs.
+ * xcm.to_app_msgs      | Connection  | Integer    | R    | Messages delivered from XCM to the application.
+ * xcm.to_app_bytes     | Connection  | Integer    | R    | The sum of the size of all messages counter by xcm.to_app_msgs.
+ * xcm.from_lower_msgs  | Connection  | Integer    | R    | Messages received by XCM from the lower layer.
+ * xcm.from_lower_bytes | Connection  | Integer    | R    | The sum of the size of all messages counted by xcm.from_lower_msgs.
+ * xcm.to_lower_msgs    | Connection  | Integer    | R    | Messages successfully sent by XCM into the lower layer.
+ * xcm.to_lower_bytes   | Connection  | Integer    | R    | The sum of the size of all messages counted by xcm.to_lower_msgs.
  *
  * @section ctl Control Interface
  *
@@ -608,14 +642,14 @@ extern "C" {
  * @subsection ctl_errors Control Interface Error Handling
  *
  * Generally, since the application is left unaware (from an API
- * perspective) from the existence of the control interface, errors
- * are not reported up to the application. They are however logged.
+ * perspective) of the existence of the control interface, errors are
+ * not reported up to the application. They are however logged.
  *
  * Application threads owning XCM sockets, but which are busy with
  * non-XCM processing for a long duration of time, or otherwise are
  * leaving their XCM sockets unattended to (in violation of XCM API
  * contract), will not respond on the control interface's UNIX domain
- * sockets (corresponding to their XCM sockets). Only the prescence of
+ * sockets (corresponding to their XCM sockets). Only the presence of
  * these sockets may be detected, but their state cannot be retrieved.
  *
  * @subsection ctl_api Control API
@@ -759,12 +793,12 @@ extern "C" {
  * in linux/tcp.h). See the tcp(7) manual page, and its section on the
  * TCP_INFO socket option.
  *
- * Attribute Name | Socket Type | Value Type | Description
- * ---------------|-------------|------------|------------
- * tcp.rtt        | Connection  | Integer    | The current TCP round-trip estimate (in us).
- * tcp.total_retrans | Connection | Integer | The total number of retransmitted TCP segments.
- * tcp.segs_in    | Connection  | Integer    | The total number of segments received.
- * tcp.segs_out   | Connection  | Integer    | The total number of segments sent.
+ * Attribute Name | Socket Type | Value Type | Mode | Description
+ * ---------------|-------------|------------|------|------------
+ * tcp.rtt        | Connection  | Integer    | R    | The current TCP round-trip estimate (in us).
+ * tcp.total_retrans | Connection | Integer  | R    | The total number of retransmitted TCP segments.
+ * tcp.segs_in    | Connection  | Integer    | R    | The total number of segments received.
+ * tcp.segs_out   | Connection  | Integer    | R    | The total number of segments sent.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.
@@ -848,9 +882,9 @@ extern "C" {
  * TLS has all the TCP-level attributes of the TCP transport; see
  * @ref tcp_attr.
  *
- * Attribute Name          | Socket Type | Value Type  | Description
- * ------------------------|-------------|-------------|------------
- * tls.peer_subject_key_id | Connection  | String      | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
+ * Attribute Name          | Socket Type | Value Type  | Mode | Description
+ * ------------------------|-------------|-------------|------|------------
+ * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
  *
  * @subsection utls_transport UTLS Transport
  *
@@ -892,7 +926,7 @@ extern "C" {
  *
  * The SCTP transport uses the Stream Control Transmission Protocol
  * (SCTP). SCTP provides a reliable, message-oriented
- * service. In-order delivery is optional, and to adhere to XCM
+ * service. In-order delivery is optional, but to adhere to XCM
  * semantics (and for other reasons) XCM leaves SCTP in-order delivery
  * enabled.
  *
@@ -914,10 +948,10 @@ extern "C" {
  * Linux Network Namespaces will affect all transports, including
  * the UX transport.
  *
- * XCM has no explicit namespace support, but the application is
- * rather expected to use the Linux kernel facilities for this
- * functionality (i.e. switch to the right namespace before
- * xcm_server() och xcm_connect()).
+ * XCM has no explicit namespace support. Rather, the application is
+ * expected to use the Linux kernel facilities for this functionality
+ * (i.e. switch to the right namespace before xcm_server() och
+ * xcm_connect()).
  *
  * In case the system follows the iproute2 conventions in regards to
  * network namespace naming, the TLS and UTLS transports support
@@ -945,6 +979,8 @@ extern "C" {
 #include <errno.h>
 #include <stdbool.h>
 #include <sys/types.h>
+
+#include <xcm_attr_map.h>
 
 /** Flag used in xcm_connect() */
 #define XCM_NONBLOCK (1<<0)
@@ -1009,6 +1045,30 @@ struct xcm_socket;
 
 struct xcm_socket *xcm_connect(const char *remote_addr, int flags);
 
+/** Connects to a remote server socket, with attributes.
+ *
+ * This function is equivalent to xcm_connect(), only it also allows
+ * the caller to specify a set of @ref attributes to be applied as a
+ * part of the connection establishment.
+ *
+ * The primary reasons for this function is to allow setting
+ * attributes that needs to be set prior to, or during, actual
+ * connection establishment. In addition, xcm_connect_a() serves as
+ * a convenience function, letting applications avoid repeated
+ * xcm_attr_set() calls.
+ *
+ * @param[in] remote_addr The remote address which to connect.
+ * @param[in] attrs A set of attributes to be applied to the connection socket, or NULL.
+ *
+ * @return Returns a socket reference on success, or NULL if an error occured
+ *         (in which case errno is set).
+ * 
+ * See xcm_connect() and xcm_attr_set() for possible errno values.
+ */
+
+struct xcm_socket *xcm_connect_a(const char *remote_addr,
+				 const struct xcm_attr_map *attrs);
+
 /** Creates a server socket and binds it to a specific address.
  *
  * This function creates a server socket and binds it to a specific
@@ -1040,6 +1100,24 @@ struct xcm_socket *xcm_connect(const char *remote_addr, int flags);
  */
 
 struct xcm_socket *xcm_server(const char *local_addr);
+
+/** Creates and binds to a server socket, with attributes.
+ *
+ * This function is equivalent to xcm_server(), only it also allows
+ * the caller to specify a set of @ref attributes to be applied as a
+ * part of server socket creation.
+ *
+ * @param[in] local_addr The local address to which this socket should be bound.
+ * @param[in] attrs A set of attributes to be applied to the socket, or NULL.
+ *
+ * @return Returns a server socket reference on success, or NULL if an
+ *         error occured (in which case errno is set).
+ *
+ * See xcm_server() and xcm_attr_set() for possible errno values.
+ */
+
+struct xcm_socket *xcm_server_a(const char *local_addr,
+				const struct xcm_attr_map *attrs);
 
 /** Close an endpoint.
  *
@@ -1103,6 +1181,25 @@ void xcm_cleanup(struct xcm_socket *socket);
  */
 
 struct xcm_socket *xcm_accept(struct xcm_socket *server_socket);
+
+/** Retrieve a pending incoming connection, with attributes.
+ *
+ * This function is equivalent to xcm_accept(), only it also allows
+ * the caller to specify a set of @ref attributes to be applied as a
+ * part of accepting the new connection socket.
+ *
+ * @param[in] server_socket The server socket on which to attempt to accept
+ *                          one pending connection.
+ * @param[in] attrs A set of attributes to be applied to the socket, or NULL.
+ *
+ * @return Returns a newly created XCM connection socket on success,
+ *         or NULL if an error occured (in which case errno is set).
+ *
+ * See xcm_accept() and xcm_attr_set() for possible errno values.
+ */
+
+struct xcm_socket *xcm_accept_a(struct xcm_socket *server_socket,
+				const struct xcm_attr_map *attrs);
 
 /** Send message on a particular connection.
  *
@@ -1333,6 +1430,9 @@ int xcm_finish(struct xcm_socket *socket);
  * needs to have finished all outstanding tasks. See @ref
  * outstanding_tasks for details.
  *
+ * Setting the "xcm.blocking" attribute is an alternative to using
+ * this function. See @ref xcm_attr.
+ *
  * @param[in] socket The socket.
  * @param[in] should_block Set to true for blocking operation, false
  *                         for non-blocking mode.
@@ -1349,6 +1449,9 @@ int xcm_set_blocking(struct xcm_socket *socket, bool should_block);
 /** Query whether or not a socket is in non-blocking mode.
  *
  * For an overview of the use of non-blocking mode, see @ref select.
+ *
+ * Reading the "xcm.blocking" attribute is an alternative to
+ * using this function. See @ref xcm_attr.
  *
  * @param[in] socket The socket.
  *
@@ -1367,6 +1470,9 @@ bool xcm_is_blocking(struct xcm_socket *socket);
  * is to an buffer allocated as a part of the socket state, and need
  * not and should not be free'd by the user.
  *
+ * Reading the "xcm.remote_addr" attribute is an alternative to using
+ * this function. See @ref xcm_attr.
+ *
  * @param[in] conn_socket The connection socket.
  *
  * @return Returns the remote endpoint address, or NULL if an error
@@ -1377,6 +1483,11 @@ const char *xcm_remote_addr(struct xcm_socket *conn_socket);
 /** Returns the address of the local endpoint for this socket.
  *
  * Just like xcm_remote_addr(), but returns the local endpoint address.
+ *
+ * This function applies to both server and connection sockets.
+ *
+ * Reading the "xcm.local_addr" attribute is an alternative to using
+ * this function. See @ref xcm_attr.
  *
  * @param[in] socket A server or connection socket.
  *

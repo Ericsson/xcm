@@ -12,6 +12,8 @@
 #include <inttypes.h>
 
 struct xcm_socket *tu_connect_retry(const char *addr, int flags);
+struct xcm_socket *tu_connect_attr_retry(const char *addr,
+					 const struct xcm_attr_map *attrs);
 
 void tu_msleep(int ms);
 
