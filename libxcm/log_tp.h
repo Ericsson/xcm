@@ -60,6 +60,10 @@ static inline const char *log_family_str(sa_family_t family)
                    domain_name, log_family_str(family), \
                    log_ip_str(family, ip))
 
+#define LOG_DNS_GLIBC_LEAK_WARNING(s, domain_name)			\
+    log_debug_sock(s, "Early cancellation of asynchronous DNS resolution for " \
+		   "\"%s\". Likely triggered glic memory leak.", domain_name)
+
 #define LOG_TCP_CONN_CHECK(s)                   \
     LOG_CONN_CHECK("TCP", s)
 

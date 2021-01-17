@@ -203,15 +203,25 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 
 static void cancel_request(struct xcm_dns_query *query)
 {
-    gai_cancel(query->request);
+    int cancel_rc = gai_cancel(query->request);
+
+    /* Contrary to what the manual page specify, glibc will not
+       asynchronous notify the application in the EAI_CANCELED
+       case. Also, in this situation, glibc will leak memory. There's
+       nothing we can do about it (except switching to a better
+       asynchronous DNS resolver). */
+    if (cancel_rc == EAI_CANCELED) {
+	LOG_DNS_GLIBC_LEAK_WARNING(query->log_ref, query->domain_name);
+	return;
+    }
 
     char m;
-    int rc;
+    int read_rc;
     do {
-	rc = read(query->pipefds[0], &m, 1);
-    } while (rc < 0 && errno == EINTR);
+	read_rc = read(query->pipefds[0], &m, 1);
+    } while (read_rc < 0 && errno == EINTR);
 
-    if (rc < 0)
+    if (read_rc < 0)
 	abort();
 }
 
