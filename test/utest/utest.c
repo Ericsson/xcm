@@ -304,26 +304,71 @@ struct testcase *find_testcase(struct testcase *tcs, size_t tcs_len,
     return NULL;
 }
 
+static void select_tc(struct testcase ***selected_tcs, size_t *len,
+		      struct testcase *tc)
+{
+    *selected_tcs =
+	realloc(*selected_tcs, sizeof(struct testcase **) * (*len + 1));
+
+    if (*selected_tcs == NULL) {
+	perror("Unable to allocate memory.\n");
+	exit(EXIT_FAILURE);
+    }
+
+    (*selected_tcs)[*len] = tc;
+
+    (*len)++;
+}
+
+static void select_by_tc_name(struct testcase* tcs, size_t tcs_len,
+			      const char *name,
+			      struct testcase ***selected_tcs,
+			      size_t *selected_tcs_len)
+{
+    struct testcase *tc = find_testcase(tcs, tcs_len, name);
+
+    if (tc)
+	select_tc(selected_tcs, selected_tcs_len, tc);
+}
+
+static void select_by_tc_suite(struct testcase* tcs, size_t tcs_len,
+			       const char *suite,
+			       struct testcase ***selected_tcs,
+			       size_t *selected_tcs_len)
+{
+    for (size_t i=0; i<tcs_len; i++)
+	if (strcmp(tcs[i].suite->name, suite) == 0)
+	    select_tc(selected_tcs, selected_tcs_len, &tcs[i]);
+}
+
 static size_t select_testcases(struct testcase* tcs, size_t tcs_len,
-                               char **names, size_t names_len,
-                               struct testcase **selected_tcs)
+			       char **names, size_t names_len,
+			       struct testcase ***selected_tcs)
 
 {
-    if (names_len > 0) {
-        for (size_t i=0; i<names_len; i++) {
-            struct testcase *tc = find_testcase(tcs, tcs_len, names[i]);
-            if (!tc) {
-                fprintf(stderr, "No such testcase \"%s\".\n", names[i]);
-                exit(EXIT_FAILURE);
-            }
-            selected_tcs[i] = tc;
-        }
-        return names_len;
-    } else {
+    *selected_tcs = NULL;
+    size_t selected_tcs_len = 0;
+
+    if (names_len == 0) {
         for (size_t i=0; i<tcs_len; i++)
-            selected_tcs[i] = &tcs[i];
-        return tcs_len;
+	    select_tc(selected_tcs, &selected_tcs_len, &tcs[i]);
+        return selected_tcs_len;
     }
+
+    for (size_t i=0; i<names_len; i++) {
+	size_t old_len = selected_tcs_len;
+
+	select_by_tc_name(tcs, tcs_len, names[i], selected_tcs,
+			  &selected_tcs_len);
+	select_by_tc_suite(tcs, tcs_len, names[i], selected_tcs,
+			   &selected_tcs_len);
+
+	if (old_len == selected_tcs_len) {
+	    fprintf(stderr, "No such testcase or suite \"%s\".\n", names[i]);
+	    exit(EXIT_FAILURE);
+	}
+    }
+    return selected_tcs_len;
 }
 
 static void print_testcases(struct testcase* tcs, size_t tcs_len)
@@ -367,11 +412,11 @@ int main(int argc, char** argv)
         }
     }
 
-    struct testcase *selected_tcs[tcs_len];
+    struct testcase **selected_tcs = NULL;
     const int num_args = argc-optind;
 
     size_t num_selected = select_testcases(tcs, tcs_len, &argv[optind],
-                                           num_args, selected_tcs);
+                                           num_args, &selected_tcs);
 
     if (num_selected == 0) {
         printf("No tests to run.\n");
