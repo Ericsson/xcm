@@ -109,8 +109,9 @@ extern "C" {
  * sctp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * @endcode
  *
- * '*' is a shorthand for '0.0.0.0' (=bind to all IPv4 interfaces).
- * '[*]' is the IPv6 equivalent.
+ * '*' is a shorthand for '0.0.0.0' (i.e. bind to all IPv4
+ * interfaces).  '[*]' is the IPv6 equivalent, creating a server
+ * socket accepting connections on all IPv4 and IPv6 addresses.
  *
  * For example:
  * @code
