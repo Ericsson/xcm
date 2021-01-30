@@ -1,15 +1,28 @@
  -*- Autoconf -*-
 
-AC_INIT(xcm, 0.1, [mattias.ronnblom@ericsson.com])
+m4_define([xcm_major_version], [1])
+m4_define([xcm_minor_version], [0])
+m4_define([xcm_patch_version], [0])
+m4_define([xcm_version],[xcm_major_version.xcm_minor_version.xcm_patch_version])
+
+m4_define([xcm_abi_major_version], [0])
+m4_define([xcm_abi_minor_version], [13])
+
+AC_INIT(xcm, [xcm_version], [mattias.ronnblom@ericsson.com])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([common/config.h])
 AC_PREREQ([2.63])
 AC_PROG_CC
 
-# XCM only works with static builds in case you supply --whole-archive
-# to the linker. In the light of this inconvenience, it makes sense to
-# disable the default static build.
+AC_SUBST([XCM_ABI_MAJOR_VERSION], [xcm_abi_major_version])
+AC_SUBST([XCM_ABI_MINOR_VERSION], [xcm_abi_minor_version])
+AC_SUBST([XCM_MAJOR_VERSION], [xcm_major_version])
+AC_SUBST([XCM_MINOR_VERSION], [xcm_minor_version])
+AC_SUBST([XCM_PATCH_VERSION], [xcm_patch_version])
+
+# XCM depends on constructor functions to register transports into the
+# core library, and thus cannot be built statically.
 AC_DISABLE_STATIC
 
 # Enable late pthread features

@@ -28,7 +28,7 @@ check_PROGRAMS = xcmtest
 
 # For information on how to update these numbers, see:
 # https://www.gnu.org/software/libtool/manual/html_node/Libtool-versioning.html#Libtool-versioning
-XCM_VERSION_CURRENT=13
+XCM_VERSION_CURRENT=@XCM_ABI_MINOR_VERSION@
 XCM_VERSION_REVISION=0
 XCM_VERSION_AGE=$(XCM_VERSION_CURRENT)
 
@@ -175,8 +175,10 @@ endif
 
 verify-versioning:
 	./test/verify_versioning.py $(srcdir)/include/xcm.h \
-		$(srcdir)/README.md $(builddir) 0 $(XCM_VERSION_CURRENT) \
-		$(XCM_VERSION_REVISION)
+		$(srcdir)/README.md $(builddir) \
+		@XCM_ABI_MAJOR_VERSION@ @XCM_ABI_MINOR_VERSION@ \
+		@XCM_MAJOR_VERSION@ @XCM_MINOR_VERSION@ \
+		@XCM_PATCH_VERSION@
 
 BASIC_TEST_TARGETS=xcmtest-run verify-versioning
 
