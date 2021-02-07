@@ -431,18 +431,6 @@ const char *xcm_local_addr(struct xcm_socket *s)
     return do_local_addr(s, false);
 }
 
-const char *xcm_remote_addr_notrace(struct xcm_socket *conn_s)
-{
-    TP_RET_ERR_RC_UNLESS_TYPE_NOTRACE(conn_s, xcm_socket_type_conn, NULL);
-
-    return do_remote_addr(conn_s, true);
-}
-
-const char *xcm_local_addr_notrace(struct xcm_socket *s)
-{
-    return do_local_addr(s, true);
-}
-
 static int str_attr(const char *value, enum xcm_attr_type *type,
 		    void *buf, size_t capacity)
 {
@@ -643,10 +631,4 @@ void xcm_attr_get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data)
     XCM_TP_GETOPS(s)->get_attrs(&tp_attrs, &tp_attrs_len);
 
     get_all(s, cb, cb_data, tp_attrs, tp_attrs_len);
-}
-
-/* not a part of the library ABI - for internal use only */
-int64_t xcm_sock_id(struct xcm_socket *s)
-{
-    return s->sock_id;
 }

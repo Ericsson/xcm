@@ -23,12 +23,6 @@
 
 #define BUFSZ (1024)
 
-/* these functions aren't a part of the external API, so not defined in
-   'xcm.h' */
-const char *xcm_remote_addr_notrace(struct xcm_socket *socket);
-const char *xcm_local_addr_notrace(struct xcm_socket *conn_socket);
-int64_t xcm_sock_id(struct xcm_socket *socket);
-
 #ifdef XCM_LTTNG
 #define UT_LOG_LTTNG(type, file, line, function, sock, format, ap)	\
     do {								\
@@ -36,7 +30,7 @@ int64_t xcm_sock_id(struct xcm_socket *socket);
            LTTng to misbehave and change errno to ENOSYS (which         \
            in turn is because the membarrier() syscall doesn't          \
            exist). In addition, for enabled tracepoints, we also need   \
-           to save errno to avoid having xcm_(local|remote)_addr_notrace() \
+           to save errno to avoid having (local|remote)_addr() calls    \
            to change errno, in face of failure. */                      \
         int oerrno = errno;                                             \
         char bname[NAME_MAX+1];                                         \
@@ -47,8 +41,10 @@ int64_t xcm_sock_id(struct xcm_socket *socket);
                  basename(bname), line);				\
         vsnprintf(msg+strlen(msg), sizeof(msg)-strlen(msg), format, ap); \
 									\
-        const char *laddr = sock ? xcm_local_addr_notrace(sock) : NULL; \
-        const char *raddr = sock ? xcm_remote_addr_notrace(sock) : NULL; \
+        const char *laddr =						\
+	    sock ? XCM_TP_CALL(local_addr, sock, true) : NULL;		\
+        const char *raddr =						\
+	    sock ? XCM_TP_CALL(remote_addr, sock, true) : NULL;		\
 									\
         char sock_ref[64];						\
         format_sock_ref(sock, sock_ref, sizeof(sock_ref));              \
@@ -61,7 +57,7 @@ int64_t xcm_sock_id(struct xcm_socket *socket);
 static void format_sock_ref(struct xcm_socket *s, char *buf, size_t capacity)
 {
     if (s)
-	snprintf(buf, capacity, "%d:%" PRId64, getpid(), xcm_sock_id(s));
+	snprintf(buf, capacity, "%d:%" PRId64, getpid(), s->sock_id);
     else
 	buf[0] = '\0';
 }
@@ -74,7 +70,7 @@ static void format_msg(char *buf, size_t capacity, const char *file, int line,
 {
     char sref[32];
     if (s)
-	snprintf(sref, sizeof(sref), " <%" PRId64 ">", xcm_sock_id(s));
+	snprintf(sref, sizeof(sref), " <%" PRId64 ">", s->sock_id);
     else
 	sref[0] = '\0';
 

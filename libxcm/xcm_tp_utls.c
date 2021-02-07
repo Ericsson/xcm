@@ -155,7 +155,7 @@ static int utls_connect(struct xcm_socket *s, const char *remote_addr)
        non-blocking connect */
 
     s->proto = ux_proto();
-    if (XCM_TP_GETOPS(s)->connect(s, ux_addr) == 0)
+    if (XCM_TP_CALL(connect, s, ux_addr) == 0)
 	return 0;
 
     if (errno != ECONNREFUSED)
@@ -164,7 +164,7 @@ static int utls_connect(struct xcm_socket *s, const char *remote_addr)
     LOG_UTLS_FALLBACK;
 
     s->proto = tls_proto();
-    if (XCM_TP_GETOPS(s)->connect(s, tls_addr) == 0)
+    if (XCM_TP_CALL(connect, s, tls_addr) == 0)
 	return 0;
 
     return -1;
@@ -281,11 +281,11 @@ static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     LOG_ACCEPT_REQ(server_s);
 
     conn_s->proto = ux_proto();
-    if (XCM_TP_GETOPS(conn_s)->accept(conn_s, server_us->ux_socket) == 0)
+    if (XCM_TP_CALL(accept, conn_s, server_us->ux_socket) == 0)
 	return 0;
 	
     conn_s->proto = tls_proto();
-    if (XCM_TP_GETOPS(conn_s)->accept(conn_s, server_us->tls_socket) == 0)
+    if (XCM_TP_CALL(accept, conn_s, server_us->tls_socket) == 0)
 	return 0;
 
     return -1;
@@ -327,8 +327,6 @@ static const char *utls_remote_addr(struct xcm_socket *s,
     return NULL;
 }
 
-const char *xcm_local_addr_notrace(struct xcm_socket *conn_socket);
-
 static const char *utls_local_addr(struct xcm_socket *s, bool suppress_tracing)
 {
     struct utls_socket *us = TOUTLS(s);
@@ -337,9 +335,8 @@ static const char *utls_local_addr(struct xcm_socket *s, bool suppress_tracing)
         return NULL;
 
     if (strlen(us->laddr) == 0) {
-	const char *tls_addr = suppress_tracing ?
-	    xcm_local_addr_notrace(us->tls_socket) :
-	    xcm_local_addr(us->tls_socket);
+	const char *tls_addr =
+	    XCM_TP_CALL(local_addr, us->tls_socket, suppress_tracing);
 
 	if (!tls_addr)
 	    return NULL;

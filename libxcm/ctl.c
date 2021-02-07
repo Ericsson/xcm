@@ -47,8 +47,6 @@ struct ctl
     uint64_t calls_since_process;
 };
 
-int64_t xcm_sock_id(struct xcm_socket *s);
-
 static int create_ux(struct xcm_socket *s)
 {
     char ctl_dir[UNIX_PATH_MAX];
@@ -69,11 +67,8 @@ static int create_ux(struct xcm_socket *s)
 	.sun_family = AF_UNIX
     };
 
-    int64_t sock_id;
-    if ((sock_id = xcm_sock_id(s)) < 0)
-	goto err;
-
-    ctl_derive_path(ctl_dir, getpid(), sock_id, addr.sun_path, UNIX_PATH_MAX);
+    ctl_derive_path(ctl_dir, getpid(), s->sock_id,
+		    addr.sun_path, UNIX_PATH_MAX);
 
     unlink(addr.sun_path);
 
