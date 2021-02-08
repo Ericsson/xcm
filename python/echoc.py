@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import xcm
 import sys
@@ -21,7 +21,7 @@ else:
 conn = xcm.connect(raddr, 0)
 
 for i in range(0, n):
-    conn.send(msg)
+    conn.send(msg.encode('utf-8'))
     res = conn.receive()
 
-print res
+print(res.decode('utf-8'))
