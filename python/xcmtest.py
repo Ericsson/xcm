@@ -103,9 +103,14 @@ class TestXcm(unittest.TestCase):
     def test_connection_refused(self):
         try:
             xcm.connect("ux:doesntexist", 0)
-        except xcm.error as e:
+        except ConnectionRefusedError as e:
             assert e.errno == errno.ECONNREFUSED
     def test_connection_enoent(self):
+        try:
+            xcm.connect("tcp:nonexistentdomain:4711", 0)
+        except FileNotFoundError as e:
+            assert e.errno == errno.ENOENT
+    def test_connection_enoent_legacy(self):
         try:
             xcm.connect("tcp:nonexistentdomain:4711", 0)
         except xcm.error as e:

@@ -161,7 +161,7 @@ def _raise_io_err():
     _errno = get_errno()
     raise error(_errno, os.strerror(_errno))
 
-class error(socket.error): pass
+error = socket.error
 
 class ConnectionSocket(Socket):
     def __init__(self, xcm_socket):
