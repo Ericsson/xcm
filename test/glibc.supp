@@ -21,3 +21,10 @@
    fun:allocate_stack
    ...
 }
+{
+   <getaddrinfo_a_3>
+   Memcheck:Leak
+   ...
+   fun:getaddrinfo_a
+   ...
+}
