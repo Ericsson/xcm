@@ -608,6 +608,7 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 	UT_PROTECT_ERRNO(close(socket_fd(s)));
  err_free_ssl:
     SSL_free(ts->conn.ssl);
+    ts->conn.ssl = NULL;
  err_put_ctx:
     ctx_store_put(ctx);
  err_deinit_socket:
@@ -725,6 +726,7 @@ static int terminate(struct xcm_socket *s, bool ssl_shutdown)
 	    SSL *ssl = ts->conn.ssl;
 	    SSL_CTX *ctx = SSL_get_SSL_CTX(ssl);
 	    SSL_free(ts->conn.ssl);
+	    ts->conn.ssl = NULL;
 	    ctx_store_put(ctx);
 	} else
 	    ctx_store_put(ts->server.ssl_ctx);
@@ -827,6 +829,7 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
  err_free_ssl:
     SSL_free(conn_ts->conn.ssl);
+    conn_ts->conn.ssl = NULL;
  err_put_ctx:
     ctx_store_put(ctx);
  err_deinit_socket:
