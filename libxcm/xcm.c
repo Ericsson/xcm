@@ -34,16 +34,11 @@ static void init(void)
 }
 
 /* socket id, unique on a per-process basis */
-static pthread_mutex_t next_id_lock = PTHREAD_MUTEX_INITIALIZER;
 static int64_t next_id = 0;
 
 static int64_t get_next_sock_id(void)
 {
-    int64_t nid;
-    ut_mutex_lock(&next_id_lock);
-    nid = next_id++;
-    ut_mutex_unlock(&next_id_lock);
-    return nid;
+    return __atomic_fetch_add(&next_id, 1, __ATOMIC_RELAXED);
 }
 
 static void enable_ctl(struct xcm_socket *s)
