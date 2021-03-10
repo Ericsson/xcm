@@ -89,9 +89,9 @@ def check_readme(readme_file, abi_major, abi_minor):
         print("Incorrect ABI minor version in link.")
         sys.exit(1)
 
-def check_so(builddir, abi_major, abi_minor, patch):
-    so_file = "%s/.libs/libxcm.so.%d.%d.%d" % \
-        (builddir, abi_major, abi_minor, patch)
+def check_so(builddir, abi_major, abi_minor):
+    so_file = "%s/.libs/libxcm.so.%d.%d.0" % \
+        (builddir, abi_major, abi_minor)
     try:
         st = os.stat(so_file)
         if stat.S_ISREG(st.st_mode):
@@ -117,7 +117,7 @@ check_hdr(xcm_hdr_file, abi_major, abi_minor, impl_major, impl_minor,
 
 check_readme(readme, abi_major, abi_minor)
 
-check_so(builddir, abi_major, abi_minor, impl_patch)
+check_so(builddir, abi_major, abi_minor)
 
 print("All good.")
 sys.exit(0)

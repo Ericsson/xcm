@@ -2,7 +2,7 @@
 
 m4_define([xcm_major_version], [1])
 m4_define([xcm_minor_version], [0])
-m4_define([xcm_patch_version], [0])
+m4_define([xcm_patch_version], [1])
 m4_define([xcm_version],[xcm_major_version.xcm_minor_version.xcm_patch_version])
 
 m4_define([xcm_abi_major_version], [0])

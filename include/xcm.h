@@ -23,12 +23,12 @@ extern "C" {
  *
  * @author Mattias Rönnblom
  * @version 0.13 [API]
- * @version 1.0.0 [Implementation]
+ * @version 1.0.1 [Implementation]
  *
  * The low API/ABI version number is purely a result of all XCM
  * releases being backward compatible, and thus left the major version
  * at 0. It's not to be taken as a sign of immaturity. The API and its
- * implementation has been stable for several years.
+ * implementation have been stable for years.
  *
  * @section overview Overview
  *
