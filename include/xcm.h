@@ -24,7 +24,7 @@ extern "C" {
  * available in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.14 [API]
+ * @version 0.15 [API]
  * @version 1.1.0 [Implementation]
  *
  * The low API/ABI version number is purely a result of all XCM

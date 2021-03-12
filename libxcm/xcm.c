@@ -488,6 +488,22 @@ err:
     return -1;
 }
 
+int xcm_attr_set_bool(struct xcm_socket *s, const char *name, bool value)
+{
+    return xcm_attr_set(s, name, xcm_attr_type_bool, &value, sizeof(value));
+}
+
+int xcm_attr_set_int64(struct xcm_socket *s, const char *name, int64_t value)
+{
+    return xcm_attr_set(s, name, xcm_attr_type_int64, &value, sizeof(value));
+}
+
+int xcm_attr_set_str(struct xcm_socket *s, const char *name,
+		     const char *value)
+{
+    return xcm_attr_set(s, name, xcm_attr_type_str, value, strlen(value) + 1);
+}
+
 int xcm_attr_get(struct xcm_socket *s, const char *name,
 		 enum xcm_attr_type *type, void *value, size_t capacity)
 {
@@ -522,6 +538,59 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
  err:
     LOG_GET_ATTR_FAILED(s, errno);
     return -1;
+}
+
+static int attr_get_with_type(struct xcm_socket *s, const char *name,
+			 enum xcm_attr_type required_type, void *value,
+			 size_t capacity)
+{
+    enum xcm_attr_type actual_type;
+    int rc = xcm_attr_get(s, name, &actual_type, value, capacity);
+
+    if (rc < 0) {
+	if (errno == EOVERFLOW)
+	    errno = ENOENT; /* wrong type */
+	return -1;
+    }
+
+    if (actual_type != required_type) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return rc;
+}
+
+int xcm_attr_get_bool(struct xcm_socket *s, const char *name,
+		      bool *value)
+{
+    return attr_get_with_type(s, name, xcm_attr_type_bool,
+			      value, sizeof(bool));
+}
+
+int xcm_attr_get_int64(struct xcm_socket *s, const char *name,
+		       int64_t *value)
+{
+    return attr_get_with_type(s, name, xcm_attr_type_int64,
+			      value, sizeof(int64_t));
+}
+
+int xcm_attr_get_str(struct xcm_socket *s, const char *name,
+		     char *value, size_t capacity)
+{
+    enum xcm_attr_type type;
+
+    int rc = xcm_attr_get(s, name, &type, value, capacity);
+
+    if (rc < 0)
+	return -1;
+
+    if (type != xcm_attr_type_str) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return rc;
 }
 
 static void get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data,

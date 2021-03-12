@@ -20,7 +20,13 @@
     xcm_remote_addr;
     xcm_local_addr;
     xcm_attr_set;
+    xcm_attr_set_bool;
+    xcm_attr_set_int64;
+    xcm_attr_set_str;
     xcm_attr_get;
+    xcm_attr_get_bool;
+    xcm_attr_get_int64;
+    xcm_attr_get_str;
     xcm_attr_get_all;
     xcm_attr_map_create;
     xcm_attr_map_clone;

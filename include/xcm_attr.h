@@ -19,7 +19,7 @@ extern "C" {
 #include <xcm_attr_types.h>
 #include <stdbool.h>
 
-/** Sets the value of a XCM socket attribute.
+/** Sets the value of a socket attribute.
  *
  * Only attributes marked as writable may be set. For a list of
  * available attributes for different socket and transport types, see
@@ -44,7 +44,50 @@ extern "C" {
 int xcm_attr_set(struct xcm_socket *s, const char *name,
 		 enum xcm_attr_type type, const void *value, size_t len);
 
-/** Retrieves the value of a XCM socket attribute.
+/** Sets the value of a boolean socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[in] value The new boolean value.
+ *
+ * @return Returns the 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * See xcm_attr_set() for possible errno values.
+ */
+
+int xcm_attr_set_bool(struct xcm_socket *s, const char *name, bool value);
+
+/** Sets the value of an integer socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[in] value The new integer value.
+ *
+ * @return Returns the 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * See xcm_attr_set() for possible errno values.
+ */
+
+int xcm_attr_set_int64(struct xcm_socket *s, const char *name, int64_t value);
+
+/** Sets the value of a string socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[in] value The new string value.
+ *
+ * @return Returns the 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * See xcm_attr_set() for possible errno values.
+ */
+
+int xcm_attr_set_str(struct xcm_socket *s, const char *name,
+		     const char *value);
+
+/** Retrieves the value of a socket attribute.
  *
  * For a list of available attributes for different socket and
  * transport types, see @ref xcm_attr, @ref tcp_attr and @ref
@@ -71,6 +114,65 @@ int xcm_attr_set(struct xcm_socket *s, const char *name,
 
 int xcm_attr_get(struct xcm_socket *s, const char *name,
 		 enum xcm_attr_type *type, void *value, size_t capacity);
+
+/** Retrieves the value of a boolean socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[out] value A user-supplied buffer where the value of the attribute will be stored.
+ *
+ * @return Returns sizeof(bool) on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENOENT       | The attribute does not exist, or is not boolean.
+ *
+ * See xcm_attr_get() for other possible errno values.
+ */
+
+int xcm_attr_get_bool(struct xcm_socket *s, const char *name,
+		      bool *value);
+
+/** Retrieves the value of an integer socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[out] value A user-supplied buffer where the value of the attribute will be stored.
+ *
+ * @return Returns sizeof(int64_t) on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENOENT       | The attribute does not exist, or is not an integer.
+ *
+ * See xcm_attr_get() for other possible errno values.
+ */
+
+int xcm_attr_get_int64(struct xcm_socket *s, const char *name,
+		       int64_t *value);
+
+/** Retrieves the value of a string socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[out] value A user-supplied buffer where the string value of the attribute will be stored.
+ * @param[in] capacity The length of the buffer (in bytes).
+ *
+ * @return Returns the length of the string value (including the
+ *         terminating NUL character) on success, or -1 if an error
+ *         occured (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENOENT       | The attribute does not exist, or is not a string.
+ *
+ * See xcm_attr_get() for other possible errno values.
+ */
+
+int xcm_attr_get_str(struct xcm_socket *s, const char *name,
+		     char *value, size_t capacity);
 
 /** The signature of the user-supplied callback used in xcm_attr_get_all(). */
 typedef void (*xcm_attr_cb)(const char *attr_name, enum xcm_attr_type type,

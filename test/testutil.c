@@ -252,8 +252,16 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
 
     char actual_value[256] = { 0 };
 
-    int rc = xcm_attr_get(s, attr_name, &type, actual_value,
+    int rc;
+    if (random() % 1)
+	rc = xcm_attr_get(s, attr_name, &type, actual_value,
 			  sizeof(actual_value));
+    else {
+	type = xcm_attr_type_str;
+	rc = xcm_attr_get_str(s, attr_name, actual_value,
+			      sizeof(actual_value));
+    }
+
     if (rc < 0 || type != xcm_attr_type_str ||
 	strcmp(expected_value, actual_value) ||
 	(strlen(actual_value)+1) != rc) {
@@ -277,14 +285,19 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
 int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 			 enum tu_cmp_type cmp_type, int64_t cmp_value)
 {
-    enum xcm_attr_type type = 4711;
-
     int64_t actual_value;
 
-    int rc = xcm_attr_get(s, attr_name, &type, &actual_value,
+    int rc;
+    if (random() % 1) {
+	enum xcm_attr_type type = 4711;
+	rc = xcm_attr_get(s, attr_name, &type, &actual_value,
 			  sizeof(actual_value));
+	if (type != xcm_attr_type_int64)
+	    return -1;
+    } else
+	rc = xcm_attr_get_int64(s, attr_name, &actual_value);
 
-    if (rc != sizeof(int64_t) || type != xcm_attr_type_int64)
+    if (rc != sizeof(int64_t))
 	return -1;
 
     if (cmp_type == cmp_type_greater_than && actual_value <= cmp_value)

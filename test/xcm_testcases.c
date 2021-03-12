@@ -435,11 +435,19 @@ TESTSUITE(xcm, setup_xcm, teardown_xcm)
 
 static int set_blocking(struct xcm_socket *s, bool value)
 {
-    if (random() & 1)
+    int variant = random() % 3;
+    switch (variant) {
+    case 0:
 	return xcm_set_blocking(s, value);
-    else
+    case 1:
 	return xcm_attr_set(s, "xcm.blocking", xcm_attr_type_bool,
 			    &value, sizeof(value));
+    case 2:
+	return xcm_attr_set_bool(s, "xcm.blocking", value);
+    default:
+	ut_assert(0);
+	return -1;
+    }
 }
 
 static int check_blocking(struct xcm_socket *s, bool expected)
@@ -448,12 +456,17 @@ static int check_blocking(struct xcm_socket *s, bool expected)
 	return UTEST_FAIL;
 
     bool actual = !expected;
-    enum xcm_attr_type type;
-    if (xcm_attr_get(s, "xcm.blocking", &type, &actual, sizeof(actual)) < 0)
-	return UTEST_FAIL;
-
-    if (type != xcm_attr_type_bool)
-	return UTEST_FAIL;
+    if (random() % 1) {
+	enum xcm_attr_type type;
+	if (xcm_attr_get(s, "xcm.blocking", &type, &actual,
+			 sizeof(actual)) < 0)
+	    return UTEST_FAIL;
+	if (type != xcm_attr_type_bool)
+	    return UTEST_FAIL;
+    } else {
+	if (xcm_attr_get_bool(s, "xcm.blocking", &actual) < 0)
+	    return UTEST_FAIL;
+    }
 
     if (actual != expected)
 	return UTEST_FAIL;
@@ -491,6 +504,9 @@ TESTCASE(xcm, basic)
 	CHKNOERR(check_blocking(client_conn, true));
 
 	CHKNOERR(tu_assure_str_attr(client_conn, "xcm.type", "connection"));
+
+	bool v;
+	CHKERRNO(xcm_attr_get_bool(client_conn, "xcm.type", &v), ENOENT);
 
 	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.max_msg_size",
 				      cmp_type_equal, MAX_MSG_SIZE));
@@ -2144,8 +2160,8 @@ static int run_bind_addr(sa_family_t ip_version, const char *client_proto,
     CHKERRNO(xcm_attr_set(client_sock, "xcm.local_addr", xcm_attr_type_str,
 			  client_local_addr, strlen(client_local_addr) + 1),
 	     EACCES);
-    CHKERRNO(xcm_attr_set(server_sock, "xcm.local_addr", xcm_attr_type_str,
-			  client_local_addr, strlen(client_local_addr) + 1),
+    CHKERRNO(xcm_attr_set_str(server_sock, "xcm.local_addr",
+			      client_local_addr),
 	     EACCES);
     CHKERRNO(xcm_attr_set(accept_sock, "xcm.local_addr", xcm_attr_type_str,
 			  client_local_addr, strlen(client_local_addr) + 1),
