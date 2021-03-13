@@ -307,17 +307,41 @@ static void accept_client(struct ctl *ctl)
     return;
 }
 
-#define CALLS_PER_ACCEPT (64)
-#define CALLS_PER_SEND_RECEIVE (8)
+#define DEFAULT_CALLS_PER_ACCEPT (64)
+#define DEFAULT_CALLS_PER_SEND_RECEIVE (8)
+
+#ifdef XCM_SCTP
+
+/* For reasons unknown, socket calls on an Linux kernel SCTP socket
+   may be very costly. This in turn make the control interface on SCTP
+   XCM sockets slow to respond, unless you call the ctl_process() more
+   often for SCTP sockets. */
+#define SCTP_CALLS_PER_ACCEPT (8)
+#define SCTP_CALLS_PER_SEND_RECEIVE (2)
+
+static bool is_sctp(struct xcm_socket *s)
+{
+    return strcmp(xcm_tp_socket_get_transport(s), XCM_SCTP_PROTO) == 0;
+}
+#endif
+
+static int min_calls(struct ctl *ctl)
+{
+    bool active = ctl->num_clients > 0;
+#ifdef XCM_SCTP
+    if (is_sctp(ctl->socket))
+	return active ? SCTP_CALLS_PER_SEND_RECEIVE :
+	    SCTP_CALLS_PER_ACCEPT;
+#endif
+    return active ? DEFAULT_CALLS_PER_SEND_RECEIVE :
+	DEFAULT_CALLS_PER_ACCEPT;
+}
 
 void ctl_process(struct ctl *ctl)
 {
     ctl->calls_since_process++;
 
-    int min_calls = ctl->num_clients > 0 ?
-	CALLS_PER_SEND_RECEIVE : CALLS_PER_ACCEPT;
-
-    if (ctl->calls_since_process < min_calls)
+    if (ctl->calls_since_process < min_calls(ctl))
 	return;
 
     ctl->calls_since_process = 0;
