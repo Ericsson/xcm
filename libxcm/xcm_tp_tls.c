@@ -1322,8 +1322,8 @@ static void try_finish_in_progress(struct xcm_socket *s)
 					   const struct xcm_tp_attr *attr, \
 					   void *value, size_t capacity) \
     {									\
-	return tcp_get_ ## field_name ##_attr(s, socket_fd(s),		\
-					      value, capacity);		\
+	return tcp_get_ ## field_name ##_attr(socket_fd(s), value,	\
+					      capacity);		\
     }
 
 GEN_TCP_GET(rtt)

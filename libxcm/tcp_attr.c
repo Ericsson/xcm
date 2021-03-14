@@ -67,34 +67,25 @@ struct tcp_info_4_3 {
 };
 
 #define GEN_INFO_GET(xcm_field_name, tcp_field_name)			\
-    int tcp_get_ ## xcm_field_name ## _attr(struct xcm_socket *s, int fd, \
-					    void *value, size_t capacity) \
+    int tcp_get_ ## xcm_field_name ## _attr(int fd, void *value,	\
+					    size_t capacity)		\
     {									\
-	if (capacity < sizeof(int64_t)) {				\
-	    errno = EOVERFLOW;						\
-	    return -1;							\
-	}								\
-	if (s->type == xcm_socket_type_conn) {				\
-	    struct tcp_info_4_3 info;					\
-	    socklen_t len = sizeof(info);				\
+	struct tcp_info_4_3 info;					\
+	socklen_t len = sizeof(info);					\
 									\
-	    if (getsockopt(fd, SOL_TCP, TCP_INFO, &info, &len) < 0)	\
-		return -1;						\
-	    size_t field_end =						\
-		offsetof(struct tcp_info_4_3, tcp_field_name) +		\
-		sizeof(info.tcp_field_name);				\
-	    if (len < field_end) {					\
-		/* field not available in this kernel */		\
-		errno = ENOENT;						\
-		return -1;						\
-	    }								\
-	    int64_t fv64 = info.tcp_field_name;				\
-	    memcpy(value, &fv64, sizeof(int64_t));			\
-	    return sizeof(int64_t);					\
-	} else {							\
+	if (getsockopt(fd, SOL_TCP, TCP_INFO, &info, &len) < 0)		\
+	    return -1;							\
+	size_t field_end =						\
+	    offsetof(struct tcp_info_4_3, tcp_field_name) +		\
+	    sizeof(info.tcp_field_name);				\
+	if (len < field_end) {						\
+	    /* field not available in this kernel */			\
 	    errno = ENOENT;						\
 	    return -1;							\
 	}								\
+	int64_t fv64 = info.tcp_field_name;				\
+	memcpy(value, &fv64, sizeof(int64_t));				\
+	return sizeof(int64_t);						\
     }
 
 GEN_INFO_GET(rtt, tcpi_rtt)

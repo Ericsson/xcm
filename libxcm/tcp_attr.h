@@ -10,16 +10,12 @@
 
 #include <sys/types.h>
 
-int tcp_get_rtt_attr(struct xcm_socket *s, int fd,
-		     void *value, size_t capacity);
+int tcp_get_rtt_attr(int fd, void *value, size_t capacity);
 
-int tcp_get_total_retrans_attr(struct xcm_socket *s, int fd,
-			       void *value, size_t capacity);
+int tcp_get_total_retrans_attr(int fd, void *value, size_t capacity);
 
-int tcp_get_segs_in_attr(struct xcm_socket *s, int fd,
-			 void *value, size_t capacity);
+int tcp_get_segs_in_attr(int fd, void *value, size_t capacity);
 
-int tcp_get_segs_out_attr(struct xcm_socket *s, int fd,
-			  void *value, size_t capacity);
+int tcp_get_segs_out_attr(int fd, void *value, size_t capacity);
 
 #endif

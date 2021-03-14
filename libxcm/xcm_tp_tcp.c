@@ -967,8 +967,8 @@ static size_t tcp_max_msg(struct xcm_socket *conn_s)
 					   const struct xcm_tp_attr *attr, \
 					   void *value, size_t capacity) \
     {									\
-	return tcp_get_ ## field_name ##_attr(s, TOTCP(s)->fd,		\
-					      value, capacity);		\
+	return tcp_get_ ## field_name ##_attr(TOTCP(s)->fd, value,	\
+					      capacity);		\
     }
 
 
