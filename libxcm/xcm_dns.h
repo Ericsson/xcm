@@ -6,10 +6,10 @@
 #ifndef XCM_DNS_H
 #define XCM_DNS_H
 
-#include <stdbool.h>
-
-#include <xcm_addr.h>
 #include "xcm_tp.h"
+
+#include <stdbool.h>
+#include <xcm_addr.h>
 
 struct xcm_dns_query;
 

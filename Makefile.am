@@ -1,7 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 
 AM_CFLAGS = -std=gnu99 -Wall -Werror -D_POSIX_C_SOURCE=200809L \
-	-D_BSD_SOURCE -D_DEFAULT_SOURCE
+	-D_BSD_SOURCE -D_DEFAULT_SOURCE -D_GNU_SOURCE
 
 AM_CPPFLAGS = -I$(srcdir)/include -I$(srcdir)/common \
 	-DSYSCONFDIR='"$(sysconfdir)"'

@@ -3,37 +3,31 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
+#include "active_fd.h"
+#include "common_tp.h"
+#include "ctx_store.h"
+#include "epoll_reg.h"
+#include "log_tls.h"
+#include "log_tp.h"
+#include "mbuf.h"
+#include "tcp_attr.h"
+#include "util.h"
 #include "xcm.h"
-
 #include "xcm_addr.h"
 #include "xcm_addr_limits.h"
 #include "xcm_attr_names.h"
-#include "xcm_tp.h"
 #include "xcm_dns.h"
-
-#include "util.h"
-#include "common_tp.h"
-#include "ctx_store.h"
-#include "tcp_attr.h"
-#include "active_fd.h"
-#include "log_tp.h"
-#include "log_tls.h"
-#include "epoll_reg.h"
-
-#include "mbuf.h"
-
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdarg.h>
-
-#include <signal.h>
+#include "xcm_tp.h"
 
 #include <arpa/inet.h>
-
-#include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/ssl.h>
 #include <openssl/x509v3.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 /*
  * TLS XCM Transport

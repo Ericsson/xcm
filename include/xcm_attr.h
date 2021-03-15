@@ -15,9 +15,9 @@ extern "C" {
  *
  */
 
+#include <stdbool.h>
 #include <xcm.h>
 #include <xcm_attr_types.h>
-#include <stdbool.h>
 
 /** Sets the value of a socket attribute.
  *

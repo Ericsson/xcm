@@ -3,25 +3,24 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#define _GNU_SOURCE /* for setns() */
 #include "testutil.h"
 
-#include <unistd.h>
-#include <stdio.h>
-#include <time.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <sys/wait.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <sched.h>
-#include <limits.h>
-#include <sys/utsname.h>
-#include <stdarg.h>
-
 #include "util.h"
+
+#include <fcntl.h>
+#include <limits.h>
+#include <sched.h>
+#include <stdarg.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/utsname.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
 
 #define RETRIES (300)
 

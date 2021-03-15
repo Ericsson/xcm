@@ -3,17 +3,16 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include <stdio.h>
-#include <getopt.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <assert.h>
-
+#include "xcm_attr_limits.h"
+#include "xcm_attr_names.h"
 #include "xcmc.h"
 
-#include "xcm_attr_names.h"
-#include "xcm_attr_limits.h"
+#include <assert.h>
+#include <errno.h>
+#include <getopt.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 static void usage(const char *name)
 {

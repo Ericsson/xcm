@@ -7,6 +7,7 @@
 #define UTEST_REPORT_H
 
 #include "utestpriv.h"
+
 #include <stdbool.h>
 
 struct utest_report;

@@ -6,10 +6,11 @@
 #ifndef XCMC_H
 #define XCMC_H
 
-#include <sys/types.h>
-#include <stdbool.h>
-#include <inttypes.h>
 #include "xcm_attr_types.h"
+
+#include <inttypes.h>
+#include <stdbool.h>
+#include <sys/types.h>
 
 typedef void (*xcmc_list_cb)(pid_t creator_pid, int64_t sock_ref,
 			     void *cb_data);

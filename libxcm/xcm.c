@@ -5,22 +5,21 @@
 
 #include "xcm.h"
 
+#include "log_epoll.h"
+#include "util.h"
 #include "xcm_addr.h"
 #include "xcm_attr_names.h"
 #include "xcm_tp.h"
-
-#include "util.h"
-#include "log_epoll.h"
 
 #ifdef XCM_CTL
 #include "ctl.h"
 #endif
 
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <poll.h>
+#include <unistd.h>
 
 #define XCM_ENV_DEBUG "XCM_DEBUG"
 

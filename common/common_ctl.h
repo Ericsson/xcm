@@ -6,8 +6,8 @@
 #ifndef COMMON_CTL_H
 #define COMMON_CTL_H
 
-#include <sys/types.h>
 #include <stdbool.h>
+#include <sys/types.h>
 
 void ctl_get_dir(char *buf, size_t capacity);
 

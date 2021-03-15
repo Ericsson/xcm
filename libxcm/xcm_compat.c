@@ -5,9 +5,9 @@
 
 #include "xcm.h"
 
-#include "xcm_tp.h"
-#include "util.h"
 #include "common_tp.h"
+#include "util.h"
+#include "xcm_tp.h"
 
 int xcm_want(struct xcm_socket *s, int condition, int *fds,
 	     int *events, size_t capacity)

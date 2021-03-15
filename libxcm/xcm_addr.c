@@ -5,21 +5,19 @@
 
 #include "xcm_addr.h"
 
+#include "util.h"
 #include "xcm_addr_limits.h"
 
-#include <stdio.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <regex.h>
-
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ctype.h>
 /* for UNIX_PATH_MAX, which is not available in in <sys/un.h> */
 #include <linux/un.h>
-
-#include "util.h"
+#include <netinet/in.h>
+#include <regex.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 static bool has_space(const char *s)
 {

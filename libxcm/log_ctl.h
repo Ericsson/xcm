@@ -6,8 +6,8 @@
 #ifndef LOG_CTL_H
 #define LOG_CTL_H
 
-#include "log.h"
 #include "common_tp.h"
+#include "log.h"
 
 #define LOG_RUN_STAT_ERROR(s, path, reason_errno)	       \
     log_debug_sock(s, "Error attempting stat XCM control run "		\

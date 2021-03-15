@@ -3,36 +3,30 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#define _GNU_SOURCE /* asprintf */
+#include "config.h"
+#include "pingpong.h"
+#include "testutil.h"
+#include "utest.h"
+#include "util.h"
 #include "xcm.h"
 #include "xcm_addr.h"
-#include "xcmc.h"
 #include "xcm_attr.h"
-#include "utest.h"
+#include "xcmc.h"
 
-#define DEBUG
-#include "util.h"
-
-#include "testutil.h"
-
-#include "pingpong.h"
-
-#include "config.h"
-
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <poll.h>
 #include <arpa/inet.h>
+#include <dirent.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#include <poll.h>
+#include <stdlib.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 /* For now, all transports are expected to support the below
    size. However, there's nothing in the API that forces a transport

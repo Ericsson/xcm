@@ -6,10 +6,10 @@
 #ifndef PINGPONG_H
 #define PINGPONG_H
 
-#include <sys/types.h>
 #include <inttypes.h>
 #include <netinet/in.h>
 #include <stdbool.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 pid_t pingpong_run_async_server(const char *addr, int total_pings,

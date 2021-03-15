@@ -10,11 +10,11 @@
 #ifndef CTL_PROTO
 #define CTL_PROTO
 
-#include <stdbool.h>
-#include <inttypes.h>
-
-#include "xcm_attr_types.h"
 #include "xcm_attr_limits.h"
+#include "xcm_attr_types.h"
+
+#include <inttypes.h>
+#include <stdbool.h>
 
 enum ctl_proto_type {
     ctl_proto_type_get_attr_req,

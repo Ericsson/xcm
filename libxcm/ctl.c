@@ -5,25 +5,22 @@
 
 #include "ctl.h"
 
+#include "common_ctl.h"
+#include "ctl_proto.h"
+#include "epoll_reg_set.h"
+#include "log_ctl.h"
+#include "util.h"
 #include "xcm.h"
 #include "xcm_attr.h"
-
 #include "xcm_tp.h"
-#include "log_ctl.h"
-#include "ctl_proto.h"
-#include "common_ctl.h"
-#include "util.h"
-#include "epoll_reg_set.h"
 
 #include <assert.h>
-#include <stdio.h>
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
-#include <sys/socket.h>
 #include <linux/un.h>
+#include <stdio.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #define MAX_CLIENTS (2)
 

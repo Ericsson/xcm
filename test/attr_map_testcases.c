@@ -3,11 +3,10 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include "xcm_attr_map.h"
-#include "utest.h"
-
-#include "util.h"
 #include "testutil.h"
+#include "utest.h"
+#include "util.h"
+#include "xcm_attr_map.h"
 
 TESTSUITE(attr_map, NULL, NULL)
 

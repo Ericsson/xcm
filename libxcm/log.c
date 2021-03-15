@@ -5,16 +5,15 @@
 
 #include "log.h"
 
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <libgen.h>
-#include <limits.h>
-#include <inttypes.h>
-
+#include "util.h"
 #include "xcm_tp.h"
 
-#include "util.h"
+#include <inttypes.h>
+#include <libgen.h>
+#include <limits.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
 #ifdef XCM_LTTNG
 #define TRACEPOINT_DEFINE

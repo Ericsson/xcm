@@ -9,9 +9,12 @@
 /* A 'mbuf' serves as a message buffer for a yet-to-be-completed, and
    this module also deals with message wire encoding */
 
+#include "util.h"
+
+#include <assert.h>
 #include <inttypes.h>
 #include <stdbool.h>
-#include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define MBUF_MSG_MAX (65535)

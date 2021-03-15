@@ -1,11 +1,10 @@
 #include "epoll_reg.h"
 
 #include "log_epoll.h"
-
 #include "util.h"
 
-#include <stdlib.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 void epoll_reg_init(struct epoll_reg *reg, int epoll_fd, int fd,
 		    void *log_ref)

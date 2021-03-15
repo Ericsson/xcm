@@ -21,9 +21,9 @@ extern "C" {
 
 #include <xcm_attr_types.h>
 
-#include <sys/types.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 struct xcm_attr_map;
 

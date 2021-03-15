@@ -3,19 +3,20 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#define _GNU_SOURCE /* for getaddrinfo_a() */
+
+#include "xcm_dns.h"
+
+#include "epoll_reg.h"
+#include "log_tp.h"
+#include "util.h"
 
 #include <netdb.h>
 #include <signal.h>
 
-#include "util.h"
-#include "epoll_reg.h"
-#include "log_tp.h"
-
-#include "xcm_dns.h"
-
 enum query_state {
-    query_state_resolving, query_state_failed, query_state_successful
+    query_state_resolving,
+    query_state_failed,
+    query_state_successful
 };
 
 struct xcm_dns_query

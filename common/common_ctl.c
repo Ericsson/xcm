@@ -8,9 +8,9 @@
 #include "ctl_proto.h"
 #include "util.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 #define CTL_DIR_ENV "XCM_CTL"
 

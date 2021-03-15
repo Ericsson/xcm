@@ -5,27 +5,23 @@
 
 #include "util.h"
 
-#include <stdbool.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <arpa/inet.h>
 #include <dirent.h>
-#include <string.h>
-
-/* gettid */
-#include <sys/syscall.h>
-
-#include <sys/ioctl.h>
-
-#include <sys/socket.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-#include <arpa/inet.h>
 #include <poll.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/syscall.h> /* gettid */
+#include <sys/types.h>
+#include <unistd.h>
 
 void ut_mutex_init(pthread_mutex_t *m)
 {

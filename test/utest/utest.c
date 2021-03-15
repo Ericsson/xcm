@@ -3,22 +3,23 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
+#include "utest.h"
+
+#include "utesthumanreport.h"
+#include "utestreport.h"
+
+#include <assert.h>
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/prctl.h>
-#include <unistd.h>
-#include <errno.h>
-#include <sys/time.h>
 #include <time.h>
-#include <stdbool.h>
-#include <assert.h>
-
-#include "utest.h"
-#include "utestreport.h"
-#include "utesthumanreport.h"
+#include <unistd.h>
 
 #define MAX_NUM_SUITES (100)
 

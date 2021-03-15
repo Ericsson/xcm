@@ -5,18 +5,17 @@
 
 #include "pingpong.h"
 
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <signal.h>
-#include <sys/prctl.h>
-
-#include "xcm.h"
-
 #include "testutil.h"
 #include "util.h"
+#include "xcm.h"
+
+#include <signal.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/prctl.h>
+#include <unistd.h>
 
 #define MAX_CLIENTS (64)
 

@@ -1,16 +1,15 @@
 #include "ctx_store.h"
 
-#include "util.h"
 #include "log_tls.h"
+#include "util.h"
 
+#include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <sys/queue.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <openssl/x509v3.h>
-#include <openssl/x509_vfy.h>
-
-#include <pthread.h>
+#include <sys/types.h>
 
 #define DEFAULT_CERT_FILE "%s/cert.pem"
 #define DEFAULT_KEY_FILE "%s/key.pem"

@@ -3,28 +3,24 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include "xcm.h"
-
-#include "xcm_addr.h"
-#include "xcm_tp.h"
-#include "xcm_addr_limits.h"
-
-#include "util.h"
 #include "common_tp.h"
-#include "log_utls.h"
-#include "log_tp.h"
-#include "epoll_reg.h"
 #include "ctl.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-#include <string.h>
-#include <ctype.h>
-#include <stdbool.h>
+#include "epoll_reg.h"
+#include "log_tp.h"
+#include "log_utls.h"
+#include "util.h"
+#include "xcm.h"
+#include "xcm_addr.h"
+#include "xcm_addr_limits.h"
+#include "xcm_tp.h"
 
 #include <arpa/inet.h>
+#include <ctype.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 /*
  * UTLS XCM Transport

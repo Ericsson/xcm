@@ -6,8 +6,8 @@
 #ifndef FDFWD_H
 #define FDFWD_H
 
-#include <xcm.h>
 #include <event.h>
+#include <xcm.h>
 
 /* Module which forwards messages between a file descriptor and a XCM
    connection */

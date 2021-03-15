@@ -3,11 +3,10 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include "xcm.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcm.h>
 
 static void die(const char *msg)
 {

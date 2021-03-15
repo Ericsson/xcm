@@ -1,11 +1,16 @@
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) 2020 Ericsson AB
+ */
+
 #include "epoll_reg_set.h"
 
-#include "util.h"
 #include "log_epoll.h"
+#include "util.h"
 
-#include <stdlib.h>
-#include <stdbool.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 void epoll_reg_set_init(struct epoll_reg_set *reg, int epoll_fd,
 			void *log_ref)

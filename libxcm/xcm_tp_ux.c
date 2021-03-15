@@ -3,27 +3,24 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
+#include "common_tp.h"
+#include "epoll_reg.h"
+#include "log_tp.h"
+#include "log_ux.h"
+#include "util.h"
 #include "xcm.h"
-
 #include "xcm_addr.h"
 #include "xcm_addr_limits.h"
 #include "xcm_tp.h"
 
-#include "util.h"
-#include "common_tp.h"
-#include "log_tp.h"
-#include "log_ux.h"
-#include "epoll_reg.h"
-
-#include <stdlib.h>
-#include <unistd.h>
-#include <stddef.h>
-#include <string.h>
 #include <ctype.h>
-#include <stdbool.h>
-
-#include <sys/socket.h>
 #include <linux/un.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 /*
  * UX and UXF UNIX Domain Socket Transports

@@ -3,28 +3,24 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#ifndef _BSD_SOURCE
-#define _BSD_SOURCE /* for htob64() */
-#endif
-#include "xcm.h"
-#include "xcm_attr.h"
-
 #include "util.h"
 
+#include <endian.h>
+#include <inttypes.h>
+#include <limits.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
-#include <unistd.h>
-#include <inttypes.h>
-#include <endian.h>
 #include <string.h>
+#include <sys/epoll.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <sys/epoll.h>
-#include <signal.h>
-#include <limits.h>
+#include <time.h>
+#include <unistd.h>
+#include <xcm.h>
+#include <xcm_attr.h>
 
 #define DEFAULT_THROUGHPUT_ROUNDTRIPS (100000)
 #define DEFAULT_LATENCY_ROUNDTRIPS (INT_MAX)

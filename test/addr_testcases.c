@@ -3,8 +3,9 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include "xcm_addr.h"
 #include "utest.h"
+#include "xcm_addr.h"
+
 #include <arpa/inet.h>
 
 TESTSUITE(addr, NULL, NULL)

@@ -6,10 +6,10 @@
 #ifndef LOG_H
 #define LOG_H
 
+#include "xcm.h"
+
 #include <stdarg.h>
 #include <stdbool.h>
-
-#include "xcm.h"
 
 #define log_event(type, sock, ...)                                      \
     do {                                                                \

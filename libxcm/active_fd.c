@@ -1,10 +1,10 @@
 #include "active_fd.h"
 
-#include "util.h"
 #include "log_active_fd.h"
+#include "util.h"
 
-#include <sys/eventfd.h>
 #include <pthread.h>
+#include <sys/eventfd.h>
 
 /* socket id, unique on a per-process basis */
 static pthread_mutex_t active_fd_lock = PTHREAD_MUTEX_INITIALIZER;

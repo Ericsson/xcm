@@ -9,11 +9,11 @@
 extern "C" {
 #endif
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <inttypes.h>
 #include <errno.h>
+#include <inttypes.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 /*! @file xcm_addr.h
  * @brief This is an API for building and parsing Connection-oriented

@@ -4,17 +4,18 @@
  */
 
 #include "xcmc.h"
-#include "ctl_proto.h"
+
 #include "common_ctl.h"
+#include "ctl_proto.h"
 #include "util.h"
 
-#include <limits.h>
-#include <sys/types.h>
 #include <dirent.h>
-#include <sys/socket.h>
+#include <limits.h>
 #include <linux/un.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 struct xcmc_session
 {

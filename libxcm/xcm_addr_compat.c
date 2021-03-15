@@ -3,9 +3,9 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include <xcm_addr.h>
 #include <assert.h>
 #include <string.h>
+#include <xcm_addr.h>
 
 static int delegate_parse(int (parse_fun)(const char *, struct xcm_addr_host *,
 					  uint16_t *port),

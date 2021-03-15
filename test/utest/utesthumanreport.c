@@ -5,10 +5,10 @@
 
 #include "utesthumanreport.h"
 
-#include <stdlib.h>
-#include <stdbool.h>
 #include <assert.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 static void human_report_tc_start(struct utest_report* report,
 				  struct testcase *tc);

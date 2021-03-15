@@ -3,28 +3,25 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
+#include "active_fd.h"
+#include "common_tp.h"
+#include "epoll_reg.h"
+#include "log_tp.h"
+#include "util.h"
 #include "xcm.h"
-
 #include "xcm_addr.h"
 #include "xcm_addr_limits.h"
 #include "xcm_attr_names.h"
+#include "xcm_dns.h"
 #include "xcm_tp.h"
 
-#include "util.h"
-#include "common_tp.h"
-#include "active_fd.h"
-#include "log_tp.h"
-#include "xcm_dns.h"
-#include "epoll_reg.h"
-
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-
-#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/sctp.h>
-#include <arpa/inet.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 /*
  * SCTP XCM Transport

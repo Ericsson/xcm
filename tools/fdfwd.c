@@ -7,8 +7,8 @@
 
 #include "util.h"
 
-#include <event.h>
 #include <assert.h>
+#include <event.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>

@@ -8,12 +8,12 @@
 
 #include <sys/types.h>
 
-#include "xcm.h"
-#include "xcm_attr.h"
-#include "xcm_addr_limits.h"
-#include "xcm_attr_limits.h"
 #include "cnt.h"
 #include "config.h"
+#include "xcm.h"
+#include "xcm_addr_limits.h"
+#include "xcm_attr.h"
+#include "xcm_attr_limits.h"
 
 enum xcm_socket_type {
     xcm_socket_type_conn,

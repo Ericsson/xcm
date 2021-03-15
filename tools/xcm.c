@@ -3,20 +3,17 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
+#include "fdfwd.h"
+#include "util.h"
 #include "xcm.h"
 
-#include <stdio.h>
-#include <getopt.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <signal.h>
-
 #include <event.h>
-
-#include "util.h"
-
-#include "fdfwd.h"
+#include <getopt.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 static void usage(const char *name)
 {

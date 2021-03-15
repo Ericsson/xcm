@@ -4,9 +4,10 @@
  */
 
 #include "xcm_tp.h"
+
+#include "util.h"
 #include "xcm_addr.h"
 #include "xcm_attr_names.h"
-#include "util.h"
 
 #ifdef XCM_CTL
 #include "ctl.h"

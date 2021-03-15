@@ -6,19 +6,16 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-#include <stdbool.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-
-#include <pthread.h>
-
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdlib.h>
 #include <errno.h>
+#include <pthread.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 void ut_mutex_init(pthread_mutex_t *m);
 void ut_mutex_lock(pthread_mutex_t *m);

@@ -5,15 +5,13 @@
 
 #include "tcp_attr.h"
 
-#include <stddef.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-
-#include <netinet/tcp.h>
-
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <stddef.h>
 #include <string.h>
+#include <sys/socket.h>
 
 /* Equivalent to the tcp_info structure found in kernel 4.3's public
    API. XCM carries its own copy because it wants to be prepared for a
