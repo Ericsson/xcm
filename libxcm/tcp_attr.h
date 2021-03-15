@@ -10,12 +10,9 @@
 
 #include <sys/types.h>
 
-int tcp_get_rtt_attr(int fd, void *value, size_t capacity);
-
-int tcp_get_total_retrans_attr(int fd, void *value, size_t capacity);
-
-int tcp_get_segs_in_attr(int fd, void *value, size_t capacity);
-
-int tcp_get_segs_out_attr(int fd, void *value, size_t capacity);
+int tcp_get_rtt_attr(int fd, int64_t *value);
+int tcp_get_total_retrans_attr(int fd, int64_t *value);
+int tcp_get_segs_in_attr(int fd, int64_t *value);
+int tcp_get_segs_out_attr(int fd, int64_t *value);
 
 #endif

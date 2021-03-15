@@ -65,8 +65,7 @@ struct tcp_info_4_3 {
 };
 
 #define GEN_INFO_GET(xcm_field_name, tcp_field_name)			\
-    int tcp_get_ ## xcm_field_name ## _attr(int fd, void *value,	\
-					    size_t capacity)		\
+    int tcp_get_ ## xcm_field_name ## _attr(int fd, int64_t *value)	\
     {									\
 	struct tcp_info_4_3 info;					\
 	socklen_t len = sizeof(info);					\
