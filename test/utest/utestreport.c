@@ -19,7 +19,7 @@ void utest_report_tc_start(struct utest_report* report, struct testcase *tc)
 }
 
 void utest_report_tc_end(struct utest_report* report, struct testcase *tc,
-                         int rc, double exec_time)
+			 int rc, double exec_time)
 {
     CALL(report, tc_end, tc, rc, exec_time);
 }

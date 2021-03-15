@@ -12,7 +12,7 @@ struct epoll_reg
 };
 
 void epoll_reg_init(struct epoll_reg *reg, int epoll_fd, int fd,
-                    void *log_ref);
+		    void *log_ref);
 void epoll_reg_set_fd(struct epoll_reg *reg, int new_fd);
 
 void epoll_reg_add(struct epoll_reg *reg, int event);

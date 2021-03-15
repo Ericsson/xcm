@@ -13,9 +13,9 @@
 
 #define log_event(type, sock, ...)                                      \
     do {                                                                \
-        if (log_is_enabled(type))                                       \
-            __log_event(type, __FILE__, __LINE__, __func__, sock,       \
-                        __VA_ARGS__);                                   \
+	if (log_is_enabled(type))                                       \
+	    __log_event(type, __FILE__, __LINE__, __func__, sock,       \
+			__VA_ARGS__);                                   \
     } while (0)
 
 #define log_error(...)							\
@@ -42,6 +42,6 @@ enum log_type { log_type_debug, log_type_error };
 bool log_is_enabled(enum log_type type);
 
 void __log_event(enum log_type type, const char *file, int line,
-                 const char *function, struct xcm_socket *s,
-                 const char *format, ...);
+		 const char *function, struct xcm_socket *s,
+		 const char *format, ...);
 #endif

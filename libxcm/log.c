@@ -26,32 +26,32 @@
 #ifdef XCM_LTTNG
 #define UT_LOG_LTTNG(type, file, line, function, sock, format, ap)	\
     do {								\
-        /* LTTng in combination with really old kernels cause           \
-           LTTng to misbehave and change errno to ENOSYS (which         \
-           in turn is because the membarrier() syscall doesn't          \
-           exist). In addition, for enabled tracepoints, we also need   \
-           to save errno to avoid having (local|remote)_addr() calls    \
-           to change errno, in face of failure. */                      \
-        int oerrno = errno;                                             \
-        char bname[NAME_MAX+1];                                         \
-        strcpy(bname, file);                                            \
+	/* LTTng in combination with really old kernels cause           \
+	   LTTng to misbehave and change errno to ENOSYS (which         \
+	   in turn is because the membarrier() syscall doesn't          \
+	   exist). In addition, for enabled tracepoints, we also need   \
+	   to save errno to avoid having (local|remote)_addr() calls    \
+	   to change errno, in face of failure. */                      \
+	int oerrno = errno;                                             \
+	char bname[NAME_MAX+1];                                         \
+	strcpy(bname, file);                                            \
 									\
-        char msg[BUFSZ];						\
-        snprintf(msg, sizeof(msg), "%s [%s:%d]: ", function,            \
-                 basename(bname), line);				\
-        vsnprintf(msg+strlen(msg), sizeof(msg)-strlen(msg), format, ap); \
+	char msg[BUFSZ];						\
+	snprintf(msg, sizeof(msg), "%s [%s:%d]: ", function,            \
+		 basename(bname), line);				\
+	vsnprintf(msg+strlen(msg), sizeof(msg)-strlen(msg), format, ap); \
 									\
-        const char *laddr =						\
+	const char *laddr =						\
 	    sock ? XCM_TP_CALL(get_local_addr, sock, true) : NULL;	\
-        const char *raddr =						\
+	const char *raddr =						\
 	    sock ? XCM_TP_CALL(get_remote_addr, sock, true) : NULL;	\
 									\
-        char sock_ref[64];						\
-        format_sock_ref(sock, sock_ref, sizeof(sock_ref));              \
+	char sock_ref[64];						\
+	format_sock_ref(sock, sock_ref, sizeof(sock_ref));              \
 									\
-        tracepoint(com_ericsson_xcm, xcm_ ## type, sock_ref,            \
-                   laddr ? laddr : "", raddr ? raddr : "", msg);	\
-        errno = oerrno;                                                 \
+	tracepoint(com_ericsson_xcm, xcm_ ## type, sock_ref,            \
+		   laddr ? laddr : "", raddr ? raddr : "", msg);	\
+	errno = oerrno;                                                 \
     } while (0)
 
 static void format_sock_ref(struct xcm_socket *s, char *buf, size_t capacity)
@@ -102,14 +102,14 @@ static void log_console(const char *file, int line, const char *function,
 bool log_is_enabled(enum log_type type)
 {
     if (__atomic_load_n(&console_enabled, __ATOMIC_RELAXED))
-        return true;
+	return true;
 
 #ifdef XCM_LTTNG
     switch (type) {
     case log_type_debug:
-        return tracepoint_enabled(com_ericsson_xcm, xcm_debug);
+	return tracepoint_enabled(com_ericsson_xcm, xcm_debug);
     case log_type_error:
-        return tracepoint_enabled(com_ericsson_xcm, xcm_error);
+	return tracepoint_enabled(com_ericsson_xcm, xcm_error);
     }
 #endif
 
@@ -117,8 +117,8 @@ bool log_is_enabled(enum log_type type)
 }
 
 void __log_event(enum log_type type, const char *file, int line,
-                 const char *function, struct xcm_socket *s,
-                 const char *format, ...)
+		 const char *function, struct xcm_socket *s,
+		 const char *format, ...)
 {
     va_list ap;
     va_start(ap, format);

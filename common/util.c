@@ -62,7 +62,7 @@ void *ut_realloc(void *ptr, size_t size)
 {
     ptr = realloc(ptr, size);
     if (!ptr)
-        abort();
+	abort();
     return ptr;
 }
 
@@ -77,7 +77,7 @@ char *ut_strdup(const char *str)
 {
     char *copy = strdup(str);
     if (!copy)
-        abort();
+	abort();
     return copy;
 }
 
@@ -130,7 +130,7 @@ void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
     size_t left = capacity - used;
 
     if (left == 0)
-        return;
+	return;
 
     int rc = vsnprintf(buf+len, left, format, ap);
     ut_assert(rc >= 0);
@@ -204,7 +204,7 @@ int ut_tcp_enable_keepalive(int fd)
 
     if (setsockopt(fd, SOL_TCP, TCP_USER_TIMEOUT, &user_timeout_ms,
 		   sizeof(user_timeout_ms)) < 0)
-        return -1;
+	return -1;
     return 0;
 }
 
@@ -227,10 +227,10 @@ int ut_tcp_set_dscp(int family, int fd)
        field */
     int tos = DSCP_TO_TOS(XCM_IP_DSCP);
     if (family == AF_INET) {
-        return setsockopt(fd, SOL_IP, IP_TOS,  &tos, sizeof(tos));
+	return setsockopt(fd, SOL_IP, IP_TOS,  &tos, sizeof(tos));
     } else {
-        ut_assert(family == AF_INET6);
-        return setsockopt(fd, SOL_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
+	ut_assert(family == AF_INET6);
+	return setsockopt(fd, SOL_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
     }
 }
 
@@ -257,17 +257,17 @@ int ut_established(int fd)
        connection initiation process, it must be completed, and is so
        only if the fd is marked writable. */
     struct pollfd pfd = {
-        .fd = fd,
-        .events = POLLOUT
+	.fd = fd,
+	.events = POLLOUT
     };
 
     UT_PROTECT_ERRNO(poll(&pfd, 1, 0));
 
     if (pfd.revents & POLLOUT || pfd.revents & POLLERR)
-        return socket_error(fd);
+	return socket_error(fd);
     else {
-        errno = EINPROGRESS;
-        return -1;
+	errno = EINPROGRESS;
+	return -1;
     }
 }
 

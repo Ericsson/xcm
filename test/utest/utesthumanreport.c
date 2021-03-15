@@ -11,10 +11,10 @@
 #include <stdarg.h>
 
 static void human_report_tc_start(struct utest_report* report,
-                                  struct testcase *tc);
+				  struct testcase *tc);
 static void human_report_tc_end(struct utest_report *report,
-                                struct testcase *tc, int result,
-                                double execution_time);
+				struct testcase *tc, int result,
+				double execution_time);
 static bool human_report_contains_failures(struct utest_report* report);
 static void human_report_close(struct utest_report *report);
 static void human_report_destroy(struct utest_report *report);
@@ -63,12 +63,12 @@ struct utest_report* utest_human_report_create(FILE* output, bool verbose,
 }
 
 static void human_report_tc_start(struct utest_report *report,
-                                  struct testcase* tc)
+				  struct testcase* tc)
 {
     if (report->start_time < 0)
-        report->start_time = utest_ftime();
+	report->start_time = utest_ftime();
     fprintf(report->output, "%s:%s: %sSTARTED\n", tc->suite->name, tc->name,
-            tc->serialized ? "SERIALIZED " : "");
+	    tc->serialized ? "SERIALIZED " : "");
     fflush(report->output);
 }
 
@@ -94,10 +94,10 @@ static void cfprintf(FILE *f, const char *color, const char *fmt,
 }
 
 static void human_report_tc_end(struct utest_report *report,
-                                struct testcase *tc, int rc,
-                                double exec_time) {
+				struct testcase *tc, int rc,
+				double exec_time) {
     fprintf(report->output, "%s:%s: ", tc->suite->name,
-            tc->name);
+	    tc->name);
     bool color = report->color;
     switch (rc) {
     case UTEST_SUCCESS:
@@ -143,7 +143,7 @@ static void human_report_close(struct utest_report* report) {
     fprintf(report->output, "\n%d tests run in %.1f s; %d successes, %d failures, %d "
 	    "timed out, and %d not run.\n", human_report_num_tests(report),
 	    utest_ftime()-report->start_time, report->successful,
-            report->failed, report->timed_out, report->not_run);
+	    report->failed, report->timed_out, report->not_run);
 }
 
 static void human_report_destroy(struct utest_report* report) {

@@ -8,7 +8,7 @@
 #include <assert.h>
 
 void epoll_reg_set_init(struct epoll_reg_set *reg, int epoll_fd,
-                        void *log_ref)
+			void *log_ref)
 {
     reg->epoll_fd = epoll_fd;
     reg->num_fds = 0;
@@ -22,7 +22,7 @@ void epoll_reg_set_add(struct epoll_reg_set *reg, int fd, int event)
     LOG_EPOLL_ADD(reg->log_ref, reg->epoll_fd, fd, event);
 
     struct epoll_event nevent = {
-        .events = event
+	.events = event
     };
 
     int rc = epoll_ctl(reg->epoll_fd, EPOLL_CTL_ADD, fd, &nevent);
@@ -39,8 +39,8 @@ static size_t reg_fd_idx(struct epoll_reg_set *reg, int fd)
 {
     size_t i;
     for (i = 0; i < reg->num_fds; i++)
-        if (reg->fds[i] == fd)
-            return i;
+	if (reg->fds[i] == fd)
+	    return i;
     ut_assert(0);
 }
 
@@ -52,12 +52,12 @@ void epoll_reg_set_mod(struct epoll_reg_set *reg, int fd, int event)
     LOG_EPOLL_MOD(reg->log_ref, reg->epoll_fd, fd, event);
 
     struct epoll_event nevent = {
-        .events = event
+	.events = event
     };
 
     if (epoll_ctl(reg->epoll_fd, EPOLL_CTL_MOD, fd, &nevent) < 0) {
-        LOG_EPOLL_MOD_FAILED(reg->log_ref, reg->epoll_fd, fd, errno);
-        abort();
+	LOG_EPOLL_MOD_FAILED(reg->log_ref, reg->epoll_fd, fd, errno);
+	abort();
     }
 
     reg->events[idx] = event;
@@ -78,14 +78,14 @@ void epoll_reg_set_del(struct epoll_reg_set *reg, int fd)
     if (rc < 0 && (epoll_errno != EBADF &&
 		   epoll_errno != ENOENT &&
 		   epoll_errno != EPERM)) {
-        LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, fd, epoll_errno);
-        abort();
+	LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, fd, epoll_errno);
+	abort();
     }
 
     if (reg->num_fds > 1) {
-        size_t last_idx = reg->num_fds - 1;
-        reg->fds[idx] = reg->fds[last_idx];
-        reg->events[idx] = reg->events[last_idx];
+	size_t last_idx = reg->num_fds - 1;
+	reg->fds[idx] = reg->fds[last_idx];
+	reg->events[idx] = reg->events[last_idx];
     }
     reg->num_fds--;
 }
@@ -93,5 +93,5 @@ void epoll_reg_set_del(struct epoll_reg_set *reg, int fd)
 void epoll_reg_set_reset(struct epoll_reg_set *reg)
 {
     while (reg->num_fds > 0)
-        epoll_reg_set_del(reg, reg->fds[0]);
+	epoll_reg_set_del(reg, reg->fds[0]);
 }

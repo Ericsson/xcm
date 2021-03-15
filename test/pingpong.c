@@ -76,7 +76,7 @@ static void fd_set_events(int xcm_fd, int xcm_fd_events, fd_set *rfds,
 			  fd_set *wfds)
 {
     if (xcm_fd > FD_SETSIZE)
-        ut_die("XCM fd > 1024; more than select() can handle");
+	ut_die("XCM fd > 1024; more than select() can handle");
     if (xcm_fd_events & XCM_FD_READABLE)
 	FD_SET(xcm_fd, rfds);
     if (xcm_fd_events & XCM_FD_WRITABLE)
@@ -148,9 +148,9 @@ static void close_clients(struct client *clients)
     int i;
     for (i=0; i<MAX_CLIENTS; i++)
 	if (is_active_state(clients[i].state)) {
-            xcm_close(clients[i].conn);
-            clients[i].state = client_state_disconnected;
-        }
+	    xcm_close(clients[i].conn);
+	    clients[i].state = client_state_disconnected;
+	}
 }
 
 static struct client *find_empty(struct client *clients)
@@ -376,7 +376,7 @@ pid_t pingpong_run_async_server(const char *server_addr, int total_pings,
 
 	    num_server_fds = xcm_want(server_sock, XCM_SO_ACCEPTABLE,
 				      server_fds, server_events,
-                                      MAX_SERVER_FDS);
+				      MAX_SERVER_FDS);
 	    if (num_server_fds < 0)
 		ut_die("Unable to retrieve server socket fds");
 
@@ -464,14 +464,14 @@ pid_t pingpong_run_forking_server(const char *server_addr, int pings_per_client,
     int i;
     for (i=0; i<num_clients; i++) {
 	struct xcm_socket *client_conn;
-        do {
+	do {
 	    struct xcm_attr_map *attrs = xcm_attr_map_create();
 	    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
 
-            client_conn = xcm_accept_a(server_sock, attrs);
+	    client_conn = xcm_accept_a(server_sock, attrs);
 
 	    xcm_attr_map_destroy(attrs);
-        } while (!client_conn && errno == EINTR);
+	} while (!client_conn && errno == EINTR);
 
 	if (!client_conn)
 	    ut_die("Error accepting client");
@@ -542,7 +542,7 @@ static void checked_receive(struct xcm_socket *conn,
 	exit(EXIT_FAILURE);
     }
     if (rc != expected_payload_len) {
-        fprintf(stderr, "Invalid message length.\n");
+	fprintf(stderr, "Invalid message length.\n");
 	exit(EXIT_FAILURE);
     }
     if (memcmp(expected_payload, rmsg, rc) != 0) {
@@ -593,7 +593,7 @@ pid_t pingpong_run_client(const char *server_addr, int num_pings,
 
 	int i;
 	for (i=0; i<batch_size; i++) {
-            smsgs[i] = random_msg(MAX_MSG);
+	    smsgs[i] = random_msg(MAX_MSG);
 
 	    if (xcm_send(conn, smsgs[i]->payload, smsgs[i]->len) < 0)
 		ut_die("Error sending message to server");

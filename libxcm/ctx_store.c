@@ -475,7 +475,7 @@ static SSL_CTX *load_server_ssl_ctx(const char *ns, const char *cert_dir,
 	load_ssl_ctx_common(ns, cert_dir, cert_dir_hash,
 			    tc_file, sizeof(tc_file));
     if (!ssl_ctx)
-        goto err;
+	goto err;
 
     SSL_CTX_set_verify(ssl_ctx,
 		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
@@ -483,7 +483,7 @@ static SSL_CTX *load_server_ssl_ctx(const char *ns, const char *cert_dir,
     STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
     if (!cert_names) {
 	LOG_TLS_ERR_LOADING_TC(tc_file);
-        goto err_free_ctx;
+	goto err_free_ctx;
     }
 
     SSL_CTX_set_client_CA_list(ssl_ctx, cert_names);

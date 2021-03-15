@@ -489,7 +489,7 @@ static const char *get_server_local_addr(struct xcm_socket *s,
     struct utls_socket *us = TOUTLS(s);
 
     if (us->tls_socket == NULL)
-        return NULL;
+	return NULL;
 
     const char *tls_addr =
 	xcm_tp_socket_get_local_addr(us->tls_socket, suppress_tracing);

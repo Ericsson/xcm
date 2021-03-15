@@ -182,11 +182,11 @@ int main(int argc, char **argv)
     switch (c) {
     case 'l':
 	client = false;
-        break;
+	break;
     case 'h':
 	usage(argv[0]);
 	exit(EXIT_SUCCESS);
-        break;
+	break;
     }
 
     int num_args = argc-optind;

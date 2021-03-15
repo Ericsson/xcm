@@ -14,14 +14,14 @@
 struct xcm_dns_query;
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
-                                      int epoll_fd, void *log_ref);
+				      int epoll_fd, void *log_ref);
 
 bool xcm_dns_query_completed(struct xcm_dns_query *query);
 
 void xcm_dns_query_process(struct xcm_dns_query *query);
 
 int xcm_dns_query_result(struct xcm_dns_query *query,
-                         struct xcm_addr_ip *ip);
+			 struct xcm_addr_ip *ip);
 
 void xcm_dns_query_free(struct xcm_dns_query *query);
 

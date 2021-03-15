@@ -35,8 +35,8 @@
 
 #define LOG_DNS_RESPONSE(s, domain_name, family, ip)                   \
     log_debug_sock(s, "Domain name \"%s\" resolved to %s address %s",  \
-                   domain_name, log_family_str(family), \
-                   log_ip_str(family, ip))
+		   domain_name, log_family_str(family), \
+		   log_ip_str(family, ip))
 
 #define LOG_DNS_GLIBC_LEAK_WARNING(s, domain_name)			\
     log_debug_sock(s, "Early cancellation of asynchronous DNS resolution for " \
@@ -118,7 +118,7 @@
 
 #define LOG_TCP_MAX_SYN_FAILED(reason_errno)                    \
     log_debug("Error setting TCP max SYN count; errno %d "      \
-              "(%s).", reason_errno, strerror(reason_errno))
+	      "(%s).", reason_errno, strerror(reason_errno))
 
 #define LOG_SOCKET_OPTIONS_FAILED(proto_name, reason_errno)		\
     log_debug("Error setting %s socket options; errno %d "		\

@@ -59,13 +59,13 @@ static void print_sock_cb(pid_t creator_pid, int64_t sock_ref, void *data)
 	       laddr, raddr);
     } else {
        /* a socket disappearing (=being closed) is fine, and also
-          control interface sockets belonging to crashed processes and
-          such being unavailable are ignored, but we report other
-          errors */
-        if (errno != ENOENT && errno != EAGAIN && errno != ECONNREFUSED) {
-            printf("%10d   %6" PRId64 "  <%s>\n", creator_pid, sock_ref,
-                   strerror(errno));
-        }
+	  control interface sockets belonging to crashed processes and
+	  such being unavailable are ignored, but we report other
+	  errors */
+	if (errno != ENOENT && errno != EAGAIN && errno != ECONNREFUSED) {
+	    printf("%10d   %6" PRId64 "  <%s>\n", creator_pid, sock_ref,
+		   strerror(errno));
+	}
     }
 }
 
@@ -166,7 +166,7 @@ int main(int argc, char **argv)
     case 'h':
 	usage(argv[0]);
 	exit(EXIT_SUCCESS);
-        break;
+	break;
     }
 
     int num_args = argc-optind;

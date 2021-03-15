@@ -35,7 +35,7 @@ static void mbuf_wire_ensure_capacity(struct mbuf *b, uint32_t capacity)
     MBUF_UNUSED;
 
 static void mbuf_wire_ensure_spare_capacity(struct mbuf *b,
-                                            uint32_t spare_capacity)
+					    uint32_t spare_capacity)
     MBUF_UNUSED;
 
 static void mbuf_wire_appended(struct mbuf *b, int bytes_appended)
@@ -82,7 +82,7 @@ static void mbuf_init(struct mbuf *b)
 static void mbuf_deinit(struct mbuf *b)
 {
     if (b)
-        free(b->wire_data);
+	free(b->wire_data);
 }
 
 static void mbuf_reset(struct mbuf *b)
@@ -93,9 +93,9 @@ static void mbuf_reset(struct mbuf *b)
 static void mbuf_wire_ensure_capacity(struct mbuf *b, uint32_t capacity)
 {
     if (b->wire_capacity < capacity) {
-        b->wire_data = ut_realloc(b->wire_data, capacity);
-        b->wire_capacity = capacity;
-        assert(capacity <= MBUF_WIRE_MAX);
+	b->wire_data = ut_realloc(b->wire_data, capacity);
+	b->wire_capacity = capacity;
+	assert(capacity <= MBUF_WIRE_MAX);
     }
 }
 

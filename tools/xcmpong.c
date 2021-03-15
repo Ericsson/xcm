@@ -35,32 +35,32 @@
 static void usage(const char *name)
 {
     printf("%s [-b <batch-size>] -p [-c] [-i <interval>] [-b <batch-size>] "
-           "[-m <msg-size>] [-n <roundtrips>] <addr>\n", name);
+	   "[-m <msg-size>] [-n <roundtrips>] <addr>\n", name);
     printf("%s [-b <batch-size>] [-c] [-b <batch-size>] [-m <msg-size>] "
-           "[-n <roundtrips>] <addr>\n", name);
+	   "[-n <roundtrips>] <addr>\n", name);
     printf("%s -s <addr>\n", name);
     printf("Options:\n");
     printf("  -s:              Start server and bind to <addr>. Default is "
-           "to run both a \n"
-           "                   client and a server (loopback, using the same "
-           "address).\n");
+	   "to run both a \n"
+	   "                   client and a server (loopback, using the same "
+	   "address).\n");
     printf("  -c:              Start client and connect to <addr>.\n");
     printf("  -p:              Run in latency measurement mode. Default is "
-           "throughput mode.\n");
+	   "throughput mode.\n");
     printf("  -b <batch-size>: Send the messages in batches of <batch-size> "
 	   "messages (per\n"
-           "                   roundtrip).\n");
+	   "                   roundtrip).\n");
     printf("  -m <msg-size>:   Set the message size to <msg-size> bytes "
-           "(default is %d).\n", DEFAULT_MSG_SIZE);
+	   "(default is %d).\n", DEFAULT_MSG_SIZE);
     printf("  -i <interval>:   Set the latency mode inter-message time "
-           "to <interval> s\n"
-           "                   (default %.1f s).\n", DEFAULT_INTERVAL);
+	   "to <interval> s\n"
+	   "                   (default %.1f s).\n", DEFAULT_INTERVAL);
     printf("  -n <roundtrips>: Run <roundtrips> roundtrips and terminate. "
-           "Default is to run\n"
-           "                   indefinitely for latency mode, and %d "
-           "roundtrips for\n"
-           "                   throughput mode.\n",
-           DEFAULT_THROUGHPUT_ROUNDTRIPS);
+	   "Default is to run\n"
+	   "                   indefinitely for latency mode, and %d "
+	   "roundtrips for\n"
+	   "                   throughput mode.\n",
+	   DEFAULT_THROUGHPUT_ROUNDTRIPS);
 }
 
 #define REFLECT_REQ (1)
@@ -109,7 +109,7 @@ static void socket_await(struct xcm_socket *s, int condition)
     int rc = xcm_await(s, condition);
 
     if (rc < 0)
-        ut_die("Error changing target socket condition");
+	ut_die("Error changing target socket condition");
 }
 
 static void socket_wait(int epoll_fd, struct xcm_socket *conn_socket)
@@ -119,7 +119,7 @@ static void socket_wait(int epoll_fd, struct xcm_socket *conn_socket)
     int rc = epoll_wait(epoll_fd, &event, 1, -1);
 
     if (rc < 0)
-        ut_die("I/O multiplexing failure");
+	ut_die("I/O multiplexing failure");
 }
 
 #define MAX_SERVER_BATCH (64)
@@ -130,22 +130,22 @@ static void handle_client(struct xcm_socket *conn)
 
     int64_t max_msg;
     if (xcm_attr_get(conn, "xcm.max_msg_size", NULL, &max_msg,
-                     sizeof(max_msg)) < 0)
-        ut_die("Unable to retrieve connection max message size");
+		     sizeof(max_msg)) < 0)
+	ut_die("Unable to retrieve connection max message size");
 
     if (xcm_set_blocking(conn, false) < 0)
-        ut_die("Failed to set non-blocking mode");
+	ut_die("Failed to set non-blocking mode");
 
     int epoll_fd = epoll_create1(0);
     if (epoll_fd < 0)
-        ut_die("Error creating epoll instance");
+	ut_die("Error creating epoll instance");
 
     int conn_fd = xcm_fd(conn);
     if (conn_fd < 0)
-        ut_die("Error retrieving XCM socket fd");
+	ut_die("Error retrieving XCM socket fd");
 
     struct epoll_event nevent = {
-        .events = EPOLLIN
+	.events = EPOLLIN
     };
 
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &nevent) < 0)
@@ -155,67 +155,67 @@ static void handle_client(struct xcm_socket *conn)
 
     for (;;) {
 	char requests[MAX_SERVER_BATCH][max_msg];
-        ssize_t request_lens[MAX_SERVER_BATCH];
-        int num;
-        ssize_t r_rc;
-        for (num = 0; num < MAX_SERVER_BATCH;) {
-            char *request = requests[num];
-            r_rc = xcm_receive(conn, request, max_msg);
-            if (r_rc > 0) {
-                request_lens[num] = r_rc;
-                num++;
-            } else if (r_rc == 0)
-                exit(EXIT_SUCCESS);
-            else if (r_rc < 0 && errno == EAGAIN) {
-                if (num > 0)
-                    break;
-                socket_wait(epoll_fd, conn);
-            } else if (r_rc < 0)
-                ut_die("Error while server receiving");
-        }
+	ssize_t request_lens[MAX_SERVER_BATCH];
+	int num;
+	ssize_t r_rc;
+	for (num = 0; num < MAX_SERVER_BATCH;) {
+	    char *request = requests[num];
+	    r_rc = xcm_receive(conn, request, max_msg);
+	    if (r_rc > 0) {
+		request_lens[num] = r_rc;
+		num++;
+	    } else if (r_rc == 0)
+		exit(EXIT_SUCCESS);
+	    else if (r_rc < 0 && errno == EAGAIN) {
+		if (num > 0)
+		    break;
+		socket_wait(epoll_fd, conn);
+	    } else if (r_rc < 0)
+		ut_die("Error while server receiving");
+	}
 
-        int i;
-        for (i = 0; i < num; i++) {
-            char *request = requests[i];
-            ssize_t request_len = request_lens[i];
-            const char request_type = request[0];
+	int i;
+	for (i = 0; i < num; i++) {
+	    char *request = requests[i];
+	    ssize_t request_len = request_lens[i];
+	    const char request_type = request[0];
 
-            const void *response;
-            size_t len;
+	    const void *response;
+	    size_t len;
 
-            uint64_t cpu_ns;
+	    uint64_t cpu_ns;
 
-            switch (request_type) {
-            case REFLECT_REQ:
-                response = request;
-                len = request_len;
-                break;
-            case CPU_USAGE_REQ:
-                cpu_ns = htobe64(get_cpu_ns() - start_cpu);
-                response = &cpu_ns;
-                len = sizeof(cpu_ns);
-                break;
-            case TERM_REQ:
-                xcm_close(conn);
-                exit(EXIT_SUCCESS);
-                break;
-            default:
-                fprintf(stderr, "Received unknown request type.\n");
-                exit(EXIT_FAILURE);
-            }
+	    switch (request_type) {
+	    case REFLECT_REQ:
+		response = request;
+		len = request_len;
+		break;
+	    case CPU_USAGE_REQ:
+		cpu_ns = htobe64(get_cpu_ns() - start_cpu);
+		response = &cpu_ns;
+		len = sizeof(cpu_ns);
+		break;
+	    case TERM_REQ:
+		xcm_close(conn);
+		exit(EXIT_SUCCESS);
+		break;
+	    default:
+		fprintf(stderr, "Received unknown request type.\n");
+		exit(EXIT_FAILURE);
+	    }
 
-            for (;;) {
-                ssize_t s_rc = xcm_send(conn, response, len);
-                if (s_rc == 0)
-                    break;
-                else if (s_rc < 0 && errno == EAGAIN) {
-                    socket_await(conn, XCM_SO_SENDABLE);
-                    socket_wait(epoll_fd, conn);
-                    socket_await(conn, XCM_SO_RECEIVABLE);
-                } else
-                    ut_die("Error while server sending");
-            }
-        }
+	    for (;;) {
+		ssize_t s_rc = xcm_send(conn, response, len);
+		if (s_rc == 0)
+		    break;
+		else if (s_rc < 0 && errno == EAGAIN) {
+		    socket_await(conn, XCM_SO_SENDABLE);
+		    socket_wait(epoll_fd, conn);
+		    socket_await(conn, XCM_SO_RECEIVABLE);
+		} else
+		    ut_die("Error while server sending");
+	    }
+	}
     }
 }
 
@@ -280,7 +280,7 @@ static void send_term(struct xcm_socket *conn)
 uint64_t query_cpu(struct xcm_socket *conn)
 {
     if (xcm_set_blocking(conn, true) < 0)
-        ut_die("Failed to set blocking mode");
+	ut_die("Failed to set blocking mode");
     char usage_req = CPU_USAGE_REQ;
     if (xcm_send(conn, &usage_req, sizeof(usage_req)) < 0)
 	ut_die("Error sending CPU usage request to server");
@@ -301,7 +301,7 @@ static void print_cpu_report(const char *name, uint64_t used_cpu,
 }
 
 static void run_throughput_client(struct xcm_socket *conn,
-                                  int num_rt, int msg_size, int batch_size)
+				  int num_rt, int msg_size, int batch_size)
 {
     char msg[msg_size];
     memset(msg, 0, msg_size);
@@ -312,15 +312,15 @@ static void run_throughput_client(struct xcm_socket *conn,
 
     int epoll_fd = epoll_create1(0);
     if (epoll_fd < 0)
-        ut_die("Error creating epoll instance");
+	ut_die("Error creating epoll instance");
 
     if (xcm_set_blocking(conn, false) < 0)
-        ut_die("Failed to set non-blocking mode");
+	ut_die("Failed to set non-blocking mode");
 
     int conn_fd = xcm_fd(conn);
 
     struct epoll_event event = {
-        .events = EPOLLIN
+	.events = EPOLLIN
     };
 
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event);
@@ -331,32 +331,32 @@ static void run_throughput_client(struct xcm_socket *conn,
     for (left = num_rt; left > 0;) {
 	int this_batch = UT_MIN(left, batch_size);
 
-        int i;
-        for (i = 0; i < this_batch;) {
+	int i;
+	for (i = 0; i < this_batch;) {
 	    int rc = xcm_send(conn, msg, msg_size);
-            if (rc == 0)
-                i++;
-            else if (rc < 0 && errno == EAGAIN) {
-                socket_await(conn, XCM_SO_SENDABLE);
-                socket_wait(epoll_fd, conn);
-                socket_await(conn, XCM_SO_RECEIVABLE);
-            }
-            else
+	    if (rc == 0)
+		i++;
+	    else if (rc < 0 && errno == EAGAIN) {
+		socket_await(conn, XCM_SO_SENDABLE);
+		socket_wait(epoll_fd, conn);
+		socket_await(conn, XCM_SO_RECEIVABLE);
+	    }
+	    else
 		ut_die("Error sending reflection message to server");
-        }
+	}
 
-        socket_wait(epoll_fd, conn);
+	socket_wait(epoll_fd, conn);
 	for (i = 0; i < this_batch;) {
 	    int rc = xcm_receive(conn, msg, msg_size);
-            if (rc == msg_size)
-                i++;
-            else if (rc < 0 && errno == EAGAIN)
-                socket_wait(epoll_fd, conn);
+	    if (rc == msg_size)
+		i++;
+	    else if (rc < 0 && errno == EAGAIN)
+		socket_wait(epoll_fd, conn);
 	    else if (rc < 0)
 		ut_die("Error receiving message from server");
 	    else if (rc == 0) {
 		fprintf(stderr, "Server unexpectedly closed the "
-                        "connection.\n");
+			"connection.\n");
 		exit(EXIT_FAILURE);
 	    } else {
 		fprintf(stderr, "Invalid message length.\n");
@@ -389,7 +389,7 @@ static void fsleep(double t)
 }
 
 static void run_latency_client(struct xcm_socket *conn, int num_rt,
-                               int msg_size, int batch_size, double interval)
+			       int msg_size, int batch_size, double interval)
 {
     char msg[msg_size];
     memset(msg, 0, msg_size);
@@ -403,15 +403,15 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
     int rt;
     for (rt = 0; rt < num_rt; rt++) { 
 
-        uint64_t start_times[batch_size];
-        uint64_t latency[batch_size];
+	uint64_t start_times[batch_size];
+	uint64_t latency[batch_size];
 
 	int i;
 	for (i=0; i<batch_size; i++) {
-            start_times[i] = get_time_ns();
+	    start_times[i] = get_time_ns();
 	    if (xcm_send(conn, msg, msg_size) < 0)
 		ut_die("Error sending reflection message to server");
-        }
+	}
 
 	for (i=0; i<batch_size; i++) {
 	    int rc = xcm_receive(conn, msg, msg_size);
@@ -425,19 +425,19 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 		fprintf(stderr, "Invalid message length.\n");
 		exit(EXIT_FAILURE);
 	    }
-            latency[i] = get_time_ns() - start_times[i];
+	    latency[i] = get_time_ns() - start_times[i];
 	}
 
 	for (i=0; i<batch_size; i++) {
-            printf("%3d  %8.3f ms\n", rt*batch_size+i,
-                   (double)latency[i] / 1e6);
-            total_latency += latency[i];
-            if (latency[i] > max_latency)
-                max_latency = latency[i];
-            if (latency[i] < min_latency)
-                min_latency = latency[i];
-        }
-        fsleep(interval);
+	    printf("%3d  %8.3f ms\n", rt*batch_size+i,
+		   (double)latency[i] / 1e6);
+	    total_latency += latency[i];
+	    if (latency[i] > max_latency)
+		max_latency = latency[i];
+	    if (latency[i] < min_latency)
+		min_latency = latency[i];
+	}
+	fsleep(interval);
     }
     printf("Max:     %.3f ms\n", (double)max_latency/1e6);
     printf("Min:     %.3f ms\n", (double)min_latency/1e6);
@@ -447,8 +447,8 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 enum client_mode { client_mode_latency, client_mode_throughput };
 
 static pid_t run_client(const char *server_addr, enum client_mode mode,
-                        int num_rt, int msg_size, int batch_size,
-                        double interval)
+			int num_rt, int msg_size, int batch_size,
+			double interval)
 {
     pid_t p = fork_noerr();
     if (p > 0)
@@ -470,9 +470,9 @@ static pid_t run_client(const char *server_addr, enum client_mode mode,
     } while (!conn);
 
     if (mode == client_mode_throughput)
-        run_throughput_client(conn, num_rt, msg_size, batch_size);
+	run_throughput_client(conn, num_rt, msg_size, batch_size);
     else
-        run_latency_client(conn, num_rt, msg_size, batch_size, interval);
+	run_latency_client(conn, num_rt, msg_size, batch_size, interval);
 
     send_term(conn);
 
@@ -508,7 +508,7 @@ static int get_prefix(char* s) {
 static int parse_int(char* int_str) {
     if (strlen(int_str) == 0) {
 	fprintf(stderr, "Null string is not an integer.\n");
-        exit(EXIT_FAILURE);
+	exit(EXIT_FAILURE);
     } else {
 	int prefix = get_prefix(int_str);
 	char* end = NULL;
@@ -524,18 +524,18 @@ static int parse_int(char* int_str) {
 
 static double parse_float(char* float_str) {
     if (strlen(float_str) == 0) {
-        fprintf(stderr, "Null string is not a floating point number.\n");
-        exit(EXIT_FAILURE);
+	fprintf(stderr, "Null string is not a floating point number.\n");
+	exit(EXIT_FAILURE);
     } else {
-        int prefix = get_prefix(float_str);
-        char* end = NULL;
-        double value = strtof(float_str, &end);
-        if (end && *end == '\0') {
-            return prefix*value;
-        } else {
-            printf("\"%s\" is not an floating point number.\n", float_str);
+	int prefix = get_prefix(float_str);
+	char* end = NULL;
+	double value = strtof(float_str, &end);
+	if (end && *end == '\0') {
+	    return prefix*value;
+	} else {
+	    printf("\"%s\" is not an floating point number.\n", float_str);
 	    exit(EXIT_FAILURE);
-        }
+	}
     }
 }
 
@@ -554,29 +554,29 @@ int main(int argc, char **argv)
     switch (c) {
     case 'c':
 	client = true;
-        break;
+	break;
     case 's':
 	server = true;
-        break;
+	break;
     case 'p':
-        client_mode = client_mode_latency;
-        if (num_rt == DEFAULT_THROUGHPUT_ROUNDTRIPS)
-            num_rt = DEFAULT_LATENCY_ROUNDTRIPS;
-        break;
+	client_mode = client_mode_latency;
+	if (num_rt == DEFAULT_THROUGHPUT_ROUNDTRIPS)
+	    num_rt = DEFAULT_LATENCY_ROUNDTRIPS;
+	break;
     case 'n':
-        num_rt = parse_int(optarg);
-        if (num_rt <= 0) {
+	num_rt = parse_int(optarg);
+	if (num_rt <= 0) {
 	    fprintf(stderr, "The number of roundtrips must be at least 1.\n");
 	    exit(EXIT_FAILURE);
 	}
-        break;
+	break;
     case 'm':
-        msg_size = parse_int(optarg);
-        if (msg_size <= 0) {
+	msg_size = parse_int(optarg);
+	if (msg_size <= 0) {
 	    fprintf(stderr, "Message size must be at least 1.\n");
 	    exit(EXIT_FAILURE);
 	}
-        break;
+	break;
     case 'b':
 	batch_size = parse_int(optarg);
 	if (batch_size < 1) {
@@ -594,7 +594,7 @@ int main(int argc, char **argv)
     case 'h':
 	usage(argv[0]);
 	exit(EXIT_SUCCESS);
-        break;
+	break;
     }
 
     /* if neither client nor server is specified, we will run both */
@@ -606,11 +606,11 @@ int main(int argc, char **argv)
     int num_args = argc-optind;
 
     if (client && client_mode == client_mode_latency && interval < 0)
-        interval = DEFAULT_INTERVAL;
+	interval = DEFAULT_INTERVAL;
 
     if ((client && (num_args != 1 ||
-                    (client_mode == client_mode_throughput && interval > 0)))
-        || (!client && server && num_args != 1)) {
+		    (client_mode == client_mode_throughput && interval > 0)))
+	|| (!client && server && num_args != 1)) {
 	usage(argv[0]);
 	exit(EXIT_FAILURE);
     }
@@ -627,7 +627,7 @@ int main(int argc, char **argv)
     pid_t client_pid = -1;
     if (client)
 	client_pid = run_client(addr, client_mode, num_rt, msg_size,
-                                batch_size, interval);
+				batch_size, interval);
 
     int client_st;
     if (client && waitpid(client_pid, &client_st, 0) < 0)

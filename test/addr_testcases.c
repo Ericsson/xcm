@@ -42,91 +42,91 @@ static bool ip6_addr_eq(const uint8_t *a, const uint8_t *b)
 #define GEN_DNS_BASED_PARSE_TEST(proto, notproto)			\
     struct xcm_addr_host host = {                                       \
 	.type  = 99,                                                    \
-        .ip.family = 42,                                                \
+	.ip.family = 42,                                                \
 	.ip.addr.ip4 = INADDR_ANY                                       \
     };									\
     unsigned short port = 17;						\
-                                                                        \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto("ux:some/dir", &host,             \
-                                      &port), EINVAL);                  \
+				      &port), EINVAL);                  \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto(#notproto ":192.168.1.1:22",	\
-                                      &host, &port), EINVAL);           \
+				      &host, &port), EINVAL);           \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto(#proto ":1.2.3.4", &host,         \
-                                      &port), EINVAL);                  \
+				      &port), EINVAL);                  \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto(#proto ":[::1]", &host,           \
-                                      &port), EINVAL);                  \
+				      &port), EINVAL);                  \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto(#proto ":[::1:42", &host,         \
-                                      &port), EINVAL);                  \
+				      &port), EINVAL);                  \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto(#proto ":.ericsson.se:4711", &host, \
-                                      &port), EINVAL);                  \
+				      &port), EINVAL);                  \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKERRNO(xcm_addr_parse_ ## proto(#proto ":ericsson..se:4711", &host, \
-                                      &port), EINVAL);                  \
+				      &port), EINVAL);                  \
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
-        host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
-                                                                        \
+	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":127.0.0.1:4711", &host,  \
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_ip);                                 \
     CHK(host.ip.family == AF_INET);                                     \
     CHK(host.ip.addr.ip4 == inet_addr("127.0.0.1"));                    \
     CHK(port == htons(4711));						\
-                                                                        \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":[::1]:4711", &host,	\
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_ip);                                 \
     CHK(host.ip.family == AF_INET6);                                    \
     CHK(ip6_addr_eq(in6addr_loopback.s6_addr, host.ip.addr.ip6));       \
     CHK(port == htons(4711));						\
-                                                                        \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":[*]:4711", &host,	\
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_ip);                                 \
     CHK(host.ip.family == AF_INET6);                                    \
     CHK(ip6_addr_eq(in6addr_any.s6_addr, host.ip.addr.ip6));            \
     CHK(port == htons(4711));						\
-                                                                        \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":ericsson.se:4711", &host, \
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("ericsson.se", host.name);                                 \
     CHK(port == htons(4711));						\
-                                                                        \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":3com.com:1", &host,      \
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("3com.com", host.name);                                    \
     CHK(port == htons(1));						\
-                                                                        \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":www.liu.se.:1", &host,   \
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("www.liu.se.", host.name);                                 \
     CHK(port == htons(1));						\
-                                                                        \
+									\
     CHKNOERR(xcm_addr_parse_ ## proto(#proto ":localhost:42", &host,    \
-                                      &port));                          \
+				      &port));                          \
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("localhost", host.name);                                   \
     CHK(port == htons(42));						\
-                                                                        \
+									\
     return UTEST_SUCCESS
 
 TESTCASE(addr, parse_tcp)
@@ -210,7 +210,7 @@ TESTCASE(addr, parse_uxf)
     CHKSTREQ(uxf_name, ":foo:");
 
     CHKNOERR(xcm_addr_parse_uxf("uxf:;!\"#¤%&/()=?", uxf_name,
-                                sizeof(uxf_name)));
+				sizeof(uxf_name)));
     CHKSTREQ(uxf_name, ";!\"#¤%&/()=?");
 
     return UTEST_SUCCESS;
@@ -220,7 +220,7 @@ TESTCASE(addr, parse_uxf)
     char addr_s[64];							\
     struct xcm_addr_host addr4 = {					\
 	.type = xcm_addr_type_ip,                                       \
-        .ip.family = AF_INET,                                           \
+	.ip.family = AF_INET,                                           \
 	.ip.addr.ip4 = inet_addr("1.2.3.4")				\
     };									\
     unsigned short port = htons(4711);					\
@@ -228,27 +228,27 @@ TESTCASE(addr, parse_uxf)
     CHKNOERR(xcm_addr_make_ ## proto(&addr4, port, addr_s, sizeof(addr_s))); \
 									\
     CHKSTREQ(addr_s, #proto ":1.2.3.4:4711");				\
-                                                                        \
+									\
     struct xcm_addr_host addr6 = {					\
 	.type = xcm_addr_type_ip,                                       \
-        .ip.family = AF_INET6                                           \
+	.ip.family = AF_INET6                                           \
     };									\
     CHK(inet_pton(AF_INET6, "3ffe:1900:4545:3:200:f8ff:fe21:67cf",	\
 		  addr6.ip.addr.ip6) == 1);				\
-    									\
+									\
     CHKNOERR(xcm_addr_make_ ## proto(&addr6, port, addr_s, sizeof(addr_s))); \
-                                                                        \
+									\
     CHKSTREQ(addr_s, #proto ":[3ffe:1900:4545:3:200:f8ff:fe21:67cf]:4711"); \
-                                                                        \
+									\
     struct xcm_addr_host host = {					\
 	.type = xcm_addr_type_name                                      \
     };									\
     strcpy(host.name, "www.lysator.liu.se");                            \
-                                                                        \
+									\
     CHKNOERR(xcm_addr_make_ ## proto(&host, port, addr_s, sizeof(addr_s))); \
-                                                                        \
+									\
     CHKSTREQ(addr_s, #proto ":www.lysator.liu.se:4711");                \
-                                                                        \
+									\
     return UTEST_SUCCESS;						\
 
 TESTCASE(addr, make_tcp)
@@ -280,19 +280,19 @@ TESTCASE(addr, make_utls)
 	.addr.ip4 = INADDR_ANY						\
     };									\
     unsigned short port = 0;						\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse("ux:some/dir", &ip,		\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse(#proto ":hostname:99", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse(#proto ":a.b.c.d:99", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse(#proto ":1.2.3:99", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
@@ -300,37 +300,37 @@ TESTCASE(addr, make_utls)
     CHKERRNO(xcm_addr_## proto ## 6_parse(#notproto ":192.168.1.1:22",	\
 					 &ip, &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse(#proto ":1.2.3.4", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse(#proto ":[::1]", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## 6_parse(#proto ":[::1:42", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip.family == 0 && ip.addr.ip4 == INADDR_ANY && port == 0);	\
-    									\
+									\
     CHKNOERR(xcm_addr_ ## proto ## 6_parse(#proto ":127.0.0.1:4711", &ip, \
 					   &port));			\
     CHK(ip.family == AF_INET);						\
     CHK(ip.addr.ip4 == inet_addr("127.0.0.1"));				\
     CHK(port == htons(4711));						\
-    									\
+									\
     CHKNOERR(xcm_addr_ ## proto ## 6_parse(#proto ":[::1]:4711", &ip,	\
 					   &port));			\
     CHK(ip.family == AF_INET6);						\
     CHK(ip6_addr_eq(in6addr_loopback.s6_addr, ip.addr.ip6));            \
     CHK(port == htons(4711));						\
-    									\
+									\
     CHKNOERR(xcm_addr_ ## proto ## 6_parse(#proto ":[*]:4711", &ip,	\
 					   &port));			\
     CHK(ip.family == AF_INET6);						\
     CHK(ip6_addr_eq(in6addr_any.s6_addr, ip.addr.ip6));                 \
     CHK(port == htons(4711));						\
-    									\
+									\
     return UTEST_SUCCESS
 
 TESTCASE(addr, tcp6_parse)
@@ -356,36 +356,36 @@ TESTCASE(addr, utls6_parse)
 #define GEN_IP_BASED_PARSE_TEST(proto, notproto)			\
     in_addr_t ip = INADDR_ANY;                                          \
     unsigned short port = 0;                                            \
-                                                                        \
+									\
     CHKERRNO(xcm_addr_ ## proto ## _parse("ux:some/dir", &ip,		\
 					  &port), EINVAL);		\
     CHK(ip == INADDR_ANY && port == 0);                                 \
-                                                                        \
+									\
     CHKERRNO(xcm_addr_ ## proto ## _parse(#proto ":hostname:99", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip == INADDR_ANY && port == 0);                                 \
-    									\
+									\
     CHKERRNO(xcm_addr_ ## proto ## _parse(#proto ":a.b.c.d:99", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip == INADDR_ANY && port == 0);                                 \
-                                                                        \
+									\
     CHKERRNO(xcm_addr_ ## proto ## _parse(#proto ":1.2.3:99", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip == INADDR_ANY && port == 0);                                 \
-    									\
+									\
     CHKERRNO(xcm_addr_## proto ## _parse(#notproto ":192.168.1.1:22",	\
 					 &ip, &port), EINVAL);		\
     CHK(ip == INADDR_ANY && port == 0);                                 \
-                                                                        \
+									\
     CHKERRNO(xcm_addr_ ## proto ## _parse(#proto ":1.2.3.4", &ip,	\
 					  &port), EINVAL);		\
     CHK(ip == INADDR_ANY && port == 0);                                 \
-                                                                        \
+									\
     CHKNOERR(xcm_addr_ ## proto ## _parse(#proto ":127.0.0.1:4711",	\
 					  &ip, &port));			\
     CHK(ip == inet_addr("127.0.0.1"));                                  \
     CHK(port == htons(4711));                                           \
-                                                                        \
+									\
     return UTEST_SUCCESS
 
 TESTCASE(addr, tcp_parse)
@@ -420,12 +420,12 @@ TESTCASE(addr, utls_parse)
     };									\
     CHK(inet_pton(AF_INET6, "3ffe:1900:4545:3:200:f8ff:fe21:67cf",	\
 		  addr6.addr.ip6) == 1);				\
-    									\
+									\
     CHKNOERR(xcm_addr_ ## proto ## 6_make(&addr6, port, addr_s,		\
 					  sizeof(addr_s)));		\
-    									\
+									\
     CHKSTREQ(addr_s, #proto ":[3ffe:1900:4545:3:200:f8ff:fe21:67cf]:4711"); \
-    									\
+									\
     return UTEST_SUCCESS;						\
 
 TESTCASE(addr, tcp6_make)
@@ -500,11 +500,11 @@ TESTCASE(addr, make_uxf)
     char addr_s[64];                                             \
     in_addr_t ip = inet_addr("1.2.3.4");                         \
     unsigned short port = htons(4711);                           \
-                                                                 \
+								 \
     CHKNOERR(xcm_addr_ ## proto ## _make(ip, port, addr_s, sizeof(addr_s))); \
-                                                                 \
+								 \
     CHKSTREQ(addr_s, #proto ":1.2.3.4:4711");                    \
-                                                                 \
+								 \
     return UTEST_SUCCESS;
 
 TESTCASE(addr, tcp_make)

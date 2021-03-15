@@ -90,7 +90,7 @@ int xcm_addr_parse_proto(const char *addr_s, char *proto, size_t capacity)
 }
 
 static int addr_parse_ux_uxf(const char *ux_proto, const char *ux_addr_s,
-                             char *ux_name, size_t capacity)
+			     char *ux_name, size_t capacity)
 {
     char proto[XCM_ADDR_MAX_PROTO_LEN+1];
     char name[XCM_ADDR_MAX+1];
@@ -121,7 +121,7 @@ int xcm_addr_parse_ux(const char *ux_addr_s, char *ux_name, size_t capacity)
 }
 
 int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_name,
-                       size_t capacity)
+		       size_t capacity)
 {
     return addr_parse_ux_uxf(XCM_UXF_PROTO, uxf_addr_s, uxf_name, capacity);
 }
@@ -132,23 +132,23 @@ int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_name,
 static bool is_valid_dns_name(const char *name)
 {
     if (strlen(name) > DNS_MAX_LEN)
-        return false;
+	return false;
 
     regex_t re;
     int rc = regcomp(&re, DNS_RE, REG_ICASE|REG_EXTENDED);
 
     if (rc != 0)
-        abort(); /* out of memory */
+	abort(); /* out of memory */
 
     bool result;
     regmatch_t m;
     rc = regexec(&re, name, 1, &m, 0);
     if (rc == 0)
-        result = true;
+	result = true;
     else if (rc == REG_NOMATCH)
-        result = false;
+	result = false;
     else
-        abort();
+	abort();
 
     regfree(&re);
 
@@ -158,12 +158,12 @@ static bool is_valid_dns_name(const char *name)
 static int host_parse(const char *host_s, struct xcm_addr_host *host)
 {
     if (strlen(host_s) == 0)
-        goto err_inval;
+	goto err_inval;
 
     if (host_s[0] == IP6_BEGIN) {
 	if (strlen(host_s) < (IP6_BEGIN_LEN+IP6_END_LEN) ||
 	    host_s[strlen(host_s)-1] != IP6_END)
-            goto err_inval;
+	    goto err_inval;
 	/* Remove '[' and ']' */
 	const size_t ip6_s_len = strlen(host_s)-IP6_BEGIN_LEN-IP6_END_LEN;
 	char ip6_s[ip6_s_len+1];
@@ -177,33 +177,33 @@ static int host_parse(const char *host_s, struct xcm_addr_host *host)
 	else if (inet_pton(AF_INET6, ip6_s, &addr) == 1)
 	    memcpy(host->ip.addr.ip6, addr.s6_addr, 16);
 	else
-            goto err_inval;
+	    goto err_inval;
 
-        host->type = xcm_addr_type_ip;
+	host->type = xcm_addr_type_ip;
 	host->ip.family = AF_INET6;
 
 	return 0;
     }
 
     if (strcmp(host_s, "*") == 0) {
-        host->type = xcm_addr_type_ip;
-        host->ip.family = AF_INET;
-        host->ip.addr.ip4 = INADDR_ANY;
-        return 0;
+	host->type = xcm_addr_type_ip;
+	host->ip.family = AF_INET;
+	host->ip.addr.ip4 = INADDR_ANY;
+	return 0;
     }
 
     struct in_addr addr;
     if (inet_pton(AF_INET, host_s, &addr) == 1) {
 	host->type = xcm_addr_type_ip;
-        host->ip.family = AF_INET;
-        host->ip.addr.ip4 = addr.s_addr;
+	host->ip.family = AF_INET;
+	host->ip.addr.ip4 = addr.s_addr;
 	return 0;
     }
 
     if (is_valid_dns_name(host_s)) {
-        host->type = xcm_addr_type_name;
-        strcpy(host->name, host_s);
-        return 0;
+	host->type = xcm_addr_type_name;
+	strcpy(host->name, host_s);
+	return 0;
     }
 
  err_inval:
@@ -212,7 +212,7 @@ static int host_parse(const char *host_s, struct xcm_addr_host *host)
 }
 
 static int host_port_parse(const char *proto, const char *addr_s,
-                           struct xcm_addr_host *host, uint16_t *port)
+			   struct xcm_addr_host *host, uint16_t *port)
 {
     char actual_proto[XCM_ADDR_MAX_PROTO_LEN+1];
     char paddr[XCM_ADDR_MAX+1];
@@ -262,31 +262,31 @@ static int host_port_parse(const char *proto, const char *addr_s,
 }
 
 int xcm_addr_parse_utls(const char *utls_addr_s, struct xcm_addr_host *host,
-                        uint16_t *port)
+			uint16_t *port)
 {
     return host_port_parse(XCM_UTLS_PROTO, utls_addr_s, host, port);
 }
 
 int xcm_addr_parse_tls(const char *tls_addr_s, struct xcm_addr_host *host,
-                       uint16_t *port)
+		       uint16_t *port)
 {
     return host_port_parse(XCM_TLS_PROTO, tls_addr_s, host, port);
 }
 
 int xcm_addr_parse_tcp(const char *tcp_addr_s, struct xcm_addr_host *host,
-                       uint16_t *port)
+		       uint16_t *port)
 {
     return host_port_parse(XCM_TCP_PROTO, tcp_addr_s, host, port);
 }
 
 int xcm_addr_parse_sctp(const char *sctp_addr_s, struct xcm_addr_host *host,
-                        uint16_t *port)
+			uint16_t *port)
 {
     return host_port_parse(XCM_SCTP_PROTO, sctp_addr_s, host, port);
 }
 
 static int name_port_make(const char *proto, const char *domain_name,
-                          uint16_t port, char *addr_s, size_t capacity)
+			  uint16_t port, char *addr_s, size_t capacity)
 {
     int rc = snprintf(addr_s, capacity, "%s%c%s%c%d", proto, PROTO_SEP,
 		      domain_name, PORT_SEP, ntohs(port));
@@ -328,44 +328,44 @@ static int ip_port_make(const char *proto, const struct xcm_addr_ip *ip,
 }
 
 static int host_port_make(const char *proto, const struct xcm_addr_host *host,
-                          uint16_t port, char *addr_s, size_t capacity)
+			  uint16_t port, char *addr_s, size_t capacity)
 {
     switch (host->type) {
     case xcm_addr_type_name:
-        return name_port_make(proto, host->name, port, addr_s, capacity);
+	return name_port_make(proto, host->name, port, addr_s, capacity);
     case xcm_addr_type_ip:
-        return ip_port_make(proto, &host->ip, port, addr_s, capacity);
+	return ip_port_make(proto, &host->ip, port, addr_s, capacity);
     default:
-        ut_assert(0);
+	ut_assert(0);
     }
 }
 
 int xcm_addr_make_utls(const struct xcm_addr_host *host, uint16_t port,
-                       char *utls_addr_s, size_t capacity)
+		       char *utls_addr_s, size_t capacity)
 {
     return host_port_make(XCM_UTLS_PROTO, host, port, utls_addr_s, capacity);
 }
 
 int xcm_addr_make_tls(const struct xcm_addr_host *host, uint16_t port,
-                      char *tls_addr_s, size_t capacity)
+		      char *tls_addr_s, size_t capacity)
 {
     return host_port_make(XCM_TLS_PROTO, host, port, tls_addr_s, capacity);
 }
 
 int xcm_addr_make_tcp(const struct xcm_addr_host *host, uint16_t port,
-                      char *tcp_addr_s, size_t capacity)
+		      char *tcp_addr_s, size_t capacity)
 {
     return host_port_make(XCM_TCP_PROTO, host, port, tcp_addr_s, capacity);
 }
 
 int xcm_addr_make_sctp(const struct xcm_addr_host *host, uint16_t port,
-                       char *sctp_addr_s, size_t capacity)
+		       char *sctp_addr_s, size_t capacity)
 {
     return host_port_make(XCM_SCTP_PROTO, host, port, sctp_addr_s, capacity);
 }
 
 static int addr_make_ux_uxf(const char *ux_proto, const char *ux_name,
-                            char *ux_addr_s, size_t capacity)
+			    char *ux_addr_s, size_t capacity)
 {
     if (strlen(ux_name) > (UNIX_PATH_MAX-1)) {
 	errno = EINVAL;

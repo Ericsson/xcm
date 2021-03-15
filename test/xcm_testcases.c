@@ -88,7 +88,7 @@ static char *gen_uxf_addr(void)
 {
     char *addr;
     return asprintf(&addr, "uxf:%s/test-uxf.%d", TEST_UXF_DIR,
-                    getpid()) < 0 ? NULL : addr;
+		    getpid()) < 0 ? NULL : addr;
 }
 
 static uint16_t gen_tcp_port(void)
@@ -118,17 +118,17 @@ static bool has_domain_name(const char *addr)
     uint16_t port;
 
     if (xcm_addr_parse_tcp(addr, &host, &port) == 0 &&
-        host.type == xcm_addr_type_name)
-        return true;
+	host.type == xcm_addr_type_name)
+	return true;
     if (xcm_addr_parse_tls(addr, &host, &port) == 0 &&
-        host.type == xcm_addr_type_name)
-        return true;
+	host.type == xcm_addr_type_name)
+	return true;
     if (xcm_addr_parse_utls(addr, &host, &port) == 0 &&
-        host.type == xcm_addr_type_name)
-        return true;
+	host.type == xcm_addr_type_name)
+	return true;
     if (xcm_addr_parse_sctp(addr, &host, &port) == 0 &&
-        host.type == xcm_addr_type_name)
-        return true;
+	host.type == xcm_addr_type_name)
+	return true;
     return false;
 }
 
@@ -156,7 +156,7 @@ static pid_t simple_server(const char *ns, const char *addr,
     prctl(PR_SET_PDEATHSIG, SIGKILL);
 
     if (server_cert_dir)
-        if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
+	if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
 	    exit(EXIT_FAILURE);
 
     if (ns) {
@@ -171,7 +171,7 @@ static pid_t simple_server(const char *ns, const char *addr,
 	exit(ERRNO_TO_STATUS(errno));
 
     if (!is_wildcard_addr(addr) && !has_domain_name(addr) &&
-        strcmp(xcm_local_addr(server_sock), addr) != 0)
+	strcmp(xcm_local_addr(server_sock), addr) != 0)
 	exit(EXIT_FAILURE);
 
     if (tu_assure_str_attr(server_sock, "xcm.type", "server") < 0)
@@ -183,7 +183,7 @@ static pid_t simple_server(const char *ns, const char *addr,
 	exit(EXIT_FAILURE);
 
     if (!is_wildcard_addr(addr) && !has_domain_name(addr) &&
-        tu_assure_str_attr(server_sock, "xcm.local_addr", addr) < 0)
+	tu_assure_str_attr(server_sock, "xcm.local_addr", addr) < 0)
 	exit(EXIT_FAILURE);
 
     if (polling_accept)
@@ -326,11 +326,11 @@ static int conf_loopback(const char *named_ns)
 {
     char prefix[256];
     if (named_ns)
-        snprintf(prefix, sizeof(prefix), "ip netns exec %s ", named_ns);
+	snprintf(prefix, sizeof(prefix), "ip netns exec %s ", named_ns);
     else
-        strcpy(prefix, "");
+	strcpy(prefix, "");
     return
-        tu_executef_es("%sip addr add 127.0.0.1/8 dev lo", prefix) != 0 ||
+	tu_executef_es("%sip addr add 127.0.0.1/8 dev lo", prefix) != 0 ||
 	tu_executef_es("%sip addr add ::1/128 dev lo", prefix) != 0 ||
 	tu_executef_es("%sip link set lo up", prefix) != 0 ? -1 : 0;
 }
@@ -340,9 +340,9 @@ static int conf_loopback(const char *named_ns)
 static int conf_rto_min(void)
 {
     if (tu_executef_es("ip route change local 127.0.0.0/8 dev lo  proto kernel  scope host  src 127.0.0.1 table local rto_min %dms", RTO_MIN) < 0)
-        return -1;
+	return -1;
     if (tu_executef_es("ip route change local 127.0.0.1 dev lo  proto kernel  scope host src 127.0.0.1 rto_min %dms", RTO_MIN) < 0)
-        return -1;
+	return -1;
     return 0;
 }
 
@@ -353,9 +353,9 @@ static int setup_named_ns(const char *name)
     tu_executef_es("ip netns del %s 2>/dev/null", name);
 
     if (tu_executef_es("ip netns add %s", name) != 0)
-        return -1;
+	return -1;
     if (conf_loopback(name) < 0)
-        return -1;
+	return -1;
     return 0;
 }
 
@@ -379,13 +379,13 @@ static int setup_xcm(void)
 	return UTEST_FAIL;
 
     if (tu_executef_es("mkdir -p %s", TEST_UXF_DIR) < 0)
-        return UTEST_FAIL;
+	return UTEST_FAIL;
 
 #ifdef XCM_CTL
     char ctl_dir[64];
     test_ctl_dir(ctl_dir);
     if (tu_executef_es("mkdir -p %s", ctl_dir) < 0)
-        return UTEST_FAIL;
+	return UTEST_FAIL;
 
     if (setenv("XCM_CTL", ctl_dir, 1) < 0)
 	return UTEST_FAIL;
@@ -394,12 +394,12 @@ static int setup_xcm(void)
     test_addrs_len = gen_test_addrs(&test_addrs);
 
     if (is_root()) {
-        /* Run tests in a private namespace to allow parallel
-           execution.  We're using an unnamed network namespace to
-           avoid confusing XCM about certificate file names. */
-        CHKNOERR(unshare(CLONE_NEWNET));
-        CHKNOERR(conf_loopback(NULL));
-        CHKNOERR(conf_rto_min());
+	/* Run tests in a private namespace to allow parallel
+	   execution.  We're using an unnamed network namespace to
+	   avoid confusing XCM about certificate file names. */
+	CHKNOERR(unshare(CLONE_NEWNET));
+	CHKNOERR(conf_loopback(NULL));
+	CHKNOERR(conf_rto_min());
     }
 
     pre_test_fd_count = count_fd();
@@ -489,7 +489,7 @@ TESTCASE(xcm, basic)
 	char test_proto[64] = { 0 };
 
 	CHKNOERR(xcm_addr_parse_proto(test_addrs[i], test_proto,
-                                      sizeof(test_proto)));
+				      sizeof(test_proto)));
 
 	const bool is_utls = (strcmp(test_proto, "utls") == 0);
 
@@ -595,8 +595,8 @@ TESTCASE(xcm, basic)
 enum server_type { async_server, forking_server };
 
 static int ping_pong(const char *server_addr, int num_clients,
-                     int pings_per_client, int max_batch_size,
-                     enum server_type server_type, bool lazy_accept)
+		     int pings_per_client, int max_batch_size,
+		     enum server_type server_type, bool lazy_accept)
 {
     const int total_pings = pings_per_client * num_clients;
 
@@ -638,14 +638,14 @@ static int async_ping_pong_proto(const char *server_addr)
 {
     int rc;
     if ((rc = ping_pong(server_addr, is_in_valgrind() ? 2 : 16,
-                        is_in_valgrind() ? 10 : 300, 1,
+			is_in_valgrind() ? 10 : 300, 1,
 			async_server, true)) != UTEST_SUCCESS)
 	return rc;
     if ((rc = ping_pong(server_addr, 3, is_in_valgrind()? 5 : 50, 4,
-                        async_server, true)) != UTEST_SUCCESS)
+			async_server, true)) != UTEST_SUCCESS)
 	return rc;
     if ((rc = ping_pong(server_addr, 3, is_in_valgrind() ? 5 : 10, 2,
-                        async_server, false)) != UTEST_SUCCESS)
+			async_server, false)) != UTEST_SUCCESS)
 	return rc;
     return UTEST_SUCCESS;
 }
@@ -666,9 +666,9 @@ TESTCASE_TIMEOUT(xcm, forking_server, 80.0)
     for (i=0; i<test_addrs_len; i++) {
 	int rc;
 	const int num_msgs = is_in_valgrind() ? 50 : 200;
-        const int num_clients = is_in_valgrind() ? 3 : 10;
+	const int num_clients = is_in_valgrind() ? 3 : 10;
 	if ((rc = ping_pong(test_addrs[i], num_clients, num_msgs, 2,
-                            forking_server, true)) != UTEST_SUCCESS)
+			    forking_server, true)) != UTEST_SUCCESS)
 	    return rc;
     }
 
@@ -764,9 +764,9 @@ TESTCASE(xcm, dns)
 {
     int i;
     for (i=0; i<dns_supporting_transports_len; i++) {
-        int rc = run_dns_test(dns_supporting_transports[i]);
-        if (rc != UTEST_SUCCESS)
-            return rc;
+	int rc = run_dns_test(dns_supporting_transports[i]);
+	if (rc != UTEST_SUCCESS)
+	    return rc;
     }
 
     return UTEST_SUCCESS;
@@ -1435,11 +1435,11 @@ TESTCASE(xcm, invalid_address)
 
     int i;
     for (i=0; i<(sizeof(oversized_domain_name)-1) / strlen(part); i++)
-        strcpy(oversized_domain_name+i*strlen(part), part);
+	strcpy(oversized_domain_name+i*strlen(part), part);
 
     char oversized_tcp[1024];
     snprintf(oversized_tcp, sizeof(oversized_tcp), "tcp:%s:4711",
-             oversized_domain_name);
+	     oversized_domain_name);
 
     CHKNULLERRNO(xcm_server(oversized_tcp), EINVAL);
 
@@ -1450,7 +1450,7 @@ TESTCASE(xcm, invalid_address)
 #ifdef XCM_SCTP
     char oversized_sctp[1024];
     snprintf(oversized_sctp, sizeof(oversized_sctp), "sctp:%s:4711",
-             oversized_domain_name);
+	     oversized_domain_name);
     CHKNULLERRNO(xcm_server(oversized_sctp), EINVAL);
 
     CHKNULLERRNO(xcm_server("sctp:a$df"), EINVAL);
@@ -1461,7 +1461,7 @@ TESTCASE(xcm, invalid_address)
 #ifdef XCM_TLS
     char oversized_tls[1024];
     snprintf(oversized_tls, sizeof(oversized_tls), "tls:%s:4711",
-             oversized_domain_name);
+	     oversized_domain_name);
     CHKNULLERRNO(xcm_server(oversized_tls), EINVAL);
 
     CHKNULLERRNO(xcm_server("tls:a$df"), EINVAL);
@@ -1470,7 +1470,7 @@ TESTCASE(xcm, invalid_address)
 
     char oversized_utls[1024];
     snprintf(oversized_utls, sizeof(oversized_utls), "utls:%s:4711",
-             oversized_domain_name);
+	     oversized_domain_name);
     CHKNULLERRNO(xcm_server(oversized_utls), EINVAL);
 #endif
 
@@ -1600,7 +1600,7 @@ static int run_non_established_connect(const char *proto)
     char droprule[1024];
     const char *ipt_proto = strcmp(proto, "sctp") == 0 ? "sctp" : "tcp";
     snprintf(droprule, sizeof(droprule), "INPUT -p %s --dport %d -i lo -j "
-             "DROP", ipt_proto, tcp_port);
+	     "DROP", ipt_proto, tcp_port);
 
     tu_executef("%s -A %s", IPT_CMD, droprule);
 
@@ -1612,16 +1612,16 @@ static int run_non_established_connect(const char *proto)
     int fin_errno;
 
     if (conn) {
-        int i;
-        for (i=0; i<FAILING_CONNECT_RETRIES; i++) {
-            fin_rc = xcm_finish(conn);
-            fin_errno = errno;
+	int i;
+	for (i=0; i<FAILING_CONNECT_RETRIES; i++) {
+	    fin_rc = xcm_finish(conn);
+	    fin_errno = errno;
 
-            if (fin_rc == 0 || fin_errno != EAGAIN)
-                break;
+	    if (fin_rc == 0 || fin_errno != EAGAIN)
+		break;
 
-            tu_msleep(INTER_CONNECT_DELAY_MS);
-        }
+	    tu_msleep(INTER_CONNECT_DELAY_MS);
+	}
     }
 
     tu_executef("%s -D %s", IPT_CMD, droprule);
@@ -1632,17 +1632,17 @@ static int run_non_established_connect(const char *proto)
 
     int i;
     for (i=0; ; i++) {
-        CHK(i != SUCCESSFUL_CONNECT_RETRIES);
+	CHK(i != SUCCESSFUL_CONNECT_RETRIES);
 
-        int fin_rc = xcm_finish(conn);
+	int fin_rc = xcm_finish(conn);
 
-        CHK(fin_rc < 0);
+	CHK(fin_rc < 0);
 
-        if (errno == ECONNREFUSED)
-            break;
+	if (errno == ECONNREFUSED)
+	    break;
 
-        CHKERRNOEQ(EAGAIN);
-        tu_msleep(INTER_CONNECT_DELAY_MS);
+	CHKERRNOEQ(EAGAIN);
+	tu_msleep(INTER_CONNECT_DELAY_MS);
     }
 
     CHKNOERR(xcm_close(conn));
@@ -1658,12 +1658,12 @@ TESTCASE(xcm, non_established_non_blocking_connect)
 
 #ifdef XCM_SCTP
     if (rc == UTEST_SUCCESS)
-        rc = run_non_established_connect("sctp");
+	rc = run_non_established_connect("sctp");
 #endif
 
 #ifdef XCM_TLS
     if (rc == UTEST_SUCCESS)
-        rc = run_non_established_connect("tls");
+	rc = run_non_established_connect("tls");
 #endif
 
     return rc;
@@ -1681,11 +1681,11 @@ static void manage_tcp_filter(sa_family_t ip_version, int tcp_port, bool install
 	     tcp_port);
 
     if (install) {
-        tu_executef("%s -A %s", iptables_cmd, rxrule);
-        tu_executef("%s -A %s", iptables_cmd, txrule);
+	tu_executef("%s -A %s", iptables_cmd, rxrule);
+	tu_executef("%s -A %s", iptables_cmd, txrule);
     } else {
-        tu_executef("%s -D %s", iptables_cmd, rxrule);
-        tu_executef("%s -D %s", iptables_cmd, txrule);
+	tu_executef("%s -D %s", iptables_cmd, rxrule);
+	tu_executef("%s -D %s", iptables_cmd, txrule);
     }
 }
 
@@ -1697,7 +1697,7 @@ static void manage_tcp_filter(sa_family_t ip_version, int tcp_port, bool install
 
 enum run_keepalive_mode { on_rx, on_rx_pending_tx, on_tx };
 static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
-                                      enum run_keepalive_mode mode)
+				      enum run_keepalive_mode mode)
 {
     const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
 
@@ -1726,24 +1726,24 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
     int op_rc;
     int op_errno;
     if (mode == on_rx || mode == on_rx_pending_tx) {
-        if (mode == on_rx_pending_tx)
-            other_rc = xcm_send(conn_socket, buf, sizeof(buf));
-        if (other_rc == 0)
-            other_rc = wait_for_xcm(conn_socket, XCM_SO_RECEIVABLE);
-        errno = 0;
-        do {
-            op_rc = xcm_receive(conn_socket, buf, sizeof(buf));
-            op_errno = errno;
-        } while (op_rc > 0 && op_errno == EAGAIN);
+	if (mode == on_rx_pending_tx)
+	    other_rc = xcm_send(conn_socket, buf, sizeof(buf));
+	if (other_rc == 0)
+	    other_rc = wait_for_xcm(conn_socket, XCM_SO_RECEIVABLE);
+	errno = 0;
+	do {
+	    op_rc = xcm_receive(conn_socket, buf, sizeof(buf));
+	    op_errno = errno;
+	} while (op_rc > 0 && op_errno == EAGAIN);
     } else {
-        for (;;) {
-            other_rc = wait_for_xcm(conn_socket, XCM_SO_SENDABLE);
-            op_rc = xcm_send(conn_socket, buf, sizeof(buf));
-            if (op_rc < 0 && errno != EAGAIN) {
-                op_errno = errno;
-                break;
-            }
-        }
+	for (;;) {
+	    other_rc = wait_for_xcm(conn_socket, XCM_SO_SENDABLE);
+	    op_rc = xcm_send(conn_socket, buf, sizeof(buf));
+	    if (op_rc < 0 && errno != EAGAIN) {
+		op_errno = errno;
+		break;
+	    }
+	}
     }
 
     double latency = tu_ftime() - start;
@@ -1771,12 +1771,12 @@ static int run_dead_peer_detection(const char *proto, sa_family_t ip_version)
 {
     int rc;
     if ((rc = run_dead_peer_detection_op(proto, ip_version, on_rx)) < 0)
-        return rc;
+	return rc;
     if ((rc = run_dead_peer_detection_op(proto, ip_version,
-                                         on_rx_pending_tx)) < 0)
-        return rc;
+					 on_rx_pending_tx)) < 0)
+	return rc;
     if ((rc = run_dead_peer_detection_op(proto, ip_version, on_tx)) < 0)
-        return rc;
+	return rc;
     return UTEST_SUCCESS;
 }
 
@@ -1811,17 +1811,17 @@ TESTCASE_TIMEOUT(xcm, tls_dead_peer_detection, 60.0)
 #define ALLOWED_HICKUP_ERROR (100)
 
 static pid_t create_hickup(sa_family_t ip_version, int tcp_port,
-                           int target_hickup_time, int max_error)
+			   int target_hickup_time, int max_error)
 {
     double start = tu_ftime();
     manage_tcp_filter(ip_version, tcp_port, true);
 
     pid_t p = fork();
     if (p < 0) {
-        manage_tcp_filter(ip_version, tcp_port, false);
-        return -1;
+	manage_tcp_filter(ip_version, tcp_port, false);
+	return -1;
     } else if (p > 0)
-        return p;
+	return p;
 
     tu_msleep(target_hickup_time);
 
@@ -1830,84 +1830,84 @@ static pid_t create_hickup(sa_family_t ip_version, int tcp_port,
     int actual_hickup = (tu_ftime() - start) * 1000;
 
     if (actual_hickup > (target_hickup_time + max_error))
-        exit(EXIT_FAILURE);
+	exit(EXIT_FAILURE);
 
     exit(EXIT_SUCCESS);
 }
 
 static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
-                             bool cause_time_out, bool idle)
+			     bool cause_time_out, bool idle)
 {
     bool restart;
 
     do {
-        const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
+	const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
 
-        const int tcp_port = 15343;
+	const int tcp_port = 15343;
 
-        char addr[64];
-        snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
+	char addr[64];
+	snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
 
-        const char *client_msg = "greetings";
-        const char *server_msg = "hello";
-        pid_t server_pid;
-        CHKNOERR((server_pid = simple_server(NULL, addr, client_msg,
-                                             server_msg, NULL, false)));
+	const char *client_msg = "greetings";
+	const char *server_msg = "hello";
+	pid_t server_pid;
+	CHKNOERR((server_pid = simple_server(NULL, addr, client_msg,
+					     server_msg, NULL, false)));
 
 
-        struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
-        CHK(conn_socket);
+	struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
+	CHK(conn_socket);
 
-        const int target_hickup_time =
-            cause_time_out ? TOO_LONG_HICKUP_DURATION : SHORT_HICKUP_DURATION;
+	const int target_hickup_time =
+	    cause_time_out ? TOO_LONG_HICKUP_DURATION : SHORT_HICKUP_DURATION;
 
-        pid_t hickup_pid = create_hickup(ip_version, tcp_port,
-                                         target_hickup_time,
-                                         ALLOWED_HICKUP_ERROR);
-        CHKNOERR(hickup_pid);
+	pid_t hickup_pid = create_hickup(ip_version, tcp_port,
+					 target_hickup_time,
+					 ALLOWED_HICKUP_ERROR);
+	CHKNOERR(hickup_pid);
 
-        if (idle)
-            tu_msleep(target_hickup_time+ALLOWED_HICKUP_ERROR);
+	if (idle)
+	    tu_msleep(target_hickup_time+ALLOWED_HICKUP_ERROR);
 
-        int op_rc = xcm_send(conn_socket, client_msg, strlen(client_msg));
-        int op_errno = errno;
+	int op_rc = xcm_send(conn_socket, client_msg, strlen(client_msg));
+	int op_errno = errno;
 
-        if (!idle)
-            tu_msleep(target_hickup_time+ALLOWED_HICKUP_ERROR);
+	if (!idle)
+	    tu_msleep(target_hickup_time+ALLOWED_HICKUP_ERROR);
 
-        if (op_rc == 0) {
-            char buf[1024];
-            memset(buf, 0, sizeof(buf));
-            op_rc = xcm_receive(conn_socket, buf, sizeof(buf));
-            op_errno = errno;
-        }
+	if (op_rc == 0) {
+	    char buf[1024];
+	    memset(buf, 0, sizeof(buf));
+	    op_rc = xcm_receive(conn_socket, buf, sizeof(buf));
+	    op_errno = errno;
+	}
 
-        restart = tu_wait(hickup_pid) < 0;
+	restart = tu_wait(hickup_pid) < 0;
 
-        if (!restart) {
-            if (cause_time_out)
-                CHK(op_rc < 0 && op_errno == ETIMEDOUT);
-            else
-                CHK(op_rc == strlen(server_msg));
+	if (!restart) {
+	    if (cause_time_out)
+		CHK(op_rc < 0 && op_errno == ETIMEDOUT);
+	    else
+		CHK(op_rc == strlen(server_msg));
 
-        }
+	}
 
-        CHKNOERR(xcm_close(conn_socket));
+	CHKNOERR(xcm_close(conn_socket));
 
-        tu_wait(server_pid);
+	tu_wait(server_pid);
     } while (restart);
 
     return UTEST_SUCCESS;
 }
 
 static int run_net_hickup_timeout(const char *proto, sa_family_t ip_version,
-                                  bool cause_time_out)
+				  bool cause_time_out)
 {
     int rc;
     if ((rc = run_net_hickup_op(proto, ip_version, cause_time_out, true)) < 0)
-        return rc;
+	return rc;
     if ((rc = run_net_hickup_op(proto, ip_version, cause_time_out, false)) < 0)
-        return rc;
+	return rc;
     return UTEST_SUCCESS;
 }
 
@@ -1915,9 +1915,9 @@ static int run_net_hickup(const char *proto, sa_family_t ip_version)
 {
     int rc;
     if ((rc = run_net_hickup_timeout(proto, ip_version, false)) < 0)
-        return rc;
+	return rc;
     if ((rc = run_net_hickup_timeout(proto, ip_version, true)) < 0)
-        return rc;
+	return rc;
     return UTEST_SUCCESS;
 }
 
@@ -1951,7 +1951,7 @@ TESTCASE_TIMEOUT(xcm, tls_net_hickup, 120.0)
 #define TCP_MAX_SYN_RETRANSMITS (3)
 
 static int run_connect_timeout(const char *proto, sa_family_t ip_version,
-                               bool blocking)
+			       bool blocking)
 {
     const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
     const int tcp_port = 27343;
@@ -1961,7 +1961,7 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 
     char rxrule[1024];
     snprintf(rxrule, sizeof(rxrule), "INPUT -p tcp --dport %d "
-             "--tcp-flags SYN,ACK,FIN,RST SYN -i lo -j DROP",
+	     "--tcp-flags SYN,ACK,FIN,RST SYN -i lo -j DROP",
 	     tcp_port);
     const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
 
@@ -1971,23 +1971,23 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 
     int rc = 0;
     if (blocking)
-        conn_socket = xcm_connect(addr, 0);
+	conn_socket = xcm_connect(addr, 0);
     else {
-        conn_socket = xcm_connect(addr, XCM_NONBLOCK);
+	conn_socket = xcm_connect(addr, XCM_NONBLOCK);
 	rc = wait_until_finished(conn_socket, 128);
     }
 
     int grep_rc = tu_executef_es("%s -L INPUT -v -n | tail -n 1 | "
-                                 "grep -e '^ *%d *' -q", iptables_cmd,
-                                 TCP_MAX_SYN_RETRANSMITS+1);
+				 "grep -e '^ *%d *' -q", iptables_cmd,
+				 TCP_MAX_SYN_RETRANSMITS+1);
 
     tu_executef("%s -D %s", iptables_cmd, rxrule);
 
     if (blocking)
-        CHK(!conn_socket);
+	CHK(!conn_socket);
     else {
-        CHK(conn_socket);
-        CHK(rc < 0);
+	CHK(conn_socket);
+	CHK(rc < 0);
     }
     CHK(errno == ETIMEDOUT);
 
@@ -2012,11 +2012,11 @@ TESTCASE_TIMEOUT(xcm, tls_connect_timeout, 120.0)
     REQUIRE_ROOT;
 
     if (run_connect_timeout("tls", AF_INET, false) < 0)
-        return UTEST_FAIL;
+	return UTEST_FAIL;
     if (run_connect_timeout("tls", AF_INET6, false) < 0)
-        return UTEST_FAIL;
+	return UTEST_FAIL;
     if (run_connect_timeout("tls", AF_INET6, true) < 0)
-        return UTEST_FAIL;
+	return UTEST_FAIL;
     return UTEST_SUCCESS;
 }
 
@@ -2034,11 +2034,11 @@ static int run_dscp_marking(const char *proto, sa_family_t ip_version)
 
     char drule[1024];
     snprintf(drule, sizeof(drule), "INPUT -p tcp --dport %d "
-             "-m dscp \\! --dscp %d -i lo -j DROP", tcp_port, EXPECTED_DSCP);
+	     "-m dscp \\! --dscp %d -i lo -j DROP", tcp_port, EXPECTED_DSCP);
 
     char srule[1024];
     snprintf(srule, sizeof(srule), "INPUT -p tcp --sport %d "
-             "-m dscp \\! --dscp %d -i lo -j DROP", tcp_port, EXPECTED_DSCP);
+	     "-m dscp \\! --dscp %d -i lo -j DROP", tcp_port, EXPECTED_DSCP);
 
     const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
 
@@ -2049,7 +2049,7 @@ static int run_dscp_marking(const char *proto, sa_family_t ip_version)
     const char *server_msg = "salute";
 
     pid_t server_pid =
-        simple_server(NULL, addr, client_msg, server_msg, NULL, false);
+	simple_server(NULL, addr, client_msg, server_msg, NULL, false);
 
     struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
 
@@ -2058,12 +2058,12 @@ static int run_dscp_marking(const char *proto, sa_family_t ip_version)
     int close_rc = -1;
 
     if (conn_socket) {
-        send_rc = xcm_send(conn_socket, client_msg, strlen(client_msg));
+	send_rc = xcm_send(conn_socket, client_msg, strlen(client_msg));
 
-        char buf[1024];
-        receive_rc = xcm_receive(conn_socket, buf, sizeof(buf));
+	char buf[1024];
+	receive_rc = xcm_receive(conn_socket, buf, sizeof(buf));
 
-        close_rc = xcm_close(conn_socket);
+	close_rc = xcm_close(conn_socket);
     }
 
     tu_executef("%s -D %s", iptables_cmd, drule);
@@ -2748,7 +2748,7 @@ TESTCASE_SERIALIZED(xcm, tls_detect_changes_to_cert_files)
 	    "subca_only_cert_1" : "subca_only_cert_2";
 
 	CHKNOERR(tu_execute_es("rm -f ./test/tls/current"));
-        CHKNOERR(tu_executef_es("ln -s %s ./test/tls/current",
+	CHKNOERR(tu_executef_es("ln -s %s ./test/tls/current",
 				actual_cert_dir));
 
 	struct xcm_socket *conn = tu_connect_retry(tls_addr, 0);
@@ -2888,7 +2888,7 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 /* this server don't care about anything but not crashing (segfault,
    abort() due to assertions etc */
 static pid_t resilient_server(const char *addr, int num_conns,
-                              int accepted_errno)
+			      int accepted_errno)
 {
     pid_t p = fork();
     if (p < 0)
@@ -2904,20 +2904,20 @@ static pid_t resilient_server(const char *addr, int num_conns,
 
     int i;
     for (i=0; i<num_conns; i++) {
-        struct xcm_socket *conn = xcm_accept(server_sock);
-        if (!conn)
-            continue;
+	struct xcm_socket *conn = xcm_accept(server_sock);
+	if (!conn)
+	    continue;
 
-        for (;;) {
-            char buf[1024];
-            int rc = xcm_receive(conn, buf, sizeof(buf));
+	for (;;) {
+	    char buf[1024];
+	    int rc = xcm_receive(conn, buf, sizeof(buf));
 
-            if (rc == 0 || (rc < 0 && errno == accepted_errno))
-                break;
-            else if (rc < 0)
+	    if (rc == 0 || (rc < 0 && errno == accepted_errno))
+		break;
+	    else if (rc < 0)
 		exit(EXIT_FAILURE);
-        }
-        xcm_close(conn);
+	}
+	xcm_close(conn);
     }
 
     xcm_close(server_sock);
@@ -2926,7 +2926,7 @@ static pid_t resilient_server(const char *addr, int num_conns,
 }
 
 static int tcp_spammer(int dport, int max_writes, int write_max_size,
-                       int max_retries)
+		       int max_retries)
 {
     int sock;
     CHKNOERR((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)));
@@ -2946,19 +2946,19 @@ static int tcp_spammer(int dport, int max_writes, int write_max_size,
 	if (rc == 0)
 	    break;
 	if (++retries > max_retries) {
-            close(sock);
+	    close(sock);
 	    return UTEST_FAIL;
-        }
+	}
 	tu_msleep(1);
     }
 
     int writes_left = tu_randint(1, max_writes);
     ssize_t send_rc;
     do {
-        size_t write_sz = tu_randint(1, write_max_size);
-        uint8_t buf[write_sz];
-        tu_randomize(buf, write_sz);
-        send_rc = send(sock, buf, write_sz, 0);
+	size_t write_sz = tu_randint(1, write_max_size);
+	uint8_t buf[write_sz];
+	tu_randomize(buf, write_sz);
+	send_rc = send(sock, buf, write_sz, 0);
     } while (send_rc > 0 && --writes_left > 0);
 
     close(sock);
@@ -2983,7 +2983,7 @@ static int run_garbled_tcp_input(const char *proto, int iter)
     int i;
     for (i=0; i<iter-1; i++) {
 	CHKNOERR(tcp_spammer(port, SPAMMER_MAX_WRITES, SPAMMER_WRITE_MAX_SIZE,
-                             SPAMMER_RETRIES));
+			     SPAMMER_RETRIES));
     }
 
     /* OpenSSL returns interesting error codes if the connection is
@@ -3227,19 +3227,19 @@ static int test_attr_get(struct xcmc_session *s)
     value[0] = '\0';
     enum xcm_attr_type type;
     if (xcmc_attr_get(s, "xcm.transport", &type, value,
-                      sizeof(value)) < 0) {
+		      sizeof(value)) < 0) {
 	perror("xcmc_attr_get");
-        return -1;
+	return -1;
     }
     if (type != xcm_attr_type_str)
-        return -1;
+	return -1;
     if (strlen(value) == 0)
-        return -1;
+	return -1;
     return 0;
 }
 
 static void count_cb(const char *attr_name, enum xcm_attr_type type,
-                     void *attr_value, size_t attr_len, void *cb_data)
+		     void *attr_value, size_t attr_len, void *cb_data)
 {
     int *count = cb_data;
     (*count)++;
@@ -3249,11 +3249,11 @@ static int test_attr_get_all(struct xcmc_session *s)
 {
     int count = 0;
     if (xcmc_attr_get_all(s, count_cb, &count) < 0) {
-        perror("attr_get_all");
-        return -1;
+	perror("attr_get_all");
+	return -1;
     }
     if (count == 0)
-        return -1;
+	return -1;
     return 0;
 }
 
@@ -3261,26 +3261,26 @@ static int test_ctl_access(struct ctl_ary *d)
 {
     int i;
     for (i=0; i<d->num_ctls; i++) {
-        errno = 0;
+	errno = 0;
 	struct xcmc_session *s =
 	    xcmc_open(d->creator_pids[i], d->sock_refs[i]);
 	if (!s) {
-            perror("xcmc_open");
+	    perror("xcmc_open");
 	    return -1;
-        }
+	}
 
 	if (is_in_valgrind())
 	    tu_msleep(250);
 
-        /* we won't respond to our own requests, since the thread is busy
-           with the test code */
-        if (d->creator_pids[i] != getpid() &&
-            (test_attr_get(s) < 0 || test_attr_get_all(s) < 0))
-            return -1;
-	if (xcmc_close(s) < 0) {
-            perror("xcmc_close");
+	/* we won't respond to our own requests, since the thread is busy
+	   with the test code */
+	if (d->creator_pids[i] != getpid() &&
+	    (test_attr_get(s) < 0 || test_attr_get_all(s) < 0))
 	    return -1;
-        }
+	if (xcmc_close(s) < 0) {
+	    perror("xcmc_close");
+	    return -1;
+	}
     }
     return 0;
 }
@@ -3295,8 +3295,8 @@ TESTCASE(xcm, ctl_iter)
 
     int i;
     for (i=0; i<test_addrs_len; i++) {
-        pid_t server_pid =
-            pingpong_run_async_server(test_addrs[i], 1, true);
+	pid_t server_pid =
+	    pingpong_run_async_server(test_addrs[i], 1, true);
 
 	tu_msleep(500);
 
@@ -3344,10 +3344,10 @@ TESTCASE(xcm, ctl_iter)
 	CHKNOERR(xcmc_list(log_ctl_cb, &data));
 	CHKINTEQ(data.num_ctls, 0);
 
-        char ctl_dir[64];
-        test_ctl_dir(ctl_dir);
+	char ctl_dir[64];
+	test_ctl_dir(ctl_dir);
 
-        CHKNOERR(check_lingering_ctl_files(ctl_dir));
+	CHKNOERR(check_lingering_ctl_files(ctl_dir));
     }
 
     return UTEST_SUCCESS;
@@ -3369,7 +3369,7 @@ static int ctl_concurrent_clients(bool active)
     const char *client_msg = "greetings";
     const char *server_msg = "hello";
     pid_t server_pid = simple_server(NULL, test_addr, client_msg,
-                                     server_msg, NULL, active);
+				     server_msg, NULL, active);
 
     struct ctl_ary data = { .num_ctls = 0 };
 
@@ -3378,21 +3378,21 @@ static int ctl_concurrent_clients(bool active)
 
     int i;
     while (creator_pid == -1) {
-        CHKNOERR(xcmc_list(log_ctl_cb, &data));
+	CHKNOERR(xcmc_list(log_ctl_cb, &data));
 
-        for (i=0; i<data.num_ctls; i++)
-            if (data.creator_pids[i] == server_pid) {
-                creator_pid = data.creator_pids[0];
-                sock_ref = data.sock_refs[0];
-            }
+	for (i=0; i<data.num_ctls; i++)
+	    if (data.creator_pids[i] == server_pid) {
+		creator_pid = data.creator_pids[0];
+		sock_ref = data.sock_refs[0];
+	    }
     }
 
     struct xcmc_session *sessions[NUM_ACTIVE_SESSIONS];
 
     for (i=0; i<NUM_ACTIVE_SESSIONS; i++) {
-        sessions[i] = xcmc_open(creator_pid, sock_ref);
+	sessions[i] = xcmc_open(creator_pid, sock_ref);
 
-        CHK(sessions[i] != NULL);
+	CHK(sessions[i] != NULL);
     }
 
     /* make sure the process stops accepting incoming control
@@ -3423,10 +3423,10 @@ static int ctl_concurrent_clients(bool active)
     tu_msleep(100);
 
     for (i=0; i<NUM_ACTIVE_SESSIONS; i++)
-        if (i != closed_idx) {
-            CHKNOERR(test_attr_get(sessions[i]));
-            CHKNOERR(xcmc_close(sessions[i]));
-        }
+	if (i != closed_idx) {
+	    CHKNOERR(test_attr_get(sessions[i]));
+	    CHKNOERR(xcmc_close(sessions[i]));
+	}
 
     tu_msleep(100);
 

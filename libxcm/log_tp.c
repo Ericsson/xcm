@@ -18,12 +18,12 @@ const char *log_family_str(sa_family_t family)
 {
     switch (family) {
     case AF_INET:
-        return "IPv4";
+	return "IPv4";
     case AF_INET6:
-        return "IPv6";
+	return "IPv6";
     case AF_UNSPEC:
     default:
-        return "";
+	return "";
     }
 }
 

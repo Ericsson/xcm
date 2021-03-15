@@ -8,20 +8,20 @@
 #include <string.h>
 
 static int delegate_parse(int (parse_fun)(const char *, struct xcm_addr_host *,
-                                          uint16_t *port),
-                          const char *addr_s, struct xcm_addr_ip *ip,
-                          uint16_t *port)
+					  uint16_t *port),
+			  const char *addr_s, struct xcm_addr_ip *ip,
+			  uint16_t *port)
 {
     struct xcm_addr_host host;
     uint16_t p;
     int rc = parse_fun(addr_s, &host, &p);
 
     if (rc < 0)
-        return -1;
+	return -1;
 
     if (host.type == xcm_addr_type_name) {
-        errno = EINVAL;
-        return -1;
+	errno = EINVAL;
+	return -1;
     }
 
     *ip = host.ip;
@@ -59,13 +59,13 @@ int xcm_addr_ux_parse(const char *ux_addr_s, char *ux_name, size_t capacity)
 }
 
 static int delegate_make(int (make_fun)(const struct xcm_addr_host *,
-                                        uint16_t port, char *, size_t),
-                         const struct xcm_addr_ip *ip, uint16_t port,
-                         char *addr_s, size_t capacity)
+					uint16_t port, char *, size_t),
+			 const struct xcm_addr_ip *ip, uint16_t port,
+			 char *addr_s, size_t capacity)
 {
     struct xcm_addr_host host = {
-        .type = xcm_addr_type_ip,
-        .ip = *ip
+	.type = xcm_addr_type_ip,
+	.ip = *ip
     };
     return make_fun(&host, port, addr_s, capacity);
 }

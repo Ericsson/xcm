@@ -65,7 +65,7 @@ static const char *uxf_get_local_addr(struct xcm_socket *conn_s,
 static size_t ux_max_msg(struct xcm_socket *conn_s);
 static void ux_get_attrs(struct xcm_socket *s,
 			 const struct xcm_tp_attr **attr_list,
-                         size_t *attr_list_len);
+			 size_t *attr_list_len);
 static size_t ux_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops ux_ops = {
@@ -196,21 +196,21 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
     char path[UX_NAME_MAX+1];
 
     if (is_ux(s)) {
-        /* with 'abstract' UNIX addressing, we set the first byte in the
-           UNIX socket name NUL */
-        if (xcm_addr_parse_ux(remote_addr, path, sizeof(path)) < 0) {
-            LOG_ADDR_PARSE_ERR(remote_addr, errno);
-            errno = EINVAL;
-            goto err;
-        }
-        set_abstract_addr(&servaddr, path);
+	/* with 'abstract' UNIX addressing, we set the first byte in the
+	   UNIX socket name NUL */
+	if (xcm_addr_parse_ux(remote_addr, path, sizeof(path)) < 0) {
+	    LOG_ADDR_PARSE_ERR(remote_addr, errno);
+	    errno = EINVAL;
+	    goto err;
+	}
+	set_abstract_addr(&servaddr, path);
     } else {
-        if (xcm_addr_parse_uxf(remote_addr, path, sizeof(path)) < 0) {
-            LOG_ADDR_PARSE_ERR(remote_addr, errno);
-            errno = EINVAL;
-            goto err;
-        }
-        set_fs_addr(&servaddr, path);
+	if (xcm_addr_parse_uxf(remote_addr, path, sizeof(path)) < 0) {
+	    LOG_ADDR_PARSE_ERR(remote_addr, errno);
+	    errno = EINVAL;
+	    goto err;
+	}
+	set_fs_addr(&servaddr, path);
     }
 
     if (create_socket(s) < 0)
@@ -255,12 +255,12 @@ static int do_close(struct xcm_socket *s, bool owner)
     int rc = close(us->fd);
 
     if (owner && strlen(us->path) > 0) {
-        UT_SAVE_ERRNO;
-        int rc = unlink(us->path);
-        UT_RESTORE_ERRNO(unlink_errno);
+	UT_SAVE_ERRNO;
+	int rc = unlink(us->path);
+	UT_RESTORE_ERRNO(unlink_errno);
 
-        if (rc < 0)
-            LOG_UX_UNLINK_FAILED(s, us->path, unlink_errno);
+	if (rc < 0)
+	    LOG_UX_UNLINK_FAILED(s, us->path, unlink_errno);
     }
 
     return rc;
@@ -282,23 +282,23 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
 	goto err;
 
     if (is_ux(s)) {
-        /* with 'abstract' UNIX addressing, we set the first byte in the
-           UNIX socket name NUL */
-        if (xcm_addr_parse_ux(local_addr, path, sizeof(path)) < 0 ||
-            strlen(path) == 0) {
-            LOG_ADDR_PARSE_ERR(local_addr, errno);
-            errno = EINVAL;
-            goto err_close;
-        }
-        set_abstract_addr(&addr, path);
+	/* with 'abstract' UNIX addressing, we set the first byte in the
+	   UNIX socket name NUL */
+	if (xcm_addr_parse_ux(local_addr, path, sizeof(path)) < 0 ||
+	    strlen(path) == 0) {
+	    LOG_ADDR_PARSE_ERR(local_addr, errno);
+	    errno = EINVAL;
+	    goto err_close;
+	}
+	set_abstract_addr(&addr, path);
     } else {
-        if (xcm_addr_parse_uxf(local_addr, path, sizeof(path)) < 0 ||
-            strlen(path) == 0) {
-            LOG_ADDR_PARSE_ERR(local_addr, errno);
-            errno = EINVAL;
-            goto err_close;
-        }
-        set_fs_addr(&addr, path);
+	if (xcm_addr_parse_uxf(local_addr, path, sizeof(path)) < 0 ||
+	    strlen(path) == 0) {
+	    LOG_ADDR_PARSE_ERR(local_addr, errno);
+	    errno = EINVAL;
+	    goto err_close;
+	}
+	set_fs_addr(&addr, path);
     }
 
     socklen_t addr_len = is_ux(s) ?
@@ -311,7 +311,7 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
     /* after bind() has completed, there is a socket file created in
        the file system (for UXF sockets) */
     if (XCM_TP_GETOPS(s) == &uxf_ops)
-        strcpy(us->path, path);
+	strcpy(us->path, path);
 
     if (listen(us->fd, UX_CONN_BACKLOG) < 0) {
 	LOG_SERVER_LISTEN_FAILED(errno);
@@ -424,9 +424,9 @@ static int conn_event(int condition)
 {
     int event = 0;
     if (condition & XCM_SO_RECEIVABLE)
-        event |= EPOLLIN;
+	event |= EPOLLIN;
     if (condition & XCM_SO_SENDABLE)
-        event |= EPOLLOUT;
+	event |= EPOLLOUT;
 
     return event;
 }
@@ -445,19 +445,19 @@ static void ux_update(struct xcm_socket *s)
     int event;
     switch (s->type) {
     case xcm_socket_type_conn:
-        event = conn_event(s->condition);
+	event = conn_event(s->condition);
 	break;
     case xcm_socket_type_server:
-        event = server_event(s->condition);
+	event = server_event(s->condition);
 	break;
     default:
-        ut_assert(0);
+	ut_assert(0);
     }
 
     if (event)
 	epoll_reg_ensure(&us->reg, event);
     else
-        epoll_reg_reset(&us->reg);
+	epoll_reg_reset(&us->reg);
 }
 
 static int ux_finish(struct xcm_socket *s)
@@ -467,14 +467,14 @@ static int ux_finish(struct xcm_socket *s)
 }
 
 int retrieve_addr(int fd,
-                  int (*socknamefn)(int, struct sockaddr *, socklen_t *),
-                  int (*makefn)(const char *name, char *addr_s,
-                                size_t capacity),
-                  size_t addr_offset,
+		  int (*socknamefn)(int, struct sockaddr *, socklen_t *),
+		  int (*makefn)(const char *name, char *addr_s,
+				size_t capacity),
+		  size_t addr_offset,
 		  char *buf, size_t buf_len)
 {
     if (fd < 0)
-        return -1;
+	return -1;
 
     struct sockaddr_un addr;
 
@@ -488,7 +488,7 @@ int retrieve_addr(int fd,
     /* in the UNIX domain abstract namespace, the first sun_path byte
        is a NUL, so addr_offset will be set to 1 */
     size_t name_len = addr_len - offsetof(struct sockaddr_un, sun_path) -
-        addr_offset;
+	addr_offset;
     strncpy(name, addr.sun_path + addr_offset, name_len);
     name[name_len] = '\0';
 
@@ -510,7 +510,7 @@ static const char *get_remote_addr(struct xcm_socket *conn_s,
 	return NULL;
 
     if (retrieve_addr(us->fd, getpeername, makefn, addr_offset,
-                      us->raddr, sizeof(us->raddr)) < 0) {
+		      us->raddr, sizeof(us->raddr)) < 0) {
 	if (!suppress_tracing)
 	    LOG_REMOTE_SOCKET_NAME_FAILED(conn_s, errno);
 	return NULL;
@@ -542,7 +542,7 @@ static const char *get_local_addr(struct xcm_socket *socket,
 	return NULL;
 
     if (retrieve_addr(us->fd, getsockname, makefn, addr_offset,
-                      us->laddr, sizeof(us->laddr)) < 0) {
+		      us->laddr, sizeof(us->laddr)) < 0) {
 	if (!suppress_tracing)
 	    LOG_LOCAL_SOCKET_NAME_FAILED(socket, errno);
 	return NULL;

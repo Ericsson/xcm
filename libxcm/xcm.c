@@ -43,8 +43,8 @@ static int socket_wait(struct xcm_socket *conn_s, int condition)
     await(conn_s, condition);
 
     struct pollfd pfd = {
-        .fd = conn_s->epoll_fd,
-        .events = POLLIN
+	.fd = conn_s->epoll_fd,
+	.events = POLLIN
     };
 
     int rc = poll(&pfd, 1, -1);
@@ -116,7 +116,7 @@ static struct xcm_socket *socket_create(const struct xcm_tp_proto *proto,
     int epoll_fd = epoll_create1(0);
 
     if (epoll_fd < 0) {
-        LOG_EPOLL_FD_FAILED(errno);
+	LOG_EPOLL_FD_FAILED(errno);
 	goto err;
     }
 

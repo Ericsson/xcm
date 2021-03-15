@@ -66,9 +66,9 @@ struct xcm_addr_host
 
     /** Union containing the actual hostname, IPv4 or IPv6 address bytes */
     union {
-        struct xcm_addr_ip ip;
-        /* Max DNS name length is 253 characters */
-        char name[254];
+	struct xcm_addr_ip ip;
+	/* Max DNS name length is 253 characters */
+	char name[254];
     };
 };
 
@@ -101,7 +101,7 @@ int xcm_addr_parse_proto(const char *addr_s, char *proto, size_t capacity);
  * EINVAL       | Malformed address.
  */
 int xcm_addr_parse_utls(const char *utls_addr_s, struct xcm_addr_host *host,
-                        uint16_t *port);
+			uint16_t *port);
 
 /** Parses a TLS XCM address.
  *
@@ -117,7 +117,7 @@ int xcm_addr_parse_utls(const char *utls_addr_s, struct xcm_addr_host *host,
  * EINVAL       | Malformed address.
  */
 int xcm_addr_parse_tls(const char *tls_addr_s, struct xcm_addr_host *host,
-                       uint16_t *port);
+		       uint16_t *port);
 
 /** Parses a TCP XCM address.
  *
@@ -134,7 +134,7 @@ int xcm_addr_parse_tls(const char *tls_addr_s, struct xcm_addr_host *host,
  */
 
 int xcm_addr_parse_tcp(const char *tcp_addr_s, struct xcm_addr_host *host,
-                       uint16_t *port);
+		       uint16_t *port);
 
 /** Parse a SCTP XCM address.
  *
@@ -151,7 +151,7 @@ int xcm_addr_parse_tcp(const char *tcp_addr_s, struct xcm_addr_host *host,
  */
 
 int xcm_addr_parse_sctp(const char *sctp_addr_s, struct xcm_addr_host *host,
-                        uint16_t *port);
+			uint16_t *port);
 
 /** Parses an UX (UNIX Domain Socket) XCM address.
  *
@@ -182,7 +182,7 @@ int xcm_addr_parse_ux(const char *ux_addr_s, char *ux_path, size_t capacity);
  * EINVAL       | Malformed address.
  */
 int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_path,
-                       size_t capacity);
+		       size_t capacity);
 
 /** Builds a UTLS XCM address string from the supplied host and port.
  *
@@ -200,7 +200,7 @@ int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_path,
  * EINVAL       | Invalid IP address.
  */
 int xcm_addr_make_utls(const struct xcm_addr_host *host, unsigned short port,
-                       char *utls_addr_s, size_t capacity);
+		       char *utls_addr_s, size_t capacity);
 
 /** Builds a TLS XCM address string from the supplied host and port.
  *
@@ -218,7 +218,7 @@ int xcm_addr_make_utls(const struct xcm_addr_host *host, unsigned short port,
  * EINVAL       | Invalid IP address.
  */
 int xcm_addr_make_tls(const struct xcm_addr_host *host, unsigned short port,
-                      char *tls_addr_s, size_t capacity);
+		      char *tls_addr_s, size_t capacity);
 
 /** Builds a TCP XCM address string from the supplied host and port.
  *
@@ -236,7 +236,7 @@ int xcm_addr_make_tls(const struct xcm_addr_host *host, unsigned short port,
  * EINVAL       | Invalid IP address.
  */
 int xcm_addr_make_tcp(const struct xcm_addr_host *host, unsigned short port,
-                      char *tcp_addr_s, size_t capacity);
+		      char *tcp_addr_s, size_t capacity);
 
 /** Builds a SCTP XCM address string from the supplied host and port.
  *
@@ -254,7 +254,7 @@ int xcm_addr_make_tcp(const struct xcm_addr_host *host, unsigned short port,
  * EINVAL       | Invalid IP address.
  */
 int xcm_addr_make_sctp(const struct xcm_addr_host *host, unsigned short port,
-                       char *sctp_addr_s, size_t capacity);
+		       char *sctp_addr_s, size_t capacity);
 
 /** Builds an UX XCM address string from the supplied UNIX Domain Socket name.
  *

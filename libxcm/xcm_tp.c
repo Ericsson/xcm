@@ -330,13 +330,13 @@ static int get_max_msg_attr(struct xcm_socket *s,
 			    void *value, size_t capacity)
 {
     if (s->type != xcm_socket_type_conn) {
-        errno = ENOENT;
-        return -1;
+	errno = ENOENT;
+	return -1;
     }
 
     if (capacity < sizeof(int64_t)) {
-        errno = EOVERFLOW;
-        return -1;
+	errno = EOVERFLOW;
+	return -1;
     }
 
     int64_t max_msg = XCM_TP_CALL(max_msg, s);

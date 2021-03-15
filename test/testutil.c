@@ -28,7 +28,7 @@
 #define CONNECT_RETRY(connect_fun, ...)					\
     ({									\
 	struct xcm_socket *conn = NULL;					\
-        int i;								\
+	int i;								\
 	for (i=0; i<RETRIES; i++) {					\
 	    conn = connect_fun(__VA_ARGS__);		\
 	    if (conn || (errno != ECONNREFUSED && errno != ETIMEDOUT &&	\

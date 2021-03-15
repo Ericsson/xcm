@@ -125,11 +125,11 @@ typedef int (*utest_teardown_fun)(void);
 typedef int (*utest_test_fun)(void);
 
 void testsuite_register(const char *name,
-                        utest_setup_fun setup, utest_teardown_fun teardown);
+			utest_setup_fun setup, utest_teardown_fun teardown);
 
 void testcase_register(const char *suite_name, const char *name,
-                       utest_test_fun fun, bool serialized,
-                       double timeout);
+		       utest_test_fun fun, bool serialized,
+		       double timeout);
 
 #define TESTCASE_DEFAULT_TIMEOUT (30.0)
 
@@ -137,18 +137,18 @@ void testcase_register(const char *suite_name, const char *name,
     static __attribute__ ((constructor))                                \
     void testsuite_ ## tc_suite ## _reg(void)                           \
     {                                                                   \
-        testsuite_register(#suite_name, suite_setup, suite_teardown);   \
+	testsuite_register(#suite_name, suite_setup, suite_teardown);   \
     }                                                                   \
 
 #define _TESTCASE(tc_suite, tc_name, tc_serialized, tc_tmo)             \
     static int testcase_ ## tc_suite ## _ ## tc_name(void);             \
     static __attribute__ ((constructor))                                \
     void testcase_ ## tc_suite ## _ ## tc_name ## _reg(void)            \
-                                                                        \
+									\
     {                                                                   \
-        testcase_register(#tc_suite, #tc_name,                          \
-                          testcase_ ## tc_suite ## _ ## tc_name, \
-                          tc_serialized, tc_tmo);                              \
+	testcase_register(#tc_suite, #tc_name,                          \
+			  testcase_ ## tc_suite ## _ ## tc_name, \
+			  tc_serialized, tc_tmo);                              \
     }                                                                   \
     static int testcase_ ## tc_suite ## _ ## tc_name(void)
 

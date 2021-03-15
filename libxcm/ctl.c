@@ -104,7 +104,7 @@ struct ctl *ctl_create(struct xcm_socket *socket)
     UT_RESTORE_ERRNO_DC;
 
     if (server_fd < 0)
-        return NULL;
+	return NULL;
 
     struct ctl *ctl = ut_calloc(sizeof(struct ctl));
 
@@ -131,7 +131,7 @@ static void remove_client(struct ctl *ctl, int client_idx)
 	memcpy(rclient, &ctl->clients[last_idx], sizeof(struct client));
 
     if (ctl->num_clients == MAX_CLIENTS)
-        epoll_reg_set_add(&ctl->reg_set, ctl->server_fd, EPOLLIN);
+	epoll_reg_set_add(&ctl->reg_set, ctl->server_fd, EPOLLIN);
 
     ctl->num_clients--;
 
@@ -142,8 +142,8 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 {
     if (ctl) {
 	UT_SAVE_ERRNO;
-        while (ctl->num_clients > 0)
-            remove_client(ctl, 0);
+	while (ctl->num_clients > 0)
+	    remove_client(ctl, 0);
 
 	struct sockaddr_un laddr;
 
@@ -152,7 +152,7 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 	int rc = getsockname(ctl->server_fd, (struct sockaddr *)&laddr,
 			     &laddr_len);
 
-        epoll_reg_set_reset(&ctl->reg_set);
+	epoll_reg_set_reset(&ctl->reg_set);
 
 	close(ctl->server_fd);
 
@@ -230,11 +230,11 @@ static int process_client(struct client *client, struct ctl *ctl)
 		return 0;
 	    LOG_CLIENT_ERROR(ctl->socket, client->fd, send_errno);
 	    return -1;
-        }
+	}
 
 	client->is_response_pending = false;
 
-        epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLIN);
+	epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLIN);
     } else {
 	struct ctl_proto_msg req;
 
@@ -253,7 +253,7 @@ static int process_client(struct client *client, struct ctl *ctl)
 	}
 
 	client->is_response_pending = true;
-        epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLOUT);
+	epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLOUT);
 
 	struct ctl_proto_msg *res = &client->pending_response;
 
@@ -289,7 +289,7 @@ static void accept_client(struct ctl *ctl)
     if (rc < 0) {
 	LOG_CTL_NONBLOCK(ctl->socket, errno);
 	close(client_fd);
-        return;
+	return;
     }
 
     epoll_reg_set_add(&ctl->reg_set, client_fd, EPOLLIN);
@@ -300,7 +300,7 @@ static void accept_client(struct ctl *ctl)
     nclient->is_response_pending = false;
 
     if (ctl->num_clients == MAX_CLIENTS)
-        epoll_reg_set_del(&ctl->reg_set, ctl->server_fd);
+	epoll_reg_set_del(&ctl->reg_set, ctl->server_fd);
 
     LOG_CLIENT_ACCEPTED(ctl->socket, nclient->fd, ctl->num_clients);
 

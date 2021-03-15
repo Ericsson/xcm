@@ -8,12 +8,12 @@
 #include <stdbool.h>
 
 void epoll_reg_init(struct epoll_reg *reg, int epoll_fd, int fd,
-                    void *log_ref)
+		    void *log_ref)
 {
     *reg = (struct epoll_reg) {
-        .epoll_fd = epoll_fd,
-        .fd = fd,
-        .log_ref = log_ref
+	.epoll_fd = epoll_fd,
+	.fd = fd,
+	.log_ref = log_ref
     };
 }
 
@@ -36,12 +36,12 @@ void epoll_reg_add(struct epoll_reg *reg, int event)
     LOG_EPOLL_ADD(reg->log_ref, reg->epoll_fd, reg->fd, event);
 
     struct epoll_event nevent = {
-        .events = event
+	.events = event
     };
 
     if (epoll_ctl(reg->epoll_fd, EPOLL_CTL_ADD, reg->fd, &nevent) < 0) {
-        LOG_EPOLL_ADD_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
-        abort();
+	LOG_EPOLL_ADD_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
+	abort();
     }
     reg->event = event;
 }
@@ -53,12 +53,12 @@ void epoll_reg_mod(struct epoll_reg *reg, int event)
     LOG_EPOLL_MOD(reg->log_ref, reg->epoll_fd, reg->fd, event);
 
     struct epoll_event nevent = {
-        .events = event
+	.events = event
     };
 
     if (epoll_ctl(reg->epoll_fd, EPOLL_CTL_MOD, reg->fd, &nevent) < 0) {
-        LOG_EPOLL_MOD_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
-        abort();
+	LOG_EPOLL_MOD_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
+	abort();
     }
     reg->event = event;
 }
@@ -70,9 +70,9 @@ void epoll_reg_ensure(struct epoll_reg *reg, int event)
     LOG_EPOLL_ENSURE(reg->log_ref, reg->epoll_fd, reg->fd, event);
 
     if (!reg_is_added(reg))
-        epoll_reg_add(reg, event);
+	epoll_reg_add(reg, event);
     else if (event != reg->event)
-        epoll_reg_mod(reg, event);
+	epoll_reg_mod(reg, event);
 }
 
 void epoll_reg_del(struct epoll_reg *reg)
@@ -90,8 +90,8 @@ void epoll_reg_del(struct epoll_reg *reg)
        threads) */
     if (rc < 0 && (epoll_errno != EBADF && epoll_errno != ENOENT &&
 		   epoll_errno != EPERM)) {
-        LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
-        abort();
+	LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
+	abort();
     }
 
     reg->event = 0;
@@ -100,5 +100,5 @@ void epoll_reg_del(struct epoll_reg *reg)
 void epoll_reg_reset(struct epoll_reg *reg)
 {
     if (reg_is_added(reg))
-        epoll_reg_del(reg);
+	epoll_reg_del(reg);
 }
