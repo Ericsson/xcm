@@ -5,12 +5,9 @@
 
 #include "util.h"
 
-#include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -157,77 +154,6 @@ bool ut_is_blocking(int fd)
 {
     int flags = fcntl(fd, F_GETFL, 0);
     return flags & O_NONBLOCK ? false : true;
-}
-
-int ut_tcp_disable_nagle(int fd)
-{
-    int flag = 1;
-    return setsockopt(fd, SOL_TCP, TCP_NODELAY, &flag, sizeof(flag));
-}
-
-int ut_tcp_reuse_addr(int fd)
-{
-    int reuse = 1;
-    return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-}
-
-#define TCP_KEEPALIVE_TIME (1)
-#define TCP_KEEPALIVE_INTVL (1)
-#define TCP_KEEPALIVE_PROBES (3)
-
-int ut_tcp_enable_keepalive(int fd)
-{
-    int keepalive = 1;
-    int keepalive_time = TCP_KEEPALIVE_TIME;
-    int keepalive_intvl = TCP_KEEPALIVE_INTVL;
-    int keepalive_probes = TCP_KEEPALIVE_PROBES;
-
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive,
-		   sizeof(keepalive)) < 0 ||
-	setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &keepalive_time,
-		   sizeof(keepalive_time)) < 0 ||
-	setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &keepalive_intvl,
-		   sizeof(keepalive_intvl)) < 0 ||
-	setsockopt(fd, SOL_TCP, TCP_KEEPCNT, &keepalive_probes,
-		   sizeof(keepalive_probes)) < 0)
-	return -1;
-    /* Set unacknowledged data timeout to about the same as the TCP
-       keepalive timeout. If not set, TCP will retransmit for
-       "net.ipv4.tcp_retries2" times in case there are unacknowledged
-       data at the time of lost network connectivity, which takes a
-       long time (RTO-dependent, something like 15 minutes). */
-    int user_timeout_ms = keepalive_intvl*keepalive_probes*1000;
-
-    if (setsockopt(fd, SOL_TCP, TCP_USER_TIMEOUT, &user_timeout_ms,
-		   sizeof(user_timeout_ms)) < 0)
-	return -1;
-    return 0;
-}
-
-#define TCP_MAX_SYN_RETRANSMITS (3)
-
-int ut_tcp_reduce_max_syn(int fd)
-{
-    int max_syn = TCP_MAX_SYN_RETRANSMITS;
-    return setsockopt(fd, SOL_TCP, TCP_SYNCNT, &max_syn, sizeof(max_syn));
-}
-
-#define XCM_IP_DSCP (40)
-
-#define DSCP_TO_TOS(dscp) ((dscp)<<2)
-
-int ut_tcp_set_dscp(int family, int fd)
-{
-    /* the kernel ignores the ECN part of the TOS, so effectivily
-       setting IP_TOS is only about setting the DSCP part of the
-       field */
-    int tos = DSCP_TO_TOS(XCM_IP_DSCP);
-    if (family == AF_INET) {
-	return setsockopt(fd, SOL_IP, IP_TOS,  &tos, sizeof(tos));
-    } else {
-	ut_assert(family == AF_INET6);
-	return setsockopt(fd, SOL_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
-    }
 }
 
 static int socket_error(int fd)

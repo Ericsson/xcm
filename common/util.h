@@ -39,16 +39,6 @@ void ut_aprintf(char *buf, size_t capacity, const char *format, ...);
 int ut_set_blocking(int fd, bool should_block);
 bool ut_is_blocking(int fd);
 
-int ut_tcp_reuse_addr(int fd);
-
-int ut_tcp_disable_nagle(int fd);
-
-int ut_tcp_enable_keepalive(int fd);
-
-int ut_tcp_reduce_max_syn(int fd);
-
-int ut_tcp_set_dscp(int family, int fd);
-
 int ut_established(int fd);
 
 /* 'name' buffer needs to be NAME_MAX in size */

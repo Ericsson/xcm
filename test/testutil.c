@@ -281,6 +281,44 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
     return 0;
 }
 
+int tu_assure_bool_attr(struct xcm_socket *s, const char *attr_name,
+			bool value)
+{
+    bool actual_value;
+
+    int rc;
+    if (random() % 1) {
+	enum xcm_attr_type type = 4711;
+	rc = xcm_attr_get(s, attr_name, &type, &actual_value,
+			  sizeof(actual_value));
+	if (type != xcm_attr_type_bool)
+	    return -1;
+    } else
+	rc = xcm_attr_get_bool(s, attr_name, &actual_value);
+
+    if (rc != sizeof(bool))
+	return -1;
+
+    if (actual_value != value)
+	return -1;
+
+    struct search search = {
+	.name = attr_name,
+	.found = false
+    };
+    xcm_attr_get_all(s, search_cb, &search);
+
+    if (!search.found || search.actual_type != xcm_attr_type_bool ||
+	search.actual_len != sizeof(bool))
+	return -1;
+
+    memcpy(&actual_value, search.actual_value, sizeof(bool));
+    if (actual_value != value)
+	return -1;
+
+    return 0;
+}
+
 int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 			 enum tu_cmp_type cmp_type, int64_t cmp_value)
 {

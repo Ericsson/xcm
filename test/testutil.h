@@ -36,6 +36,9 @@ bool tu_is_kernel_at_least(int wanted_major, int wanted_minor);
 
 enum tu_cmp_type { cmp_type_none, cmp_type_greater_than, cmp_type_equal };
 
+int tu_assure_bool_attr(struct xcm_socket *s, const char *attr_name,
+			bool value);
+
 int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 			 enum tu_cmp_type tu_cmp_type, int64_t cmp_value);
 

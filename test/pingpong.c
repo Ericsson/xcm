@@ -9,6 +9,7 @@
 #include "util.h"
 #include "xcm.h"
 
+#include <netinet/tcp.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -694,6 +695,12 @@ static void relay(int conn_sock_a, int conn_sock_b)
     }
 }
 
+static int disable_nagle(int fd)
+{
+    int flag = 1;
+    return setsockopt(fd, SOL_TCP, TCP_NODELAY, &flag, sizeof(flag));
+}
+
 #define SLEEP_MAX_US (5*1000)
 
 pid_t pingpong_run_tcp_relay(uint16_t local_port, in_addr_t to_host,
@@ -730,7 +737,7 @@ pid_t pingpong_run_tcp_relay(uint16_t local_port, in_addr_t to_host,
 	if ((conn_sock_a = accept(server_sock, NULL, NULL)) < 0)
 	    ut_die("Error accepting connection");
 
-	if (ut_tcp_disable_nagle(conn_sock_a) < 0)
+	if (disable_nagle(conn_sock_a) < 0)
 	    ut_die("Error disabling Nagle");
 
 	int conn_sock_b;
@@ -745,7 +752,7 @@ pid_t pingpong_run_tcp_relay(uint16_t local_port, in_addr_t to_host,
 	if (connect(conn_sock_b, (struct sockaddr*)&raddr, sizeof(raddr)) < 0)
 	    ut_die("Unable to connect");
 
-	if (ut_tcp_disable_nagle(conn_sock_b) < 0)
+	if (disable_nagle(conn_sock_b) < 0)
 	    ut_die("Error disabling Nagle");
 
 	relay(conn_sock_a, conn_sock_b);

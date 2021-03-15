@@ -120,15 +120,17 @@
     log_debug("Error setting TCP max SYN count; errno %d "      \
 	      "(%s).", reason_errno, strerror(reason_errno))
 
-#define LOG_SOCKET_OPTIONS_FAILED(proto_name, reason_errno)		\
-    log_debug("Error setting %s socket options; errno %d "		\
-	      "(%s).", proto_name, reason_errno, strerror(reason_errno))
+#define LOG_SOCKET_OPTION_FAILED(proto_name, opt_name, opt_value,	\
+				 reason_errno)				\
+    log_debug("Error setting %s socket option %s to %d; errno %d "	\
+	      "(%s).", proto_name, opt_name, opt_value, reason_errno,	\
+	      strerror(reason_errno))
 
-#define LOG_TCP_SOCKET_OPTIONS_FAILED(reason_errno)	\
-    LOG_SOCKET_OPTIONS_FAILED("TCP", reason_errno)
+#define LOG_TCP_SOCKET_OPTION_FAILED(opt_name, opt_value, reason_errno)	\
+    LOG_SOCKET_OPTION_FAILED("TCP", opt_name, opt_value, reason_errno)
 
-#define LOG_SCTP_SOCKET_OPTIONS_FAILED(reason_errno)	\
-    LOG_SOCKET_OPTIONS_FAILED("SCTP", reason_errno)
+#define LOG_SCTP_SOCKET_OPTION_FAILED(opt_name, opt_value, reason_errno) \
+    LOG_SOCKET_OPTION_FAILED("SCTP", opt_name, opt_value, reason_errno)
 
 #define LOG_PASS_CRED_FAILED(reason_errno) \
     log_debug("Error enabling UNIX domain socket SO_PASSCRED; errno %d " \

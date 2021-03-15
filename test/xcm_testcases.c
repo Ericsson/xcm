@@ -131,6 +131,26 @@ static bool is_wildcard_addr(const char *addr)
     return strchr(addr, '*') != NULL;
 }
 
+static int check_keepalive_conf(struct xcm_socket *s)
+{
+    if (tu_assure_bool_attr(s, "tcp.keepalive", true) < 0)
+	return UTEST_FAIL;
+    if (tu_assure_int64_attr(s, "tcp.keepalive_time",
+			     cmp_type_equal, 1) < 0)
+	return UTEST_FAIL;
+    if (tu_assure_int64_attr(s, "tcp.keepalive_interval",
+			     cmp_type_equal, 1) < 0)
+	return UTEST_FAIL;
+    if (tu_assure_int64_attr(s, "tcp.keepalive_count",
+			     cmp_type_equal, 3) < 0)
+	return UTEST_FAIL;
+    if (tu_assure_int64_attr(s, "tcp.user_timeout",
+			     cmp_type_equal, 1 * 3) < 0)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
+
 #define ERRNO_TO_STATUS(_errno) \
     ((_errno)<<1)
 #define STATUS_TO_ERRNO(_status) \
@@ -195,6 +215,14 @@ static pid_t simple_server(const char *ns, const char *addr,
 	CHKNOERR(xcm_set_blocking(server_sock, true));
 
     if (tu_assure_str_attr(conn, "xcm.type", "connection") < 0)
+	exit(EXIT_FAILURE);
+
+    char conn_tp[64];
+    if (xcm_attr_get_str(conn, "xcm.transport", conn_tp, sizeof(conn_tp)) < 0)
+	exit(EXIT_FAILURE);
+
+    if ((strncmp(conn_tp, "tls", 3) == 0 || strncmp(conn_tp, "tcp", 3) == 0)
+	&& check_keepalive_conf(conn) < 0)
 	exit(EXIT_FAILURE);
 
     char buf[1024];
@@ -774,7 +802,7 @@ TESTCASE(xcm, nonexistent_attr)
 	xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
 	xcm_attr_map_add_str(attrs, "xcm.nonexistent", "foo");
 
-	//CHKNULLERRNO(xcm_server_a(test_addrs[i], attrs), ENOENT);
+	CHKNULLERRNO(xcm_server_a(test_addrs[i], attrs), ENOENT);
 	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), ENOENT);
 
 	xcm_attr_map_destroy(attrs);
@@ -1695,7 +1723,7 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
 {
     const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
 
-    const int tcp_port = 26645;
+    const int tcp_port = gen_tcp_port();
     char addr[64];
     snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
 
@@ -1709,6 +1737,8 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
     CHKNOERR(check_blocking(conn_socket, true));
 
     CHKNOERR(set_blocking(conn_socket, false));
+
+    CHKNOERR(check_keepalive_conf(conn_socket));
 
     manage_tcp_filter(ip_version, tcp_port, true);
 
@@ -1798,6 +1828,122 @@ TESTCASE_TIMEOUT(xcm, tls_dead_peer_detection, 60.0)
     return UTEST_SUCCESS;
 }
 
+#endif
+
+#define DETECTION_TIME (2.5)
+
+static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
+{
+    const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
+
+    const int tcp_port = gen_tcp_port();
+    char addr[64];
+    snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
+
+    struct xcm_socket *server_sock = xcm_server(addr);
+    CHK(server_sock);
+
+    CHKNOERR(set_blocking(server_sock, false));
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+    xcm_attr_map_add_bool(attrs, "tcp.keepalive", false);
+    xcm_attr_map_add_int64(attrs, "tcp.keepalive_count", 1);
+
+    struct xcm_socket *client_sock = xcm_connect_a(addr, attrs);
+    CHK(client_sock);
+
+    CHKNOERR(tu_assure_int64_attr(client_sock, "tcp.keepalive_count",
+				  cmp_type_equal, 1));
+    CHKNOERR(tu_assure_bool_attr(client_sock, "tcp.keepalive", false));
+
+    struct xcm_socket *accepted_sock;
+    do {
+	accepted_sock = xcm_accept_a(server_sock, attrs);
+    } while (!accepted_sock || xcm_finish(client_sock) < 0 ||
+	     xcm_finish(accepted_sock) < 0);
+
+    CHKNOERR(tu_assure_int64_attr(accepted_sock, "tcp.keepalive_count",
+				  cmp_type_equal, 1));
+    CHKNOERR(tu_assure_bool_attr(accepted_sock, "tcp.keepalive", false));
+
+    bool keepalive_disabled_done = false;
+    bool client_done = false;
+    bool accepted_done = false;
+
+    manage_tcp_filter(ip_version, tcp_port, true);
+
+    double deadline = tu_ftime() + DETECTION_TIME * 1.5;
+
+    /* no detection expected, since keepalive is disabled */
+    while(tu_ftime() < deadline) {
+	char b;
+	if (xcm_receive(client_sock, &b, 1) < 0 && errno != EAGAIN)
+	    goto fail;
+	if (xcm_receive(accepted_sock, &b, 1) < 0 && errno != EAGAIN)
+	    goto fail;
+    }
+
+    keepalive_disabled_done = true;
+
+    CHKNOERR(xcm_attr_set_bool(client_sock, "tcp.keepalive", true));
+    CHKNOERR(xcm_attr_set_bool(accepted_sock, "tcp.keepalive", true));
+
+    deadline = tu_ftime() + DETECTION_TIME;
+    while(tu_ftime() < deadline) {
+	char b;
+	if (!client_done && xcm_receive(client_sock, &b, 1) < 0 &&
+	    errno == ETIMEDOUT)
+	    client_done = true;
+	if (!accepted_done && xcm_receive(accepted_sock, &b, 1) < 0 &&
+	    errno == ETIMEDOUT)
+	    accepted_done = true;
+    }
+
+fail:
+    manage_tcp_filter(ip_version, tcp_port, false);
+
+    CHK(keepalive_disabled_done);
+
+    CHK(client_done);
+    CHK(accepted_done);
+
+    xcm_attr_map_destroy(attrs);
+
+    CHKNOERR(xcm_close(server_sock));
+    CHKNOERR(xcm_close(accepted_sock));
+    CHKNOERR(xcm_close(client_sock));
+
+    return UTEST_SUCCESS;
+}
+
+
+TESTCASE(xcm, tcp_keepalive_attr)
+{
+    REQUIRE_ROOT;
+
+    if (run_keepalive_attr("tcp", AF_INET) < 0)
+	return UTEST_FAIL;
+
+    if (run_keepalive_attr("tcp", AF_INET6) < 0)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
+
+#ifdef XCM_TLS
+TESTCASE(xcm, tls_keepalive_attr)
+{
+    REQUIRE_ROOT;
+
+    if (run_keepalive_attr("tls", AF_INET) < 0)
+	return UTEST_FAIL;
+
+    if (run_keepalive_attr("tls", AF_INET6) < 0)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
 #endif
 
 #define SHORT_HICKUP_DURATION (1700) /* ms */

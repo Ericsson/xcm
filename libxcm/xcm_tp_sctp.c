@@ -230,7 +230,10 @@ static int create_socket(struct xcm_socket *s, sa_family_t family)
 static int disable_sctp_nagle(int fd)
 {
     int flag = 1;
-    return setsockopt(fd, SOL_SCTP, SCTP_NODELAY, &flag, sizeof(flag));
+    int rc = setsockopt(fd, SOL_SCTP, SCTP_NODELAY, &flag, sizeof(flag));
+    if (rc < 0)
+	LOG_SCTP_SOCKET_OPTION_FAILED("SCTP_NODELAY", flag, errno);
+    return rc;
 }
 
 static int assure_rcv_buf(int fd, int min_bufsz)
@@ -257,8 +260,12 @@ static int set_partial_delivery_point(int fd)
 	return -1;
 
     int point = PARTIAL_DELIVERY_POINT;
-    return setsockopt(fd, SOL_SCTP, SCTP_PARTIAL_DELIVERY_POINT,
-		      &point, sizeof(point));
+    int rc = setsockopt(fd, SOL_SCTP, SCTP_PARTIAL_DELIVERY_POINT,
+			&point, sizeof(point));
+    if (rc < 0)
+	LOG_SCTP_SOCKET_OPTION_FAILED("SCTP_PARTIAL_DELIVERY_POINT", point,
+				      errno);
+    return rc;
 }
 
 #define RTO_MIN (100) /* ms */
@@ -272,14 +279,19 @@ static int set_rto_min(int fd)
 	.srto_min = RTO_MIN
     };
 
-    return setsockopt(fd, SOL_SCTP, SCTP_RTOINFO, &rto, sizeof(rto));
+    int rc = setsockopt(fd, SOL_SCTP, SCTP_RTOINFO, &rto, sizeof(rto));
+
+    if (rc < 0)
+	LOG_SCTP_SOCKET_OPTION_FAILED("SCTP_RTOINFO", rto.srto_min,
+				      errno);
+    return rc;
 }
 
 static int set_sctp_conn_opts(int fd)
 {
     if (disable_sctp_nagle(fd) < 0 || set_partial_delivery_point(fd) < 0
 	|| set_rto_min(fd) < 0) {
-	LOG_SCTP_SOCKET_OPTIONS_FAILED(errno);
+
 	return -1;
     }
     return 0;

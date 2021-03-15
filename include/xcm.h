@@ -551,6 +551,7 @@ extern "C" {
  * struct xcm_attr_map *attrs = xcm_attr_map_create();
  * xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
  * xcm_attr_map_add_str(attrs, "xcm.local_addr", "tls:192.168.1.42:0");
+ * xcm_attr_map_add_int64(attrs, "tcp.keepalive_interval", 10);
  *
  * int rc = xcm_connect_a("tls:192.168.1.99:4711", attrs);
  *
@@ -789,16 +790,27 @@ extern "C" {
  *
  * @subsubsection tcp_attr TCP Socket Attributes
  *
- * The TCP attributes are retrieved from the kernel (struct tcp_info
- * in linux/tcp.h). See the tcp(7) manual page, and its section on the
- * TCP_INFO socket option.
+ * The read-only TCP attributes are retrieved from the kernel (struct
+ * tcp_info in linux/tcp.h).
  *
- * Attribute Name | Socket Type | Value Type | Mode | Description
- * ---------------|-------------|------------|------|------------
- * tcp.rtt        | Connection  | Integer    | R    | The current TCP round-trip estimate (in us).
- * tcp.total_retrans | Connection | Integer  | R    | The total number of retransmitted TCP segments.
- * tcp.segs_in    | Connection  | Integer    | R    | The total number of segments received.
- * tcp.segs_out   | Connection  | Integer    | R    | The total number of segments sent.
+ * The read-write attributes are mapped directly to setsockopt() calls.
+ *
+ * See the tcp(7) manual page for a more detailed description of these
+ * attributes. The struct retrieved with @c TCP_INFO is the basis for
+ * the read-only attributes. The read-write attributes are mapped to
+ * @c TCP_KEEP* and @c TCP_USER_TIMEOUT.
+ *
+ * Attribute Name     | Socket Type | Value Type | Mode | Description
+ * -------------------|-------------|------------|------|------------
+ * tcp.rtt            | Connection  | Integer    | R    | The current TCP round-trip estimate (in us).
+ * tcp.total_retrans  | Connection | Integer  | R    | The total number of retransmitted TCP segments.
+ * tcp.segs_in        | Connection  | Integer    | R    | The total number of segments received.
+ * tcp.segs_out       | Connection  | Integer    | R    | The total number of segments sent.
+ * tcp.keepalive      | Connection  | Boolean    | RW   | Controls if TCP keepalive is enabled.
+ * tcp.keepalive_time | Connection  | Integer    | RW   | The time (in s) before the first keepalive probe is sent on an idle connection.
+ * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes.
+ * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped.
+ * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.

@@ -114,10 +114,6 @@ void tp_sockaddr_to_tls_addr(struct sockaddr_storage *sock_addr,
     sockaddr_to_ip(sock_addr, &xcm_ip, &port);
 
     int rc = xcm_addr_tls6_make(&xcm_ip, port, xcm_addr, capacity);
-    if (rc < 0) {
-	printf("family %d\n", sock_addr->ss_family);
-	perror("make");
-    }
     ut_assert(rc == 0);
 }
 

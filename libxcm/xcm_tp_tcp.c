@@ -59,6 +59,8 @@ struct tcp_socket
 	    uint16_t remote_port;
 	    struct xcm_dns_query *query;
 
+	    struct tcp_opts tcp_opts;
+
 	    struct mbuf send_mbuf;
 	    int mbuf_sent;
 
@@ -203,8 +205,9 @@ static int tcp_init(struct xcm_socket *s)
 
 	epoll_reg_init(&ts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
 
-	mbuf_init(&ts->conn.send_mbuf);
+	tcp_opts_init(&ts->conn.tcp_opts);
 
+	mbuf_init(&ts->conn.send_mbuf);
 	mbuf_init(&ts->conn.receive_mbuf);
     }
 
@@ -223,15 +226,6 @@ static void deinit(struct xcm_socket *s)
     }
 }
 
-static int set_tcp_conn_opts(int fd)
-{
-    if (ut_tcp_disable_nagle(fd) < 0 || ut_tcp_enable_keepalive(fd) < 0) {
-	LOG_TCP_SOCKET_OPTIONS_FAILED(errno);
-	return -1;
-    }
-    return 0;
-}
-
 static int create_socket(struct xcm_socket *s, sa_family_t family)
 {
     int fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
@@ -240,7 +234,14 @@ static int create_socket(struct xcm_socket *s, sa_family_t family)
 	goto err;
     }
 
-    if (s->type == xcm_socket_type_conn && set_tcp_conn_opts(fd) < 0)
+    struct tcp_socket *ts = TOTCP(s);
+
+    if (s->type == xcm_socket_type_server &&
+	tcp_effectuate_dscp(fd) < 0)
+	goto err_close;
+
+    if (s->type == xcm_socket_type_conn &&
+	tcp_opts_effectuate(&ts->conn.tcp_opts, fd) <  0)
 	goto err_close;
 
     if (ut_set_blocking(fd, false) < 0) {
@@ -248,12 +249,7 @@ static int create_socket(struct xcm_socket *s, sa_family_t family)
 	goto err_close;
     }
 
-    if (ut_tcp_set_dscp(family, fd) < 0) {
-	LOG_TCP_SOCKET_OPTIONS_FAILED(errno);
-	goto err_close;
-    }
-
-    TOTCP(s)->fd = fd;
+    ts->fd = fd;
 
     return 0;
 
@@ -300,11 +296,6 @@ static void begin_connect(struct xcm_socket *s)
 
     if (bind_local_addr(s) < 0)
 	goto err;
-
-    if (ut_tcp_reduce_max_syn(ts->fd) < 0) {
-	LOG_TCP_MAX_SYN_FAILED(errno);
-	goto err;
-    }
 
     epoll_reg_set_fd(&ts->fd_reg, ts->fd);
 
@@ -463,7 +454,7 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
     if (create_socket(s, host.ip.family) < 0)
 	goto err_deinit;
 
-    if (port > 0 && ut_tcp_reuse_addr(ts->fd) < 0) {
+    if (port > 0 && tcp_effectuate_reuse_addr(ts->fd) < 0) {
 	LOG_SERVER_REUSEADDR_FAILED(errno);
 	goto err_close;
     }
@@ -542,7 +533,7 @@ static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	goto err_deinit;
     }
 
-    if (set_tcp_conn_opts(conn_fd) < 0)
+    if (tcp_opts_effectuate(&conn_ts->conn.tcp_opts, conn_fd) < 0)
 	goto err_close;
 
     if (ut_set_blocking(conn_fd, false) < 0) {
@@ -959,7 +950,7 @@ static size_t tcp_max_msg(struct xcm_socket *conn_s)
     return MBUF_MSG_MAX;
 }
 
-#define GEN_TCP_GET(field_name)						\
+#define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
 					   const struct xcm_tp_attr *attr, \
 					   void *value, size_t capacity) \
@@ -968,10 +959,44 @@ static size_t tcp_max_msg(struct xcm_socket *conn_s)
     }
 
 
-GEN_TCP_GET(rtt)
-GEN_TCP_GET(total_retrans)
-GEN_TCP_GET(segs_in)
-GEN_TCP_GET(segs_out)
+GEN_TCP_FIELD_GET(rtt)
+GEN_TCP_FIELD_GET(total_retrans)
+GEN_TCP_FIELD_GET(segs_in)
+GEN_TCP_FIELD_GET(segs_out)
+
+#define GEN_TCP_SET(attr_name, attr_type)				\
+    static int set_ ## attr_name ## _attr(struct xcm_socket *s,		\
+					  const struct xcm_tp_attr *attr, \
+					  const void *value, size_t len) \
+    {									\
+	struct tcp_socket *ts = TOTCP(s);				\
+									\
+	attr_type v = *((const attr_type *)value);			\
+									\
+	return tcp_set_ ## attr_name(&ts->conn.tcp_opts, v);	\
+    }
+
+#define GEN_TCP_GET(attr_name, attr_type)				\
+    static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
+					  const struct xcm_tp_attr *attr, \
+					  void *value, size_t capacity)	\
+    {									\
+    struct tcp_socket *ts = TOTCP(s);					\
+									\
+    memcpy(value, &ts->conn.tcp_opts.attr_name, sizeof(attr_type));	\
+									\
+    return sizeof(attr_type);						\
+}
+
+#define GEN_TCP_ACCESS(attr_name, attr_type) \
+    GEN_TCP_SET(attr_name, attr_type) \
+    GEN_TCP_GET(attr_name, attr_type)
+
+GEN_TCP_ACCESS(keepalive, bool)
+GEN_TCP_ACCESS(keepalive_time, int64_t)
+GEN_TCP_ACCESS(keepalive_interval, int64_t)
+GEN_TCP_ACCESS(keepalive_count, int64_t)
+GEN_TCP_ACCESS(user_timeout, int64_t)
 
 const static struct xcm_tp_attr conn_attrs[] = {
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
@@ -981,7 +1006,18 @@ const static struct xcm_tp_attr conn_attrs[] = {
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_IN, xcm_attr_type_int64,
 			get_segs_in_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_OUT, xcm_attr_type_int64,
-			get_segs_out_attr)
+			get_segs_out_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE, xcm_attr_type_bool,
+			set_keepalive_attr, get_keepalive_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_TIME, xcm_attr_type_int64,
+			set_keepalive_time_attr, get_keepalive_time_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_INTERVAL, xcm_attr_type_int64,
+			set_keepalive_interval_attr,
+			get_keepalive_interval_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_COUNT, xcm_attr_type_int64,
+			set_keepalive_count_attr, get_keepalive_count_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_USER_TIMEOUT, xcm_attr_type_int64,
+			set_user_timeout_attr, get_user_timeout_attr)
 };
 
 static void tcp_get_attrs(struct xcm_socket *s,
