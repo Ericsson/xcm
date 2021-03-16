@@ -2624,6 +2624,8 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
 
     CHK(info.success);
 
+    close(old_ns_fd);
+
     return UTEST_SUCCESS;
 }
 
