@@ -1942,7 +1942,8 @@ TESTCASE_TIMEOUT(xcm, tls_net_hickup, 120.0)
 
 #endif
 
-#define TCP_MAX_SYN_RETRANSMITS (3)
+#define MAX_CONNECT_TIMEOUT (5)
+#define MIN_CONNECT_TIMEOUT (2.5)
 
 static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 			       bool blocking)
@@ -1954,8 +1955,7 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
     snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
 
     char rxrule[1024];
-    snprintf(rxrule, sizeof(rxrule), "INPUT -p tcp --dport %d "
-	     "--tcp-flags SYN,ACK,FIN,RST SYN -i lo -j DROP",
+    snprintf(rxrule, sizeof(rxrule), "INPUT -p tcp --dport %d -i lo -j DROP",
 	     tcp_port);
     const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
 
@@ -1963,6 +1963,7 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 
     struct xcm_socket *conn_socket;
 
+    double start = tu_ftime();
     int rc = 0;
     if (blocking)
 	conn_socket = xcm_connect(addr, 0);
@@ -1970,10 +1971,7 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 	conn_socket = xcm_connect(addr, XCM_NONBLOCK);
 	rc = wait_until_finished(conn_socket, 128);
     }
-
-    int grep_rc = tu_executef_es("%s -L INPUT -v -n | tail -n 1 | "
-				 "grep -e '^ *%d *' -q", iptables_cmd,
-				 TCP_MAX_SYN_RETRANSMITS+1);
+    double latency = tu_ftime() - start;
 
     tu_executef("%s -D %s", iptables_cmd, rxrule);
 
@@ -1985,7 +1983,8 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
     }
     CHK(errno == ETIMEDOUT);
 
-    CHKINTEQ(grep_rc, 0);
+    CHK(latency <= MAX_CONNECT_TIMEOUT);
+    CHK(latency >= MIN_CONNECT_TIMEOUT);
 
     CHKNOERR(xcm_close(conn_socket));
 
