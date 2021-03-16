@@ -227,10 +227,10 @@ static void get_file(const char *default_tmpl, const char *ns_tmpl,
 		     const char *ns, const char *cert_dir,
 		     char *buf, size_t capacity)
 {
-    if (ns == NULL)
+    if (strlen(ns) == 0)
 	ut_snprintf(buf, capacity, default_tmpl, cert_dir);
     else
-	ut_snprintf(buf, capacity, default_tmpl, cert_dir, ns);
+	ut_snprintf(buf, capacity, ns_tmpl, cert_dir, ns);
 }
 
 static void get_cert_file(const char *ns, const char *cert_dir, char *buf,
