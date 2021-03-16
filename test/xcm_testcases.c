@@ -1728,7 +1728,7 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
 	do {
 	    op_rc = xcm_receive(conn_socket, buf, sizeof(buf));
 	    op_errno = errno;
-	} while (op_rc > 0 && op_errno == EAGAIN);
+	} while (op_rc < 0 && op_errno == EAGAIN);
     } else {
 	for (;;) {
 	    other_rc = wait_for_xcm(conn_socket, XCM_SO_SENDABLE);
