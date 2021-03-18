@@ -47,13 +47,12 @@ class Client:
 class EchoServer:
     def __init__(self, event_loop, addr):
         self.event_loop = event_loop
-        self.sock = xcm.server(addr)
-        self.sock.set_blocking(False)
+        self.sock = xcm.server(addr, attrs={"xcm.blocking": False})
         self.sock.set_target(xcm.SO_ACCEPTABLE)
         self.event_loop.add_reader(self.sock, self.activate)
     def activate(self):
         try:
-            conn_sock = self.sock.accept()
+            conn_sock = self.sock.accept(attrs={"xcm.blocking": False})
             Client(self.event_loop, conn_sock)
         except xcm.error as e:
             if e.errno != errno.EAGAIN:

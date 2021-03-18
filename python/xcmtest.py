@@ -40,6 +40,41 @@ class TestXcm(unittest.TestCase):
         os.putenv("XCM_TLS_CERT", "./test/tls/with_root_cert")
     def tearDown(self):
         os.unsetenv("XCM_TLS_CERT")
+    def test_connect_attrs(self):
+        addr = "tcp:127.0.0.1:%d" % random.randint(10000, 12000)
+        server_process = echo_server(addr)
+        time.sleep(0.5)
+        attrs = {
+            "xcm.local_addr": "tcp:127.0.0.2:0",
+            "tcp.keepalive_interval": 99
+        }
+        conn = xcm.connect(addr, attrs=attrs)
+        self.assertTrue(conn.get_attr("xcm.local_addr").
+                        startswith("tcp:127.0.0.2"))
+        self.assertEqual(conn.get_attr("tcp.keepalive_interval"), 99)
+        conn.close()
+        server_process.terminate()
+        server_process.join()
+    def test_connect_flags(self):
+        for addr in TEST_ADDRS:
+            server_process = echo_server(addr)
+            time.sleep(0.5)
+
+            conn = xcm.connect(addr, xcm.NONBLOCK)
+            self.assertFalse(conn.is_blocking())
+
+            finished = False
+            while not finished:
+                try:
+                    conn.finish()
+                    finished = True
+                except BlockingIOError:
+                    time.sleep(0.1)
+
+            conn.close()
+
+            server_process.terminate()
+            server_process.join()
     def test_echo(self):
         for addr in TEST_ADDRS:
             server_process = echo_server(addr)
@@ -51,7 +86,17 @@ class TestXcm(unittest.TestCase):
             conn.finish()
             conn.set_blocking(True)
 
+            if addr.startswith("tls") or addr.startswith("tcp"):
+                conn.set_attr("tcp.keepalive_count", 99)
+                self.assertEqual(conn.get_attr("tcp.keepalive_count"), 99)
+            else:
+                self.assertRaises(FileNotFoundError, conn.set_attr,
+                                  "tcp.keepalive_count", 99)
+
             self.assertEqual(conn.get_attr("xcm.type"), "connection")
+
+            with self.assertRaises(PermissionError):
+                conn.set_attr("xcm.remote_addr", "ux:foo")
 
             if addr.startswith("tls") or addr.startswith("tcp"):
                 self.assertGreater(conn.get_attr("tcp.rtt"), 0)
@@ -78,7 +123,16 @@ class TestXcm(unittest.TestCase):
 
             self.assertEqual(sock.get_attr("xcm.type"), "server")
 
-            sock.set_blocking(False)
+            sock.set_attr("xcm.blocking", False)
+            self.assertEqual(sock.get_attr("xcm.blocking"), False)
+
+            with self.assertRaises(FileNotFoundError):
+                sock.set_attr("xcm.tcp_keepalive_interval", 99)
+
+            with self.assertRaises(OSError) as cm:
+                sock.set_attr("xcm.blocking", 17)
+            self.assertEqual(cm.exception.errno, errno.EINVAL)
+
             sock.finish()
             sock.set_blocking(True)
 
@@ -97,24 +151,21 @@ class TestXcm(unittest.TestCase):
             while True:
                 sockets.append(xcm.server("ux:py-xcmtest-%d" % len(sockets)))
         except xcm.error as e:
-            assert e.errno == errno.EMFILE
+            self.assertEqual(e.errno, errno.EMFILE)
         for s in sockets:
             s.close()
     def test_connection_refused(self):
-        try:
-            xcm.connect("ux:doesntexist", 0)
-        except ConnectionRefusedError as e:
-            assert e.errno == errno.ECONNREFUSED
+        with self.assertRaises(ConnectionRefusedError) as cm:
+            xcm.connect("ux:doesntexist")
+        self.assertEqual(cm.exception.errno, errno.ECONNREFUSED)
     def test_connection_enoent(self):
-        try:
-            xcm.connect("tcp:nonexistentdomain:4711", 0)
-        except FileNotFoundError as e:
-            assert e.errno == errno.ENOENT
+        with self.assertRaises(FileNotFoundError) as cm:
+            xcm.connect("tcp:nonexistentdomain:4711")
+        self.assertEqual(cm.exception.errno, errno.ENOENT)
     def test_connection_enoent_legacy(self):
-        try:
+        with self.assertRaises(xcm.error) as cm:
             xcm.connect("tcp:nonexistentdomain:4711", 0)
-        except xcm.error as e:
-            assert e.errno == errno.ENOENT
+        self.assertEqual(cm.exception.errno, errno.ENOENT)
 
 if __name__ == '__main__':
     unittest.main()
