@@ -223,6 +223,24 @@ bool tu_is_kernel_at_least(int wanted_major, int wanted_minor)
 	(actual_major == wanted_major && actual_minor >= wanted_minor);
 }
 
+bool tu_server_port_bound(const char *ip, uint16_t port)
+{
+    int rc;
+    if (ip)
+	rc = tu_executef_es("netstat -n --tcp --listen | grep -q '%s:%d '",
+			    ip, port);
+    else
+	rc = tu_executef_es("netstat -n --tcp --listen | grep -q ':%d '",
+			    port);
+    return rc == 0;
+}
+
+void tu_wait_for_server_port_binding(const char *ip, uint16_t port)
+{
+    while (!tu_server_port_bound(ip, port))
+	tu_msleep(10);
+}
+
 struct search
 {
     const char *name;

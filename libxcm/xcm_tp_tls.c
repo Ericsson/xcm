@@ -1355,33 +1355,27 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
     }
 
     if (ts->conn.state != conn_state_ready)
-	goto empty;
+	return 0;
 
     X509 *remote_cert = SSL_get_peer_certificate(ts->conn.ssl);
     if (remote_cert == NULL)
-	goto empty;
+	return 0;
 
     const ASN1_OCTET_STRING *key = X509_get0_subject_key_id(remote_cert);
     if (key == NULL)
-	goto empty;
+	return 0;
 
     int len = ASN1_STRING_length(key);
-    if (len > capacity)
-	goto overflow;
+    if (len > capacity) {
+	errno = EOVERFLOW;
+	return -1;
+    }
 
     memcpy(value, ASN1_STRING_get0_data(key), len);
 
     X509_free(remote_cert);
 
     return len;
-
-empty:
-    ((char *)value)[0] = '\0';
-    return 0;
-
-overflow:
-    errno = EOVERFLOW;
-    return -1;
 }
 
 static struct xcm_tp_attr conn_attrs[] = {

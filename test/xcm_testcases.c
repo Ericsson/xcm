@@ -1229,14 +1229,14 @@ static int run_via_tcp_relay(const char *proto)
     pid_t server_pid = pingpong_run_async_server(server_addr, pings, true);
     CHKNOERR(server_pid);
 
-    tu_msleep(200);
+    tu_wait_for_server_port_binding("127.0.0.1", server_port);
 
     pid_t relay_pid =
 	pingpong_run_tcp_relay(htons(relay_port), inet_addr("127.0.0.1"),
 			       htons(server_port));
     CHKNOERR(relay_pid);
 
-    tu_msleep(200);
+    tu_wait_for_server_port_binding(NULL, relay_port);
 
     pid_t client_pid = pingpong_run_client(relay_addr, pings, 1);
     CHKNOERR(client_pid);
@@ -2972,7 +2972,11 @@ TESTCASE_SERIALIZED(xcm, tls_change_cert_files_like_crazy)
 
 TESTCASE(xcm, tls_get_peer_subject_key_id)
 {
-    const char *tls_addr = "tls:127.0.0.1:12234";
+    const char *ip = "127.0.0.42";
+    int tcp_port = gen_tcp_port();
+
+    char tls_addr[64];
+    snprintf(tls_addr, sizeof(tls_addr), "tls:%s:%d", ip, tcp_port);
 
     if (setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1) < 0)
 	return UTEST_FAIL;
@@ -2981,12 +2985,14 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 	simple_server(NULL, tls_addr, "", "", "./test/tls/subca_only_cert_2",
 		      false);
 
-    tu_msleep(250);
+    tu_wait_for_server_port_binding(ip, tcp_port);
 
     /* avoid finishing TLS handshake */
     CHKNOERR(kill(server_pid, SIGSTOP));
 
-    struct xcm_socket *conn = xcm_connect(tls_addr, XCM_NONBLOCK);
+    struct xcm_socket *conn = tu_connect_retry(tls_addr, XCM_NONBLOCK);
+
+    CHK(conn);
 
     char key_id[1024];
 
