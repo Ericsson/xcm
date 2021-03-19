@@ -173,6 +173,7 @@ if PYTHON
 xcm_PYTHON=python/xcm.py
 xcmdir = $(pythondir)
 python-test: libxcm.la
+	python3 -m flake8 $(xcm_PYTHON)
 	LD_LIBRARY_PATH=$(builddir)/.libs ./python/xcmtest.py
 endif
 
