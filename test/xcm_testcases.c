@@ -500,8 +500,6 @@ TESTCASE(xcm, basic)
 {
     int i;
     for (i=0; i<test_addrs_len; i++) {
-	if (strncmp(test_addrs[i], "utls", 4) == 0)
-	    continue;
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
 
