@@ -2407,7 +2407,7 @@ TESTCASE(xcm, disallow_bind_on_accept)
 #ifdef XCM_TLS
     if (run_disallow_bind_on_accept("tls", "tls") < 0)
 	return UTEST_FAIL;
-    if (run_disallow_bind_on_accept("utls", "tls") < 0)
+    if (run_disallow_bind_on_accept("tls", "utls") < 0)
 	return UTEST_FAIL;
 #endif
 
