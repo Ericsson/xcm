@@ -89,6 +89,10 @@
 		   "errno %d (%s).", addr, fd, reason_errno,		\
 		   strerror(reason_errno))
 
+#define LOG_CLIENT_BIND_ON_ACCEPT(s)					\
+    log_debug_sock(s, "Invalid attempt to bind local address on accept " \
+		   "call.")
+
 #define LOG_SERVER_BIND_FAILED(reason_errno)				\
     log_debug("Failed to bind server socket; errno %d (%s).", reason_errno, \
 	     strerror(reason_errno))

@@ -2353,6 +2353,67 @@ TESTCASE(xcm, bind_to_source_addr)
     return UTEST_SUCCESS;
 }
 
+static int run_disallow_bind_on_accept(const char *client_proto,
+				       const char *server_proto)
+{
+    uint16_t tcp_port = gen_tcp_port();
+
+    char client_addr[512];
+    snprintf(client_addr, sizeof(client_addr), "%s:127.0.0.1:%d",
+	     client_proto, tcp_port);
+
+    char server_addr[512];
+    snprintf(server_addr, sizeof(server_addr), "%s:127.0.0.1:%d",
+	     server_proto, tcp_port);
+
+    char local_addr[512];
+    snprintf(local_addr, sizeof(local_addr), "%s:127.0.0.1:%d",
+	     server_proto, tcp_port + 1);
+
+    struct xcm_socket *server_sock = xcm_server(server_addr);
+    CHKNOERR(xcm_set_blocking(server_sock, false));
+
+    struct xcm_socket *conn_sock = xcm_connect(client_addr, XCM_NONBLOCK);
+    CHK(conn_sock);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.local_addr", local_addr);
+    struct xcm_socket *accepted_sock;
+
+    do {
+	xcm_finish(server_sock);
+	xcm_finish(conn_sock);
+
+	accepted_sock = xcm_accept_a(server_sock, attrs);
+
+    } while (!accepted_sock && errno == EAGAIN);
+
+    CHK(!accepted_sock);
+    CHKERRNOEQ(EACCES);
+
+    xcm_attr_map_destroy(attrs);
+
+    xcm_close(conn_sock);
+    CHKNOERR(xcm_close(server_sock));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, disallow_bind_on_accept)
+{
+    if (run_disallow_bind_on_accept("tcp", "tcp") < 0)
+	return UTEST_FAIL;
+
+#ifdef XCM_TLS
+    if (run_disallow_bind_on_accept("tls", "tls") < 0)
+	return UTEST_FAIL;
+    if (run_disallow_bind_on_accept("utls", "tls") < 0)
+	return UTEST_FAIL;
+#endif
+
+    return UTEST_SUCCESS;
+}
+
 #define GEN_PORT_TEST(proto)						\
     const char *addr = #proto ":0.0.0.0:0";				\
 									\

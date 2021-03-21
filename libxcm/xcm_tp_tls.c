@@ -803,6 +803,12 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     LOG_ACCEPT_REQ(server_s);
 
+    if (strlen(conn_ts->laddr) > 0) {
+	errno = EACCES;
+	LOG_CLIENT_BIND_ON_ACCEPT(server_s);
+	goto err_deinit;
+    }
+
     int conn_fd;
     if ((conn_fd = ut_accept(server_ts->server.fd, NULL, NULL)) < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
