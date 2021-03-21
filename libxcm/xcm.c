@@ -459,6 +459,7 @@ int xcm_attr_set(struct xcm_socket *s, const char *name,
 
     const struct xcm_tp_attr *attr = socket_attr_lookup(s, name);
     if (!attr) {
+	LOG_ATTR_SET_NON_EXISTENT(s);
 	errno = ENOENT;
 	goto err;
     }

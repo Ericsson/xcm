@@ -313,6 +313,9 @@
 		   "%s.", log_attr_type_name(expected_type),		\
 		   log_attr_type_name(actual_type))
 
+#define LOG_ATTR_SET_NON_EXISTENT(s)			\
+    log_debug_sock(s, "Attribute does not exist.")
+
 #define LOG_ATTR_SET_RO(s)				\
     log_debug_sock(s, "Attribute is read-only.")
 
