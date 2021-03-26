@@ -530,6 +530,7 @@ const struct cnt_conn *utls_get_cnt(struct xcm_socket *conn_s)
 
 static void utls_enable_ctl(struct xcm_socket *s)
 {
+#ifdef XCM_CTL
     if (s->type == xcm_socket_type_conn) {
 	struct xcm_socket *active = active_sub_conn(s);
 	active->ctl = ctl_create(active);
@@ -541,6 +542,7 @@ static void utls_enable_ctl(struct xcm_socket *s)
 	us->tls_socket->ctl = ctl_create(us->tls_socket);
 	s->ctl = ctl_create(s);
     }
+#endif
 }
 
 static int set_attr_proxy(struct xcm_socket *s,
