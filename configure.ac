@@ -1,14 +1,14 @@
  -*- Autoconf -*-
 
 m4_define([xcm_major_version], [1])
-m4_define([xcm_minor_version], [1])
+m4_define([xcm_minor_version], [2])
 m4_define([xcm_patch_version], [0])
 m4_define([xcm_version],[xcm_major_version.xcm_minor_version.xcm_patch_version])
 
 # XCM never had a non-backward-compatible API/ABI change for any
 # release, even before version 1.0.0.
 m4_define([xcm_abi_major_version], [m4_eval(xcm_major_version - 1)])
-m4_define([xcm_abi_minor_version], 15)
+m4_define([xcm_abi_minor_version], 16)
 
 AC_INIT(xcm, [xcm_version], [mattias.ronnblom@ericsson.com])
 AM_INIT_AUTOMAKE([foreign subdir-objects])

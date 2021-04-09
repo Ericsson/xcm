@@ -38,6 +38,8 @@ void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
     __attribute__ ((format (printf, 3, 0)));
 void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
     __attribute__ ((format (printf, 3, 4)));
+char *ut_asprintf(const char *fmt, ...)
+    __attribute__ ((format (printf, 1, 2)));
 
 int ut_set_blocking(int fd, bool should_block);
 bool ut_is_blocking(int fd);

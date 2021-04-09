@@ -140,6 +140,21 @@ void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
     va_end(ap);
 }
 
+char *ut_asprintf(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    char *str;
+
+    int rc = vasprintf(&str, fmt, ap);
+    if (rc < 0)
+	abort();
+
+    va_end(ap);
+
+    return str;
+}
+
 int ut_set_blocking(int fd, bool should_block)
 {
     int flags = fcntl(fd, F_GETFL, 0);

@@ -24,8 +24,8 @@ extern "C" {
  * available in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.15 [API]
- * @version 1.1.0 [Implementation]
+ * @version 0.16 [API]
+ * @version 1.2.0 [Implementation]
  *
  * The low API/ABI version number is purely a result of all XCM
  * releases being backward compatible, and thus left the major version
@@ -219,7 +219,7 @@ extern "C" {
  * message on a XCM socket, or it doesn't want to do anything with the
  * socket, it must wait for the socket @a fd to become readable. Not
  * wanting to do nothing here means that the application has the
- * xcm_await() @p condition set to 0, and is neither interested in
+ * xcm_await() condition set to 0, and is neither interested in
  * waiting to call xcm_send(), xcm_receive(), nor xcm_accept() on the
  * socket. An application may never leave a XCM socket unattended in
  * the sense its fd is not in the set of fds passed to select() and/or
@@ -537,13 +537,13 @@ extern "C" {
  *
  * Both of these examples are missing error handling.
  *
- * @subsubsection attr_map Attribute Maps
+ * @subsection attr_map Attribute Maps
  *
  * XCM allows supplying a set of writable attributes at the time of
  * socket creation, by using the xcm_connect_a(),
  * xcm_server_a(), or xcm_accept_a() functions.
  *
- * The attribute sets are represented by the @ref xcm_attr_map type in
+ * The attribute sets are represented by the @c xcm_attr_map type in
  * xcm_attr_map.h.
  *
  * An example:
@@ -829,42 +829,36 @@ extern "C" {
  *
  * @subsubsection tls_certificates TLS Certificate and Key Storage
  *
- * The TLS transport expect the certificate, trust chain and private
- * key files to be found in a file system directory - the certificate
- * directory. The default path are configured at build-time, but can
- * be overriden on a per-process basis by means of a UNIX environment
- * variable. The current value of @c XCM_TLS_CERT (at the time of
- * xcm_connect() or xcm_accept()) determines the certificate directory
- * used for that connection.
+ * The TLS transport reads the leaf certificate and its private key,
+ * from the file system, as well as a trust chain file (i.e. a file
+ * containing a list of trusted CA certificates). Default paths are
+ * configured at build-time.
  *
- * In case the files in the certificate directory are modified, the
- * new versions of the files will be used by new connections. The TLS
- * transports works with differences between set of files, and thus
- * the new generation of files need not nesserarily be newer
- * (i.e. higher mtime).
- * 
- * The certificate directory must be updated in an atomic manner, or
- * XCM may end up using the certificate file from one generation of
- * files and the key file from another. One way of achieving an atomic
- * update is to have the certificate directory being a symbolic link
- * to the directory where the actual files are located. Upon update, a
- * new directory is created and populated, and the old symbolic link
- * is replace with a new one in an atomic manner (i.e. with
- * rename(2)). It's legal to switch back-and-forth between two sets of
- * files, but the time between the back and the forth switch (assuming
- * the atomicity-by-symlink method is used) must be enough to result
- * in different file system modification times on the symbolic link
- * (usually ~10 ms).
+ * @ref tls_attr may be used to override one or more of the default
+ * paths, on a per-socket basis. Paths set on server sockets are
+ * inherited by its connection sockets, but may in turn be overriden
+ * at the time of a xcm_accept_a() call, using the proper attributes.
  *
- * The TLS transport will, at the time of XCM socket creation
- * (xcm_connect() or xcm_server()), look up the process' current
- * network namespace. In case the namespace is given a name per the
- * iproute2 methods and conventions, XCM will retrieve this name and
- * use it in the certificate and key lookup.
+ * The default paths may also be overriden on a per-process basis by
+ * means of a UNIX environment variable. The current value of @c
+ * XCM_TLS_CERT (at the time of xcm_connect() or xcm_accept())
+ * determines the certificate directory used for that connection.
  *
- * In the certificate directory, the TLS transport expects the
- * certificate to follow the below naming convention (where <ns>
- * is the namespace):
+ * @paragraph per_ns_certs Per-network Namespace Certificates
+ *
+ * The TLS transport will, at the time of xcm_connect() or
+ * xcm_server(), look up the process' current network namespace,
+ * unless that file's path was given as a @ref tls_attr. If the
+ * namespace is given a name per the iproute2 convention, XCM will
+ * retrieve this name and use it in the certificate and key lookup.
+ *
+ * In case the certificate, key and trust chain files are configured
+ * using @ref tls_attr, no network namespace lookup will be performed.
+ *
+ * In the certificate directory (either the compile-time default, or
+ * the directory specified with @c XCM_TLS_CERT), the TLS transport
+ * expects the files to follow the following naming conventions
+ * (where <ns> is the namespace):
  * @code
  * cert_<ns>.pem
  * @endcode
@@ -889,14 +883,37 @@ extern "C" {
  * error and set errno to EPROTO. The application may choose to retry
  * at a later time.
  *
- * @subsubsection tls_attr TLS Socket Attributes
+ * @paragraph cert_update Runtime Certificate File Updates
  *
- * TLS has all the TCP-level attributes of the TCP transport; see
- * @ref tcp_attr.
+ * In case a certificate, private key, or trust chain file is
+ * modified, the new version of the file(s) will be used by new
+ * connections, but will not affect already-existing connections. The
+ * TLS transport works with differences between set of files, and thus
+ * the new generation of files need not nesserarily be newer (as in
+ * having a more recent file system mtime).
+ *
+ * The certificate, key and trust chain should be updated in an atomic
+ * manner, or XCM may end up using the certificate file from one
+ * generation of files and the key file from another, for example.
+ *
+ * One way of achieving an atomic update is to have the three files in
+ * a common directory. This certificate directory is then made a
+ * symbolic link to the directory where the actual files are
+ * located. Upon update, a new directory is created and populated, and
+ * the old symbolic link is replace an atomic manner (i.e. with
+ * rename(2)).
+ *
+ * @subsubsection tls_attr TLS Socket Attributes
  *
  * Attribute Name          | Socket Type | Value Type  | Mode | Description
  * ------------------------|-------------|-------------|------|------------
+ * tls.cert_file           | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
+ * tls.key_file            | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
+ * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation.
  * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
+ *
+ * In addition to the TLS-specific attributes, a TLS socket also has
+ * all the @ref tcp_attr.
  *
  * @subsection utls_transport UTLS Transport
  *
@@ -918,7 +935,7 @@ extern "C" {
  * two underlying addresses will be allocated;
  * <tt>tls:<ip>:<port></tt> and <tt>ux:<ip>:<port></tt>.
  *
- * Or, in the case DNS is used:
+ * In case DNS is used:
  * <tt>tls:<hostname>:<port></tt> and <tt>ux:<hostname>:<port></tt>.
  *
  * @subsubsection utls_limitations UTLS Limitations
@@ -1351,7 +1368,7 @@ int xcm_await(struct xcm_socket *socket, int condition);
  * select() is used.
  *
  * When the XCM socket fd becomes readable, an application would
- * typically perform the actions it specified in xcm_await()'s @ref
+ * typically perform the actions it specified in xcm_await()'s
  * condition parameter. It is not forced to do so, but may choose to
  * perform other API operations instead. However, if neither
  * xcm_send() nor xcm_receive() is called, the application must call

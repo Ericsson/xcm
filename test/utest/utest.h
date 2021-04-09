@@ -161,4 +161,7 @@ void testcase_register(const char *suite_name, const char *name,
 #define TESTCASE_TIMEOUT(tc_suite, tc_name, tc_tmo)    \
     _TESTCASE(tc_suite, tc_name, false, tc_tmo)
 
+#define TESTCASE_SERIALIZED_TIMEOUT(tc_suite, tc_name, tc_tmo)		\
+    _TESTCASE(tc_suite, tc_name, false, tc_tmo)
+
 #endif

@@ -11,14 +11,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define DEFAULT_CERT_FILE "%s/cert.pem"
-#define DEFAULT_KEY_FILE "%s/key.pem"
-#define DEFAULT_TC_FILE "%s/tc.pem"
-
-#define NS_CERT_FILE "%s/cert_%s.pem"
-#define NS_KEY_FILE "%s/key_%s.pem"
-#define NS_TC_FILE "%s/tc_%s.pem"
-
 /* OpenSSL 1.1.0 lacks TLS 1.3 support */
 #ifndef SSL_OP_NO_TLSv1_3
 define SSL_OP_NO_TLSv1_3 0
@@ -48,25 +40,28 @@ define SSL_OP_NO_TLSv1_3 0
 
 struct cache_entry
 {
-    char *ns;
-    char *cert_dir;
-    uint8_t cert_dir_hash[SHA256_DIGEST_LENGTH];
+    char *cert_file;
+    char *key_file;
+    char *tc_file;
+    uint8_t hash[SHA256_DIGEST_LENGTH];
     SSL_CTX *ssl_ctx;
     int use_cnt;
 
     LIST_ENTRY(cache_entry) elem;
 };
 
-static struct cache_entry *cache_entry_create(const char *ns,
-					      const char *cert_dir,
-					      const uint8_t *cert_dir_hash,
+static struct cache_entry *cache_entry_create(const char *cert_file,
+					      const char *key_file,
+					      const char *tc_file,
+					      const uint8_t *hash,
 					      SSL_CTX *ssl_ctx)
 {
     struct cache_entry *entry = ut_malloc(sizeof(struct cache_entry));
 
-    entry->ns = ns ? ut_strdup(ns) : NULL;
-    entry->cert_dir = ut_strdup(cert_dir);
-    memcpy(entry->cert_dir_hash, cert_dir_hash, SHA256_DIGEST_LENGTH);
+    entry->cert_file = ut_strdup(cert_file);
+    entry->key_file = ut_strdup(key_file);
+    entry->tc_file = ut_strdup(tc_file);
+    memcpy(entry->hash, hash, SHA256_DIGEST_LENGTH);
     entry->ssl_ctx = ssl_ctx;
     entry->use_cnt = 1;
 
@@ -77,8 +72,9 @@ static void cache_entry_destroy(struct cache_entry *entry)
 {
     if (entry) {
 	ut_assert(entry->use_cnt == 0);
-	ut_free(entry->ns);
-	ut_free(entry->cert_dir);
+	ut_free(entry->cert_file);
+	ut_free(entry->key_file);
+	ut_free(entry->tc_file);
 	SSL_CTX_free(entry->ssl_ctx);
 	ut_free(entry);
     }
@@ -109,24 +105,29 @@ static void cache_unlock(struct cache *cache)
     ut_mutex_unlock(&cache->lock);
 }
 
-static struct cache_entry *cache_install(struct cache *cache, const char *ns,
-					 const char *cert_dir,
-					 const uint8_t *cert_dir_hash,
+static struct cache_entry *cache_install(struct cache *cache,
+					 const char *cert_file,
+					 const char *key_file,
+					 const char *tc_file,
+					 const uint8_t *hash,
 					 SSL_CTX *ssl_ctx)
 {
     struct cache_entry *entry =
-	cache_entry_create(ns, cert_dir, cert_dir_hash, ssl_ctx);
+	cache_entry_create(cert_file, key_file, tc_file, hash, ssl_ctx);
     LIST_INSERT_HEAD(&cache->cur_entries, entry, elem);
     return entry;
 }
 
-static struct cache_entry *cache_get(struct cache *cache, const char *ns,
-				     const char *cert_dir)
+static struct cache_entry *cache_get(struct cache *cache,
+				     const char *cert_file,
+				     const char *key_file,
+				     const char *tc_file)
 {
     struct cache_entry *entry;
     LIST_FOREACH(entry, &cache->cur_entries, elem)
-	if (strcmp(entry->ns, ns) == 0 &&
-	    strcmp(entry->cert_dir, cert_dir) == 0) {
+	if (strcmp(entry->cert_file, cert_file) == 0 &&
+	    strcmp(entry->key_file, key_file) == 0 &&
+	    strcmp(entry->tc_file, tc_file) == 0) {
 	    entry->use_cnt++;
 	    return entry;
 	}
@@ -189,8 +190,8 @@ void ctx_store_init(void)
     cache_init(&server_cache);
 }
 
-typedef SSL_CTX *(ctx_load_fun)(const char *ns, const char *cert_dir,
-				uint8_t *cert_dir_hash);
+typedef SSL_CTX *(ctx_load_fun)(const char *cert_file, const char *key_file,
+				const char *tc_file, uint8_t *hash);
 
 static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow)
 {
@@ -223,43 +224,12 @@ static int hash_file_meta(const char *file, SHA256_CTX *ctx)
     return do_hash_file_meta(file, ctx, false);
 }
 
-static void get_file(const char *default_tmpl, const char *ns_tmpl,
-		     const char *ns, const char *cert_dir,
-		     char *buf, size_t capacity)
-{
-    if (strlen(ns) == 0)
-	ut_snprintf(buf, capacity, default_tmpl, cert_dir);
-    else
-	ut_snprintf(buf, capacity, ns_tmpl, cert_dir, ns);
-}
-
-static void get_cert_file(const char *ns, const char *cert_dir, char *buf,
-		     size_t capacity)
-{
-    get_file(DEFAULT_CERT_FILE, NS_CERT_FILE, ns, cert_dir, buf, capacity);
-}
-
-static void get_key_file(const char *ns, const char *cert_dir, char *buf,
-		     size_t capacity)
-{
-    get_file(DEFAULT_KEY_FILE, NS_KEY_FILE, ns, cert_dir, buf, capacity);
-}
-
-static void get_tc_file(const char *ns, const char *cert_dir, char *buf,
-		     size_t capacity)
-{
-    get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir, buf, capacity);
-}
-
-static int get_cert_files_hash(const char *cert_dir, const char *cert_file,
-			       const char *key_file, const char *tc_file,
-			       uint8_t *hash)
+static int get_cert_files_hash(const char *cert_file, const char *key_file,
+			       const char *tc_file, uint8_t *hash)
 {
     SHA256_CTX ctx;
     SHA256_Init(&ctx);
 
-    if (hash_file_meta(cert_dir, &ctx) < 0)
-	return -1;
     if (hash_file_meta(cert_file, &ctx) < 0)
 	return -1;
     if (hash_file_meta(key_file, &ctx) < 0)
@@ -272,54 +242,44 @@ static int get_cert_files_hash(const char *cert_dir, const char *cert_file,
     return 0;
 }
 
-static int get_cert_dir_hash(const char *ns, const char *cert_dir,
-			     uint8_t *hash)
-{
-    char cert_file[PATH_MAX];
-    char key_file[PATH_MAX];
-    char tc_file[PATH_MAX];
-
-    get_cert_file(ns, cert_dir, cert_file, sizeof(cert_file));
-    get_key_file(ns, cert_dir, key_file, sizeof(key_file));
-    get_tc_file(ns, cert_dir, tc_file, sizeof(tc_file));
-
-    return get_cert_files_hash(cert_dir, cert_file, key_file, tc_file, hash);
-}
-
-static bool hash_equal(uint8_t *hash_a, uint8_t *hash_b)
+static bool hash_equal(const uint8_t *hash_a, const uint8_t *hash_b)
 {
     return memcmp(hash_a, hash_b, SHA256_DIGEST_LENGTH) == 0;
 }
 
-static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *ns,
-				  const char *cert_dir, ctx_load_fun load_fun)
+static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
+				  const char *key_file, const char *tc_file,
+				  ctx_load_fun load_fun)
 {
     cache_lock(cache);
 
-    struct cache_entry *entry = cache_get(cache, ns, cert_dir);
+    struct cache_entry *entry =
+	cache_get(cache, cert_file, key_file, tc_file);
 
     if (entry) {
-	uint8_t cert_dir_hash[SHA256_DIGEST_LENGTH];
+	uint8_t hash[SHA256_DIGEST_LENGTH];
 
-	if (get_cert_dir_hash(ns, cert_dir, cert_dir_hash) < 0)
+	if (get_cert_files_hash(cert_file, key_file, tc_file, hash) < 0)
 	    return NULL;
 
-	LOG_TLS_CTX_HASH(ns, cert_dir, cert_dir_hash, SHA256_DIGEST_LENGTH);
+	LOG_TLS_CTX_HASH(cert_file, key_file, tc_file,
+			 hash, SHA256_DIGEST_LENGTH);
 
-	if (!hash_equal(cert_dir_hash, entry->cert_dir_hash)) {
-	    LOG_TLS_CTX_FILES_CHANGED(ns, cert_dir);
+	if (!hash_equal(hash, entry->hash)) {
+	    LOG_TLS_CTX_FILES_CHANGED(cert_file, key_file, tc_file);
 	    cache_invalidate(cache, entry);
 	    entry = NULL;
 	}
     }
 
     if (entry)
-	LOG_TLS_CTX_REUSE(ns, cert_dir);
+	LOG_TLS_CTX_REUSE(cert_file, key_file, tc_file);
     else {
-	uint8_t cert_dir_hash[SHA256_DIGEST_LENGTH];
-	SSL_CTX *ssl_ctx = load_fun(ns, cert_dir, cert_dir_hash);
+	uint8_t hash[SHA256_DIGEST_LENGTH];
+	SSL_CTX *ssl_ctx = load_fun(cert_file, key_file, tc_file, hash);
 	if (ssl_ctx)
-	    entry = cache_install(cache, ns, cert_dir, cert_dir_hash, ssl_ctx);
+	    entry = cache_install(cache, cert_file, key_file, tc_file,
+				  hash, ssl_ctx);
     }
 
     cache_unlock(cache);
@@ -327,18 +287,17 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *ns,
     return entry ? entry->ssl_ctx : NULL;
 }
 
-static bool cert_files_changed(const char *ns, const char *cert_dir,
-			       uint8_t *cert_dir_hash, const char *cert_file,
-			       const char *key_file, const char *tc_file)
+static bool cert_files_changed(const uint8_t *hash,
+			       const char *cert_file, const char *key_file,
+			       const char *tc_file)
 {
-    uint8_t new_cert_dir_hash[SHA256_DIGEST_LENGTH];
+    uint8_t new_hash[SHA256_DIGEST_LENGTH];
 
-    if (get_cert_files_hash(cert_dir, cert_file, key_file, tc_file,
-			    new_cert_dir_hash) < 0)
+    if (get_cert_files_hash(cert_file, key_file, tc_file, new_hash) < 0)
 	return true;
 
-    if (!hash_equal(new_cert_dir_hash, cert_dir_hash)) {
-	LOG_TLS_CTX_HASH_CHANGED(ns, cert_dir, new_cert_dir_hash,
+    if (!hash_equal(new_hash, hash)) {
+	LOG_TLS_CTX_HASH_CHANGED(cert_file, key_file, tc_file, new_hash,
 				 SHA256_DIGEST_LENGTH);
 	return true;
     }
@@ -346,9 +305,10 @@ static bool cert_files_changed(const char *ns, const char *cert_dir,
     return false;
 }
 
-static SSL_CTX *try_load_ssl_ctx_common(const char *ns, const char *cert_dir,
-					uint8_t *cert_dir_hash,
-					char *tc_file, size_t tc_file_capacity)
+static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
+					const char *key_file,
+					const char *tc_file,
+					uint8_t *hash)
 {
     const SSL_METHOD* method = SSLv23_method();
     if (!method) {
@@ -369,22 +329,14 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *ns, const char *cert_dir,
     int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_CIPHER_LIST);
     ut_assert(rc == 1);
 
-    char cert_file[PATH_MAX];
-    char key_file[PATH_MAX];
-
-    get_cert_file(ns, cert_dir, cert_file, sizeof(cert_file));
-    get_key_file(ns, cert_dir, key_file, sizeof(key_file));
-    get_tc_file(ns, cert_dir, tc_file, tc_file_capacity);
-
     LOG_TLS_CERT_FILES(cert_file, key_file, tc_file);
 
     bool cert_changed = false;
 
-    if (get_cert_files_hash(cert_dir, cert_file, key_file, tc_file,
-			    cert_dir_hash) < 0)
+    if (get_cert_files_hash(cert_file, key_file, tc_file, hash) < 0)
 	goto err_free;
 
-    LOG_TLS_CTX_HASH(ns, cert_dir, cert_dir_hash, SHA256_DIGEST_LENGTH);
+    LOG_TLS_CTX_HASH(cert_file, key_file, tc_file, hash, SHA256_DIGEST_LENGTH);
 
     if (!SSL_CTX_load_verify_locations(ssl_ctx, tc_file, NULL)) {
 	LOG_TLS_ERR_LOADING_TC(tc_file);
@@ -406,8 +358,7 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *ns, const char *cert_dir,
 	goto err_cert;
     }
 
-    if (cert_files_changed(ns, cert_dir, cert_dir_hash, cert_file,
-			   key_file, tc_file)) {
+    if (cert_files_changed(hash, cert_file, key_file, tc_file)) {
 	cert_changed = true;
 	goto err_free;
     }
@@ -420,8 +371,7 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *ns, const char *cert_dir,
     return ssl_ctx;
 
 err_cert:
-    if (cert_files_changed(ns, cert_dir, cert_dir_hash, cert_file,
-			   key_file, tc_file))
+    if (cert_files_changed(hash, cert_file, key_file, tc_file))
 	cert_changed = true;
 err_free:
     SSL_CTX_free(ssl_ctx);
@@ -429,30 +379,29 @@ err_free:
     return NULL;
 }
 
-static SSL_CTX *load_ssl_ctx_common(const char *ns, const char *cert_dir,
-				    uint8_t *cert_dir_hash,
-				    char *tc_file, size_t tc_file_capacity)
+static SSL_CTX *load_ssl_ctx_common(const char *cert_file,
+				    const char *key_file,
+				    const char *tc_file,
+				    uint8_t *hash)
 {
     SSL_CTX *ctx;
 
     do {
-	ctx = try_load_ssl_ctx_common(ns, cert_dir, cert_dir_hash,
-				      tc_file, tc_file_capacity);
+	ctx = try_load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
     } while (ctx == NULL && errno == EAGAIN);
 
     return ctx;
 }
 
-static SSL_CTX *load_client_ssl_ctx(const char *ns, const char *cert_dir,
-				    uint8_t *cert_dir_hash)
+static SSL_CTX *load_client_ssl_ctx(const char *cert_file,
+				    const char *key_file,
+				    const char *tc_file,
+				    uint8_t *hash)
 {
-    char tc_file[PATH_MAX];
-
-    LOG_TLS_CREATING_CLIENT_CTX(ns, cert_dir);
+    LOG_TLS_CREATING_CLIENT_CTX(cert_file, key_file, tc_file);
 
     SSL_CTX *ssl_ctx =
-	load_ssl_ctx_common(ns, cert_dir, cert_dir_hash,
-			    tc_file, sizeof(tc_file));
+	load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
     if (!ssl_ctx) {
 	errno = EPROTO;
 	return NULL;
@@ -463,16 +412,15 @@ static SSL_CTX *load_client_ssl_ctx(const char *ns, const char *cert_dir,
     return ssl_ctx;
 }
 
-static SSL_CTX *load_server_ssl_ctx(const char *ns, const char *cert_dir,
-				    uint8_t *cert_dir_hash)
+static SSL_CTX *load_server_ssl_ctx(const char *cert_file,
+				    const char *key_file,
+				    const char *tc_file,
+				    uint8_t *hash)
 {
-    char tc_file[PATH_MAX];
-
-    LOG_TLS_CREATING_SERVER_CTX(ns, cert_dir);
+    LOG_TLS_CREATING_SERVER_CTX(cert_file, key_file, tc_file);
 
     SSL_CTX *ssl_ctx =
-	load_ssl_ctx_common(ns, cert_dir, cert_dir_hash,
-			    tc_file, sizeof(tc_file));
+	load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
     if (!ssl_ctx)
 	goto err;
 
@@ -496,14 +444,18 @@ err:
     return NULL;
 }
 
-SSL_CTX *ctx_store_get_client_ctx(const char *ns, const char *cert_dir)
+SSL_CTX *ctx_store_get_client_ctx(const char *cert_file, const char *key_file,
+				  const char *tc_file)
 {
-    return ctx_cache_get_ctx(&client_cache, ns, cert_dir, load_client_ssl_ctx);
+    return ctx_cache_get_ctx(&client_cache, cert_file, key_file, tc_file,
+			     load_client_ssl_ctx);
 }
 
-SSL_CTX *ctx_store_get_server_ctx(const char *ns, const char *cert_dir)
+SSL_CTX *ctx_store_get_server_ctx(const char *cert_file, const char *key_file,
+				  const char *tc_file)
 {
-    return ctx_cache_get_ctx(&server_cache, ns, cert_dir, load_server_ssl_ctx);
+    return ctx_cache_get_ctx(&server_cache, cert_file, key_file, tc_file,
+			     load_server_ssl_ctx);
 }
 
 void ctx_store_put(SSL_CTX *ssl_ctx)

@@ -10,16 +10,6 @@
 #include <openssl/err.h>
 #include <string.h>
 
-#define DEFAULT_NS "unnamed namespace"
-
-void ns_description(const char *ns, char *buf, size_t capacity)
-{
-    if (strlen(ns) == 0)
-	strcpy(buf, DEFAULT_NS);
-    else
-	ut_snprintf(buf, capacity, "namespace \"%s\"", ns);
-}
-
 void hash_description(uint8_t *hash, size_t hash_len, char *buf)
 {
     size_t i;

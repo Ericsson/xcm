@@ -39,7 +39,7 @@ struct xcm_attr_map *xcm_attr_map_create(void);
 /**
  * Create a copy of an attribute map instance.
  *
- * @param[in] attr_map The original attribute map instance, to be copied.
+ * @param[in] original The original attribute map instance, to be copied.
  *
  * @return A deep copy of the original attribute map.
  */

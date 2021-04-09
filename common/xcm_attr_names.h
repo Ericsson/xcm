@@ -44,6 +44,10 @@
 #define XCM_ATTR_TCP_KEEPALIVE_COUNT "tcp.keepalive_count"
 #define XCM_ATTR_TCP_USER_TIMEOUT "tcp.user_timeout"
 
+#define XCM_ATTR_TLS_CERT_FILE "tls.cert_file"
+#define XCM_ATTR_TLS_KEY_FILE "tls.key_file"
+#define XCM_ATTR_TLS_TC_FILE "tls.tc_file"
+
 #define XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID "tls.peer_subject_key_id"
 
 #endif

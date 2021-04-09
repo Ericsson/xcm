@@ -224,7 +224,7 @@ void xcm_tp_socket_get_attrs(struct xcm_socket *s,
     return XCM_TP_CALL(get_attrs, s, attr_list, attr_list_len);
 }
 
-static int get_str_attr(const char *value, void *buf, size_t capacity)
+int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity)
 {
     size_t len = strlen(value);
     if (len >= capacity) {
@@ -265,14 +265,15 @@ static int get_type_attr(struct xcm_socket *s,
 			 const struct xcm_tp_attr *attr,
 			 void *value, size_t capacity)
 {
-    return get_str_attr(xcm_tp_socket_type_name(s), value, capacity);
+    return xcm_tp_get_str_attr(xcm_tp_socket_type_name(s), value, capacity);
 }
 
 static int get_transport_attr(struct xcm_socket *s,
 			      const struct xcm_tp_attr *attr,
 			      void *value, size_t capacity)
 {
-    int rc = get_str_attr(xcm_tp_socket_get_transport(s), value, capacity);
+    int rc =
+	xcm_tp_get_str_attr(xcm_tp_socket_get_transport(s), value, capacity);
     return rc;
 }
 
@@ -280,7 +281,7 @@ static int addr_to_attr(const char *addr, void *value, size_t capacity)
 {
     if (!addr)
 	return -1;
-    return get_str_attr(addr, value, capacity);
+    return xcm_tp_get_str_attr(addr, value, capacity);
 }
 
 static int set_local_attr(struct xcm_socket *s,

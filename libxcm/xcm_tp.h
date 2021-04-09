@@ -144,4 +144,6 @@ void xcm_tp_register(const char *proto_name, const struct xcm_tp_ops *ops);
 struct xcm_tp_proto *xcm_tp_proto_by_name(const char *proto_name);
 struct xcm_tp_proto *xcm_tp_proto_by_addr(const char *addr);
 
+int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity);
+
 #endif

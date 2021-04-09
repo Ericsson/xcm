@@ -33,61 +33,51 @@
     log_debug("Error retrieving meta data for file \"%s\"; errno %d (%s).", \
 	      filename, reason_errno, strerror(reason_errno))
 
-void ns_description(const char *ns, char *buf, size_t capacity);
+#define LOG_TLS_CREATING_CTX(type, cert_file, key_file, tc_file)	\
+    log_debug("Creating %s SSL context with certificate "		\
+	      "file \"%s\", key file \"%s\" and trust chain file "	\
+	      "\"%s\".", type, cert_file, key_file, tc_file)
 
-#define LOG_TLS_CREATING_CTX(type, ns, cert_dir)			\
-    do {								\
-	char ns_desc[128];						\
-	ns_description(ns, ns_desc, sizeof(ns_desc));			\
-	log_debug("Creating %s SSL CTX for %s, with certificate "	\
-		  "directory \"%s\".", type, ns_desc, cert_dir);	\
-    } while (0)
+#define LOG_TLS_CREATING_CLIENT_CTX(cert_file, key_file, tc_file)	\
+    LOG_TLS_CREATING_CTX("client", cert_file, key_file, tc_file)
 
-#define LOG_TLS_CREATING_CLIENT_CTX(ns, cert_dir)	\
-    LOG_TLS_CREATING_CTX("client", ns, cert_dir)
-
-#define LOG_TLS_CREATING_SERVER_CTX(ns, cert_dir)	\
-    LOG_TLS_CREATING_CTX("server", ns, cert_dir)
+#define LOG_TLS_CREATING_SERVER_CTX(cert_file, key_file, tc_file)	\
+    LOG_TLS_CREATING_CTX("server", cert_file, key_file, tc_file)
 
 #define LOG_TLS_CTX_RETRY \
     log_debug("Certificate files changed on disk during processing. " \
 	      "Retrying.")
 
-#define LOG_TLS_CTX_REUSE(ns, cert_dir)					\
-    do {								\
-	char ns_desc[128];						\
-	ns_description(ns, ns_desc, sizeof(ns_desc));			\
-	log_debug("Using cached SSL CTX for %s and certificate "	\
-		  "directory \"%s\".", ns_desc, cert_dir);		\
-    } while (0)
+#define LOG_TLS_CTX_REUSE(cert_file, key_file, tc_file)			\
+    log_debug("Using cached SSL context for certificate file \"%s\", "	\
+	      "key file \"%s\" and trust chain file \"%s\".",		\
+	      cert_file, key_file, tc_file)
 
 void hash_description(uint8_t *hash, size_t hash_len, char *buf);
 
-#define LOG_TLS_CTX_HASH_EVENT(ns, cert_dir, event, cert_dir_hash, hash_size) \
+#define LOG_TLS_CTX_HASH_EVENT(cert_file, key_file, tc_file,		\
+			       event, hash, hash_size)			\
     do {								\
-	char ns_desc[128];						\
-	ns_description(ns, ns_desc, sizeof(ns_desc));			\
 	char hash_desc[3 * hash_size + 1];				\
-	hash_description(cert_dir_hash, hash_size, hash_desc);		\
-	log_debug("File metadata hash for certificate files "		\
-		  "in \"%s\" and %s%s %s.", cert_dir, ns_desc,		\
-		  event, hash_desc);					\
+	hash_description(hash, hash_size, hash_desc);			\
+	log_debug("File metadata hash for certificate file \"%s\", "	\
+		  "key file \"%s\" and trust chain file \"%s\" %s %s.",	\
+		  cert_file, key_file, tc_file, event, hash_desc);	\
     } while (0)
     
-#define LOG_TLS_CTX_HASH(ns, cert_dir, cert_dir_hash, hash_size)	\
-    LOG_TLS_CTX_HASH_EVENT(ns, cert_dir, ":", cert_dir_hash, hash_size)
+#define LOG_TLS_CTX_HASH(cert_file, key_file, tc_file, hash, hash_size)	\
+    LOG_TLS_CTX_HASH_EVENT(cert_file, key_file, tc_file, "is", hash,	\
+			   hash_size)
 
-#define LOG_TLS_CTX_HASH_CHANGED(ns, cert_dir, new_cert_dir_hash, hash_size) \
-    LOG_TLS_CTX_HASH_EVENT(ns, cert_dir, " changed while reading to",	\
-			   new_cert_dir_hash, hash_size)
+#define LOG_TLS_CTX_HASH_CHANGED(cert_file, key_file, tc_file,		\
+				 new_hash, hash_size)			\
+    LOG_TLS_CTX_HASH_EVENT(cert_file, key_file, tc_file,		\
+			   "changed while reading to", new_hash,	\
+			   hash_size)
 
-#define LOG_TLS_CTX_FILES_CHANGED(ns, cert_dir) \
-    do { \
-	char ns_desc[128];						\
-	ns_description(ns, ns_desc, sizeof(ns_desc));			\
-	log_debug("Certificate files for %s in \"%s\" have changed. " \
-		  "Invalidating cache.", ns_desc, cert_dir);	      \
-    } while (0)
+#define LOG_TLS_CTX_FILES_CHANGED(cert_file, key_file, tc_file)	      \
+    log_debug("Certificate file \"%s\", key file \"%s\", and/or trust "	\
+	      "chain file \"%s\" have changed. Invalidating cache.")
 
 void log_tls_get_error_stack(char *buf, size_t capacity);
 

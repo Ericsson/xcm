@@ -29,7 +29,7 @@ extern "C" {
  * @param[in] name The name of the attribute.
  * @param[in] type The value type of the new value.
  * @param[in] value The new value.
- * @param[in] value_len The length of the value.
+ * @param[in] len The length of the value.
  *
  * @return Returns the 0 on success, or -1 if an error occured
  *         (in which case errno is set).
@@ -41,7 +41,7 @@ extern "C" {
  * EINVAL       | The attribute name is too long, the attribute value type, value or value length is not valid for the specified attribute.
  */
 
-int xcm_attr_set(struct xcm_socket *s, const char *name,
+int xcm_attr_set(struct xcm_socket *socket, const char *name,
 		 enum xcm_attr_type type, const void *value, size_t len);
 
 /** Sets the value of a boolean socket attribute.
@@ -56,7 +56,7 @@ int xcm_attr_set(struct xcm_socket *s, const char *name,
  * See xcm_attr_set() for possible errno values.
  */
 
-int xcm_attr_set_bool(struct xcm_socket *s, const char *name, bool value);
+int xcm_attr_set_bool(struct xcm_socket *socket, const char *name, bool value);
 
 /** Sets the value of an integer socket attribute.
  *
@@ -70,7 +70,8 @@ int xcm_attr_set_bool(struct xcm_socket *s, const char *name, bool value);
  * See xcm_attr_set() for possible errno values.
  */
 
-int xcm_attr_set_int64(struct xcm_socket *s, const char *name, int64_t value);
+int xcm_attr_set_int64(struct xcm_socket *socket, const char *name,
+		       int64_t value);
 
 /** Sets the value of a string socket attribute.
  *
@@ -84,7 +85,7 @@ int xcm_attr_set_int64(struct xcm_socket *s, const char *name, int64_t value);
  * See xcm_attr_set() for possible errno values.
  */
 
-int xcm_attr_set_str(struct xcm_socket *s, const char *name,
+int xcm_attr_set_str(struct xcm_socket *socket, const char *name,
 		     const char *value);
 
 /** Retrieves the value of a socket attribute.
@@ -112,7 +113,7 @@ int xcm_attr_set_str(struct xcm_socket *s, const char *name,
  * EOVERFLOW    | The user-supplied buffer was too small to fit the value.
  */
 
-int xcm_attr_get(struct xcm_socket *s, const char *name,
+int xcm_attr_get(struct xcm_socket *socket, const char *name,
 		 enum xcm_attr_type *type, void *value, size_t capacity);
 
 /** Retrieves the value of a boolean socket attribute.
@@ -131,7 +132,7 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
  * See xcm_attr_get() for other possible errno values.
  */
 
-int xcm_attr_get_bool(struct xcm_socket *s, const char *name,
+int xcm_attr_get_bool(struct xcm_socket *socket, const char *name,
 		      bool *value);
 
 /** Retrieves the value of an integer socket attribute.
@@ -150,7 +151,7 @@ int xcm_attr_get_bool(struct xcm_socket *s, const char *name,
  * See xcm_attr_get() for other possible errno values.
  */
 
-int xcm_attr_get_int64(struct xcm_socket *s, const char *name,
+int xcm_attr_get_int64(struct xcm_socket *socket, const char *name,
 		       int64_t *value);
 
 /** Retrieves the value of a string socket attribute.
@@ -171,7 +172,7 @@ int xcm_attr_get_int64(struct xcm_socket *s, const char *name,
  * See xcm_attr_get() for other possible errno values.
  */
 
-int xcm_attr_get_str(struct xcm_socket *s, const char *name,
+int xcm_attr_get_str(struct xcm_socket *socket, const char *name,
 		     char *value, size_t capacity);
 
 /** The signature of the user-supplied callback used in xcm_attr_get_all(). */
@@ -191,7 +192,8 @@ typedef void (*xcm_attr_cb)(const char *attr_name, enum xcm_attr_type type,
  * @param[in] cb The function to be called for every attribute on the socket.
  * @param[in] cb_data An opaque (for XCM) pointer returned back to the application in the callback. cb_data may be NULL.
  */
-void xcm_attr_get_all(struct xcm_socket *socket, xcm_attr_cb cb, void *cb_data);
+void xcm_attr_get_all(struct xcm_socket *socket, xcm_attr_cb cb,
+		      void *cb_data);
 
 #ifdef __cplusplus
 }

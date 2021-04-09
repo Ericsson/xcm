@@ -63,8 +63,7 @@ extern "C" {
  * fd or fds to become writable, even if the application is waiting to
  * receive a message. It may also ask the application to wait for the
  * connection's fd to become readable, even if the application is
- * attemting to send a messaging. For the quirks of xcm_want(), see
- * @ref io_waiting.
+ * attemting to send a messaging.
  *
  * Even though the conditions for a particular connection socket are
  * met (fd is becoming writable, for example), there's no guarantee
