@@ -108,14 +108,43 @@ static void socket_await(struct xcm_socket *s, int condition)
 	ut_die("Error changing target socket condition");
 }
 
-static void socket_wait(int epoll_fd, struct xcm_socket *conn_socket)
+static void socket_wait(int epoll_fd, struct xcm_socket *conn_socket,
+			int tmo)
 {
     struct epoll_event event;
 
-    int rc = epoll_wait(epoll_fd, &event, 1, -1);
+    int rc = epoll_wait(epoll_fd, &event, 1, tmo);
 
     if (rc < 0)
 	ut_die("I/O multiplexing failure");
+}
+
+static double ftime(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec+((double)t.tv_nsec)/1e9;
+}
+
+static void socket_sleep(struct xcm_socket *conn_socket, double t)
+{
+    bool was_blocking = xcm_is_blocking(conn_socket);
+
+    if (xcm_set_blocking(conn_socket, false) < 0)
+	ut_die("Unable to enable non-blocking mode");
+
+    double deadline = ftime() + t;
+    for (;;) {
+	int left_ms = (deadline - ftime()) * 1000;
+	if (left_ms < 0) {
+	    if (xcm_set_blocking(conn_socket, was_blocking) < 0)
+		ut_die("Unable to configure blocking mode");
+	    return;
+	}
+	socket_wait(xcm_fd(conn_socket), conn_socket, left_ms);
+	if (xcm_finish(conn_socket) < 0)
+	    ut_die("Error while finishing background tasks on socket");
+    }
 }
 
 #define MAX_SERVER_BATCH (64)
@@ -165,7 +194,7 @@ static void handle_client(struct xcm_socket *conn)
 	    else if (r_rc < 0 && errno == EAGAIN) {
 		if (num > 0)
 		    break;
-		socket_wait(epoll_fd, conn);
+		socket_wait(epoll_fd, conn, -1);
 	    } else if (r_rc < 0)
 		ut_die("Error while server receiving");
 	}
@@ -206,7 +235,7 @@ static void handle_client(struct xcm_socket *conn)
 		    break;
 		else if (s_rc < 0 && errno == EAGAIN) {
 		    socket_await(conn, XCM_SO_SENDABLE);
-		    socket_wait(epoll_fd, conn);
+		    socket_wait(epoll_fd, conn, -1);
 		    socket_await(conn, XCM_SO_RECEIVABLE);
 		} else
 		    ut_die("Error while server sending");
@@ -334,20 +363,20 @@ static void run_throughput_client(struct xcm_socket *conn,
 		i++;
 	    else if (rc < 0 && errno == EAGAIN) {
 		socket_await(conn, XCM_SO_SENDABLE);
-		socket_wait(epoll_fd, conn);
+		socket_wait(epoll_fd, conn, -1);
 		socket_await(conn, XCM_SO_RECEIVABLE);
 	    }
 	    else
 		ut_die("Error sending reflection message to server");
 	}
 
-	socket_wait(epoll_fd, conn);
+	socket_wait(epoll_fd, conn, -1);
 	for (i = 0; i < this_batch;) {
 	    int rc = xcm_receive(conn, msg, msg_size);
 	    if (rc == msg_size)
 		i++;
 	    else if (rc < 0 && errno == EAGAIN)
-		socket_wait(epoll_fd, conn);
+		socket_wait(epoll_fd, conn, -1);
 	    else if (rc < 0)
 		ut_die("Error receiving message from server");
 	    else if (rc == 0) {
@@ -375,13 +404,6 @@ static void run_throughput_client(struct xcm_socket *conn,
     uint32_t wall_time_per_msg = wall_time / total_num_msgs;
 
     printf("Wall-time latency: %.2f us/msg\n", (double)wall_time_per_msg/1000);
-}
-
-static void fsleep(double t)
-{
-    struct timespec ts = { .tv_sec = t, (t-(int)t) * 1e9 };
-
-    nanosleep(&ts, NULL);
 }
 
 static void run_latency_client(struct xcm_socket *conn, int num_rt,
@@ -427,13 +449,14 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 	for (i=0; i<batch_size; i++) {
 	    printf("%3d  %8.3f ms\n", rt*batch_size+i,
 		   (double)latency[i] / 1e6);
+	    fflush(stdout);
 	    total_latency += latency[i];
 	    if (latency[i] > max_latency)
 		max_latency = latency[i];
 	    if (latency[i] < min_latency)
 		min_latency = latency[i];
 	}
-	fsleep(interval);
+	socket_sleep(conn, interval);
     }
     printf("Max:     %.3f ms\n", (double)max_latency/1e6);
     printf("Min:     %.3f ms\n", (double)min_latency/1e6);
