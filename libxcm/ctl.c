@@ -149,7 +149,6 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 	int rc = getsockname(ctl->server_fd, (struct sockaddr *)&laddr,
 			     &laddr_len);
 
-	epoll_reg_set_reset(&ctl->reg_set);
 
 	close(ctl->server_fd);
 
