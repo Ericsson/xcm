@@ -49,7 +49,7 @@ To build this software the system needs to have the following packages
 * automake
 * autoconf (2.63 and later are known to work, some older versions will not)
 * libtool
-* python (3.x)
+* python (3.x, including the cryptography module if TLS is enabled)
 * openssl (1.1.x, if UTLS or TLS transports are enabled)
 * lttng-ust (including the dev and tools package) (if LTTng is enabled)
 * libevent2 (if the 'xcm' command-line tool is enabled)

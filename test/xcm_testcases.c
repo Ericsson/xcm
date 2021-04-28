@@ -381,9 +381,84 @@ static int setup_named_ns(const char *name)
     return 0;
 }
 
+static int connect_named_ns(const char *ns0_name, const char *ns0_ip,
+			    const char *ns1_name, const char *ns1_ip)
+{
+    if (tu_executef_es("ip -n %s link add type veth", ns0_name) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s link set veth1 netns %s", ns0_name,
+		       ns1_name) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s addr add %s/24 dev veth0", ns0_name,
+		       ns0_ip) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s addr add %s/24 dev veth1", ns1_name,
+		       ns1_ip) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s link set veth0 up", ns0_name) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s link set veth1 up", ns1_name) != 0)
+	return -1;
+
+    return 0;
+}
+
 static int teardown_named_ns(const char *name)
 {
     return tu_executef_es("ip netns del %s", name) != 0 ? -1: 0;
+}
+
+static const char *get_cert_base(void)
+{
+    static char cdir[PATH_MAX];
+    snprintf(cdir, sizeof(cdir), "./test/cert/%d", getpid());
+    return cdir;
+}
+
+static char *get_cert_path(char *p, const char *cert_dir)
+{
+    snprintf(p, PATH_MAX, "%s/%s", get_cert_base(), cert_dir);
+    return p;
+}
+
+static int remove_certs(void)
+{
+    return tu_executef_es("rm -rf %s", get_cert_base());
+}
+
+static int gen_certs(const char *conf)
+{
+    remove_certs();
+
+    return tu_executef_es("echo 'base-path: %s\n%s' | ./test/gencert.py",
+			  get_cert_base(), conf);
+}
+
+static int gen_default_certs(void)
+{
+    return gen_certs(
+	"\n"
+	"certs:\n"
+	"  default:\n"
+	"    subject_name: localhost\n"
+	"\n"
+	"files:\n"
+	"  - type: key\n"
+	"    id: default\n"
+	"    path: default/key.pem\n"
+	"  - type: cert\n"
+	"    id: default\n"
+	"    path: default/cert.pem\n"
+	"  - type: bundle\n"
+	"    certs:\n"
+	"      - default\n"
+	"    path: default/tc.pem\n"
+	);
 }
 
 #endif
@@ -397,8 +472,13 @@ static int setup_xcm(void)
 	first = false;
     }
 
-    if (setenv("XCM_TLS_CERT", "./test/tls/with_root_cert", 1) < 0)
+#ifdef XCM_TLS
+    gen_default_certs();
+
+    char cdir[PATH_MAX];
+    if (setenv("XCM_TLS_CERT", get_cert_path(cdir, "default"), 1) < 0)
 	return UTEST_FAIL;
+#endif
 
     if (tu_executef_es("mkdir -p %s", TEST_UXF_DIR) < 0)
 	return UTEST_FAIL;
@@ -448,7 +528,10 @@ static int teardown_xcm(void)
     CHKNOERR(unsetenv("XCM_CTL"));
 #endif
 
+#ifdef XCM_TLS
+    remove_certs();
     CHKNOERR(unsetenv("XCM_TLS_CERT"));
+#endif
 
     return UTEST_SUCCESS;
 }
@@ -2583,148 +2666,407 @@ TESTCASE_SERIALIZED(xcm, utls_remote_addr)
     return UTEST_SUCCESS;
 }
 
-/* Neither client nor server side contains any root certificate.
-   The tc.pem is identical on both sides, and is trusted. */
-TESTCASE(xcm, tls_sub_ca_as_trust_anchor)
+static int run_tls_handshake(const char *server_cert, const char *client_cert,
+			     bool success_expected)
 {
-    const char *client_msg = "greetings from client";
-    const char *server_msg = "hello from server";
+    char *tls_addr = gen_ip4_port_addr("tls");
 
-    const char *tls_addr = "tls:127.0.0.1:12234";
+    char server_cert_dir[PATH_MAX];
+    get_cert_path(server_cert_dir, server_cert);
 
-    if (setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_2", 1) < 0)
-	return UTEST_FAIL;
+    char client_cert_dir[PATH_MAX];
+    get_cert_path(client_cert_dir, client_cert);
+
+    const char *client_msg = "greetings";
+    const char *server_msg = "hello";
 
     pid_t server_pid = simple_server(NULL, tls_addr, client_msg, server_msg,
-				     "./test/tls/subca_only_cert_1", false);
-
-    struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
-
-    CHK(client_conn);
-
-    CHKNOERR(xcm_send(client_conn, client_msg, strlen(client_msg)));
-
-    char buf[1024];
-    int rc = xcm_receive(client_conn, buf, sizeof(buf));
-
-    if (rc != strlen(server_msg))
-	return UTEST_FAIL;
-
-    if (strncmp(buf, server_msg, rc) != 0)
-	return UTEST_FAIL;
-
-    CHKNOERR(xcm_close(client_conn));
-
-    kill(server_pid, SIGTERM);
-    tu_wait(server_pid);
-
-    return UTEST_SUCCESS;
-}
-
-/* Each sides tc.pem file contain a certificate that validates the
-   other sides cert.pem file. The client sides tc.pem contains a
-   subCA that the server trusts, and the server sides tc.pem contain
-   the root cert that the client trusts. */
-TESTCASE(xcm, tls_sub_ca_as_trust_anchor_2)
-{
-    const char *client_msg = "greetings from client";
-    const char *server_msg = "hello from server";
-
-    const char *tls_addr = "tls:127.0.0.1:12234";
-
-    if (setenv("XCM_TLS_CERT", "./test/tls/tc_with_root_and_subca_cert_1", 1) < 0)
-	return UTEST_FAIL;
-
-    pid_t server_pid =
-	simple_server(NULL, tls_addr, client_msg, server_msg,
-		      "./test/tls/tc_with_root_and_subca_cert_2", false);
-
-    struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
-
-    CHK(client_conn);
-
-    CHKNOERR(xcm_send(client_conn, client_msg, strlen(client_msg)));
-
-    char buf[1024];
-    int rc = xcm_receive(client_conn, buf, sizeof(buf));
-
-    if (rc != strlen(server_msg))
-	return UTEST_FAIL;
-
-    if (strncmp(buf, server_msg, rc) != 0)
-	return UTEST_FAIL;
-
-    CHKNOERR(xcm_close(client_conn));
-
-    kill(server_pid, SIGTERM);
-    tu_wait(server_pid);
-
-    return UTEST_SUCCESS;
-}
-
-static int run_handshake_test(const char *server_cert_dir,
-			      const char *client_cert_dir)
-{
-    const char *tls_addr = "tls:127.0.0.1:12234";
-
-    pid_t server_pid = simple_server(NULL, tls_addr, "", "", server_cert_dir,
-				     false);
+				     server_cert_dir, false);
     CHKNOERR(server_pid);
 
-    if (client_cert_dir)
-	CHKNOERR(setenv("XCM_TLS_CERT", client_cert_dir, 1));
+    CHKNOERR(setenv("XCM_TLS_CERT", client_cert_dir, 1));
 
     struct xcm_socket *conn = tu_connect_retry(tls_addr, 0);
 
     if (conn) {
-	char buf = 42;
-	int rc = xcm_send(conn, &buf, 1);
-	if (rc < 0)
+	int rc = xcm_send(conn, client_msg, strlen(client_msg));
+	if (rc < 0) {
+	    CHK(!success_expected);
 	    CHK(errno == EPIPE || errno == EPROTO);
-	else {
-	    int rc = xcm_receive(conn, &buf, 1);
-	    CHK(rc == 0 || errno == EPROTO);
+	} else {
+	    char buf[1024] = { 0 };
+	    int rc = xcm_receive(conn, buf, sizeof(buf));
+	    if (success_expected)
+		CHKSTRNEQ(buf, server_msg, rc);
+	    else
+		CHK(rc == -1 && (errno == EPIPE || errno == EPROTO));
 	}
 	CHKNOERR(xcm_close(conn));
     } else
-	CHK(errno == EPIPE || errno == EPROTO);
+	CHK(!success_expected);
 
     int server_status;
     CHKNOERR(tu_waitstatus(server_pid, &server_status));
 
-    CHK(server_status != EXIT_SUCCESS);
+    if (success_expected)
+	CHK(server_status == EXIT_SUCCESS);
+    else {
+	CHK(server_status != EXIT_SUCCESS);
+	int server_errno = STATUS_TO_ERRNO(server_status);
+	CHK(server_errno == EPROTO || server_errno == EPIPE);
+    }
 
-    int server_errno = STATUS_TO_ERRNO(server_status);
-
-    CHK(server_errno == EPROTO || server_errno == EPIPE);
+    ut_free(tls_addr);
 
     return UTEST_SUCCESS;
 }
 
-/* Client side and server side does not have a matching trust
- * chain. */
-TESTCASE(xcm, tls_no_matching_trust_chain_fail)
+TESTCASE(xcm, tls_shared_leaf)
 {
-    return run_handshake_test("./test/tls/subca_only_cert_1", NULL);
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    ca: False\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    paths:\n"
+	    "      - ep-x/key.pem\n"
+	    "      - ep-y/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    paths:\n"
+	    "      - ep-x/cert.pem\n"
+	    "      - ep-y/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - a\n"
+	    "    paths:\n"
+	    "      - ep-x/tc.pem\n"
+	    "      - ep-y/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(run_tls_handshake("ep-x", "ep-y", true));
+
+    CHKNOERR(run_tls_handshake("ep-y", "ep-x", true));
+
+    return UTEST_SUCCESS;
 }
 
-/* Two-way authentication where server side does not have a matching
-   trust chain, but client has. */
-TESTCASE(xcm, tls_two_way_server_fail)
+TESTCASE(xcm, tls_shared_root_ca)
 {
-    return run_handshake_test("./test/tls/subca_only_cert_1",
-			      "./test/tls/tc_with_root_and_subca_cert_1");
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-x/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    path: ep-x/tc.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-x/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    path: ep-x/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(run_tls_handshake("ep-x", "ep-x", true));
+
+    return UTEST_SUCCESS;
 }
 
-/* Two-way authentication where client side does not have a matching
-   trust chain, but server has. */
-TESTCASE(xcm, tls_two_way_client_fail)
+TESTCASE(xcm, tls_different_root_ca)
 {
-    return run_handshake_test("./test/tls/tc_with_root_and_subca_cert_1",
-			      "./test/tls/subca_only_cert_1");
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root-a:\n"
+	    "    subject_name: root-a\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root-a\n"
+	    "  root-b:\n"
+	    "    subject_name: root-b\n"
+	    "    ca: True\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root-b\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-x/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root-b\n"
+	    "    path: ep-x/tc.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-y/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-y/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root-a\n"
+	    "    path: ep-y/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(run_tls_handshake("ep-x", "ep-y", true));
+
+    return UTEST_SUCCESS;
 }
 
-#define TEST_NS "testns"
+TESTCASE(xcm, tls_one_way_mistrust)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root-a:\n"
+	    "    subject_name: root-a\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root-a\n"
+	    "  root-b:\n"
+	    "    subject_name: root-b\n"
+	    "    ca: True\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root-b\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-x/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - b\n"
+	    "    path: ep-x/tc.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-y/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-y/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - b\n"
+	    "    path: ep-y/tc.pem\n"
+	    )
+	);
+
+    /* client mistrusts server */
+    CHKNOERR(run_tls_handshake("ep-x", "ep-y", false));
+
+    /* server mistrusts client */
+    CHKNOERR(run_tls_handshake("ep-y", "ep-x", false));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_sub_ca)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root-a:\n"
+	    "    subject_name: root-a\n"
+	    "    ca: True\n"
+	    "  sub-a:\n"
+	    "    subject_name: sub-a\n"
+	    "    ca: True\n"
+	    "    issuer: root-a\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: sub-a\n"
+	    "  root-b:\n"
+	    "    subject_name: root-b\n"
+	    "    ca: True\n"
+	    "  sub-b:\n"
+	    "    subject_name: sub-b\n"
+	    "    ca: True\n"
+	    "    issuer: root-b\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: sub-b\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-x/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root-b\n"
+	    "      - sub-a\n"
+	    "    path: ep-x/tc.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-y/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-y/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root-a\n"
+	    "      - sub-b\n"
+	    "    path: ep-y/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(run_tls_handshake("ep-x", "ep-y", true));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_no_root_but_trusted_sub_ca)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  sub:\n"
+	    "    subject_name: sub\n"
+	    "    ca: True\n"
+	    "    issuer: root\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: sub\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: sub\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-x/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - sub\n"
+	    "    path: ep-x/tc.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-y/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-y/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - sub\n"
+	    "    path: ep-y/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(run_tls_handshake("ep-x", "ep-y", true));
+
+    return UTEST_SUCCESS;
+}
+
+#define BIG_NUM_OF_CA (16)
+
+TESTCASE(xcm, tls_big_bundle)
+{
+    char cert_conf[8192] = { 0 };
+
+    ut_aprintf(cert_conf, sizeof(cert_conf),
+	       "\n"
+	       "certs:\n"
+	       "  root:\n"
+	       "    subject_name: root-a\n"
+	       "    ca: True\n"
+	       "  leaf:\n"
+	       "    subject_name: leaf\n"
+	       "    issuer: root\n");
+
+    int i;
+    for (i = 0; i < BIG_NUM_OF_CA; i++)
+	ut_aprintf(cert_conf, sizeof(cert_conf),
+		   "  root-%d:\n"
+		   "    subject_name: root-%d\n"
+		   "    ca: True\n", i, i);
+
+    ut_aprintf(cert_conf, sizeof(cert_conf),
+	       "\n"
+	       "files:\n"
+	       "  - type: key\n"
+	       "    id: leaf\n"
+	       "    path: ep/key.pem\n"
+	       "  - type: cert\n"
+	       "    id: leaf\n"
+	       "    path: ep/cert.pem\n"
+	       "  - type: bundle\n"
+	       "    path: ep/tc.pem\n"
+	       "    certs:\n"
+	       "      - root\n");
+
+    for (i = 0; i < BIG_NUM_OF_CA; i++)
+	ut_aprintf(cert_conf, sizeof(cert_conf),
+		   "      - root-%d\n", i);
+
+    CHKNOERR(gen_certs(cert_conf));
+
+    CHKNOERR(run_tls_handshake("ep", "ep", true));
+
+    return UTEST_SUCCESS;
+}
+
+#define TEST_NS0 "testns0"
+#define TEST_NS1 "testns1"
+
+#define TEST_NS0_IP "10.42.42.1"
+#define TEST_NS1_IP "10.42.42.2"
 
 #ifdef XCM_TLS
 
@@ -2733,18 +3075,18 @@ TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
     REQUIRE_ROOT;
     REQUIRE_NOT_IN_VALGRIND;
 
-    CHKNOERR(setup_named_ns(TEST_NS));
+    CHKNOERR(setup_named_ns(TEST_NS0));
 
     const char *utls_addr = "utls:127.0.0.1:32123";
 
-    pid_t server_pid = simple_server(TEST_NS, utls_addr, "", "", NULL, false);
+    pid_t server_pid = simple_server(TEST_NS0, utls_addr, "", "", NULL, false);
 
     tu_msleep(500);
 
     errno = 0;
     struct xcm_socket *client_conn = xcm_connect(utls_addr, 0);
 
-    CHKNOERR(teardown_named_ns(TEST_NS));
+    CHKNOERR(teardown_named_ns(TEST_NS0));
 
     CHK(client_conn == NULL);
     CHKERRNOEQ(ECONNREFUSED);
@@ -2761,21 +3103,63 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert)
     REQUIRE_ROOT;
     REQUIRE_NOT_IN_VALGRIND;
 
-    CHKNOERR(setup_named_ns(TEST_NS));
+    CHKNOERR(setup_named_ns(TEST_NS0));
+    CHKNOERR(setup_named_ns(TEST_NS1));
+    CHKNOERR(connect_named_ns(TEST_NS0, TEST_NS0_IP, TEST_NS1, TEST_NS1_IP));
 
-    if (setenv("XCM_TLS_CERT", "./test/tls/with_root_cert_ns", 1) < 0)
-	return UTEST_FAIL;
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    paths:\n"
+	    "      - ep-x/key_" TEST_NS0 ".pem\n"
+	    "      - ep-y/key_" TEST_NS1 ".pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    paths:\n"
+	    "      - ep-x/cert_" TEST_NS0 ".pem\n"
+	    "      - ep-y/cert_" TEST_NS1 ".pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    paths:\n"
+	    "      - ep-x/tc_" TEST_NS0 ".pem\n"
+	    "      - ep-y/tc_" TEST_NS1 ".pem\n"
+	    )
+	);
 
-    const char *tls_addr = "tls:127.0.0.1:12234";
+    const char *tls_addr = "tls:" TEST_NS0_IP ":34223";
 
-    pid_t server_pid = simple_server(TEST_NS, tls_addr, "", "", NULL, false);
+    char ns0_path[PATH_MAX];
+    get_cert_path(ns0_path, "ep-x");
 
-    int old_ns_fd = tu_enter_ns(TEST_NS);
+    pid_t server_pid =
+	simple_server(TEST_NS0, tls_addr, "", "", ns0_path, false);
+
+    char ns1_path[PATH_MAX];
+    get_cert_path(ns1_path, "ep-y");
+
+    CHKNOERR(setenv("XCM_TLS_CERT", ns1_path, 1));
+
+    int old_ns_fd = tu_enter_ns(TEST_NS1);
     CHKNOERR(old_ns_fd);
 
     struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
 
-    CHKNOERR(teardown_named_ns(TEST_NS));
+    CHKNOERR(teardown_named_ns(TEST_NS1));
 
     CHK(client_conn);
 
@@ -2796,15 +3180,40 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
     REQUIRE_ROOT;
     REQUIRE_NOT_IN_VALGRIND;
 
-    if (setenv("XCM_TLS_CERT", "./test/tls/with_root_cert_ns", 1) < 0)
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep/key_" TEST_NS0 ".pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep/cert_" TEST_NS0 ".pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    path: ep/tc_" TEST_NS0 ".pem\n")
+	);
+
+    char path[PATH_MAX];
+    if (setenv("XCM_TLS_CERT", get_cert_path(path, "ep"), 1) < 0)
 	return UTEST_FAIL;
 
-    CHKNOERR(setup_named_ns(TEST_NS));
+    CHKNOERR(setup_named_ns(TEST_NS0));
 
     const char *tls_addr = "tls:127.0.0.1:12234";
 
     struct server_info info = {
-	.ns = TEST_NS,
+	.ns = TEST_NS0,
 	.addr = tls_addr
     };
 
@@ -2814,12 +3223,12 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
 
     tu_msleep(200);
 
-    int old_ns_fd = tu_enter_ns(TEST_NS);
+    int old_ns_fd = tu_enter_ns(TEST_NS0);
     CHKNOERR(old_ns_fd);
 
     struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
 
-    CHKNOERR(teardown_named_ns(TEST_NS));
+    CHKNOERR(teardown_named_ns(TEST_NS0));
 
     CHK(client_conn);
 
@@ -2838,7 +3247,8 @@ TESTCASE(xcm, tls_detect_cert_dir_env_var_changes)
 {
     char *tls_addr = gen_ip4_port_addr("tls");
 
-    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1));
+    char default_path[PATH_MAX];
+    strcpy(default_path, getenv("XCM_TLS_CERT"));
 
     pid_t server_pid =
 	pingpong_run_forking_server(tls_addr, 0, 0, 32);
@@ -2851,7 +3261,7 @@ TESTCASE(xcm, tls_detect_cert_dir_env_var_changes)
     CHK(xcm_connect(tls_addr, 0) == NULL);
     CHKERRNOEQ(EPROTO);
 
-    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_2", 1));
+    CHKNOERR(setenv("XCM_TLS_CERT", default_path, 1));
 
     struct xcm_socket *conn1 = tu_connect_retry(tls_addr, 0);
     CHK(conn1);
@@ -2922,41 +3332,114 @@ TESTCASE_SERIALIZED(xcm, tls_detect_changes_to_cert_files)
 {
     char *tls_addr = gen_ip4_port_addr("tls");
 
-    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1));
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a0:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  a1:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a0\n"
+	    "    path: client0/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a0\n"
+	    "    path: client0/cert.pem\n"
+	    "  - type: ski\n"
+	    "    id: a0\n"
+	    "    path: client0/ski\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: a1\n"
+	    "    path: client1/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a1\n"
+	    "    path: client1/cert.pem\n"
+	    "  - type: ski\n"
+	    "    id: a1\n"
+	    "    path: client1/ski\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: server/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: server/cert.pem\n"
+	    "\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    paths:\n"
+	    "      - client0/tc.pem\n"
+	    "      - client1/tc.pem\n"
+	    "      - server/tc.pem\n"
+	    )
+	);
 
-    uint8_t subca1_key_id[] = {
-	0x9F, 0x7C, 0x2E, 0xA3, 0x6C, 0xB1, 0x49, 0x06, 0x65, 0x7C,
-	0xC7, 0xE3, 0x94, 0xF4, 0xC6, 0x4B, 0x41, 0x57, 0xBC, 0xA9
-    };
+    char client_path[PATH_MAX];
+    get_cert_path(client_path, "client");
 
-    uint8_t subca2_key_id[] = {
-	0x04, 0xF3, 0x52, 0xB0, 0x78, 0xEE, 0x7E, 0xC9, 0x33, 0x8F,
-	0x46, 0x09, 0x5C, 0x3F, 0x56, 0x6C, 0x0E, 0x52, 0xD0, 0x16
-    };
+    char client0_path[PATH_MAX];
+    get_cert_path(client0_path, "client0");
+
+    char client1_path[PATH_MAX];
+    get_cert_path(client1_path, "client1");
+
+    char server_path[PATH_MAX];
+    get_cert_path(server_path, "server");
+
+    CHKNOERR(setenv("XCM_TLS_CERT", server_path, 1));
+
+    const size_t key_len = 20;
+
+    char client0_ski_path[PATH_MAX];
+    snprintf(client0_ski_path, sizeof(client0_ski_path), "%s/client0/ski",
+	     get_cert_base());
+
+    char expected_key_id0[1024];
+    CHKINTEQ(tu_read_file(client0_ski_path,
+			  expected_key_id0, sizeof(expected_key_id0)),
+	     key_len);
+
+    char client1_ski_path[PATH_MAX];
+    snprintf(client1_ski_path, sizeof(client1_ski_path), "%s/client1/ski",
+	     get_cert_base());
+
+    char expected_key_id1[1024];
+    CHKINTEQ(tu_read_file(client1_ski_path,
+			  expected_key_id1, sizeof(expected_key_id1)),
+	     key_len);
 
     const size_t num_accepts = 16;
     pid_t server_pid =
-	alternating_tls_server(tls_addr, num_accepts,
-			       subca1_key_id, sizeof(subca1_key_id), 
-			       subca2_key_id, sizeof(subca2_key_id));
+	alternating_tls_server(tls_addr, num_accepts, expected_key_id0, key_len,
+			       expected_key_id1, key_len);
 
-    setenv("XCM_TLS_CERT", "./test/tls/current", 1);
+    setenv("XCM_TLS_CERT", client_path, 1);
 
     int i;
     for (i = 0; i < num_accepts; i++) {
-	const char *actual_cert_dir = i % 2 == 0 ?
-	    "subca_only_cert_1" : "subca_only_cert_2";
+	const char *actual_cert_dir = i % 2 == 0 ? "client0" : "client1";
 
-	CHKNOERR(tu_execute_es("rm -f ./test/tls/current"));
-	CHKNOERR(tu_executef_es("ln -s %s ./test/tls/current",
-				actual_cert_dir));
+	CHKNOERR(tu_executef_es("rm -f %s", client_path));
+	CHKNOERR(tu_executef_es("ln -s %s %s",
+				actual_cert_dir, client_path));
 
 	struct xcm_socket *conn = tu_connect_retry(tls_addr, 0);
 	CHK(conn);
 	CHKNOERR(xcm_close(conn));
     }
-
-    tu_execute("rm ./test/tls/current");
 
     CHKNOERR(tu_wait(server_pid));
 
@@ -2997,14 +3480,73 @@ TESTCASE_SERIALIZED(xcm, tls_change_cert_files_like_crazy)
 
     char *tls_addr = gen_ip4_port_addr("tls");
 
-    CHKNOERR(setenv("XCM_TLS_CERT", "./test/tls/current", 1));
+    char client_path[PATH_MAX];
+    get_cert_path(client_path, "client");
 
-    tu_execute("rm -f ./test/tls/current");
-    CHKNOERR(tu_execute_es("ln -s subca_only_cert_2 ./test/tls/current"));
+    char client0_path[PATH_MAX];
+    get_cert_path(client0_path, "client0");
 
-    pid_t symlinker_pid =
-	symlinker("subca_only_cert_1", "subca_only_cert_2",
-		  "./test/tls/current", "./test/tls/current.tmp");
+    char client1_path[PATH_MAX];
+    get_cert_path(client1_path, "client1");
+
+    char server_path[PATH_MAX];
+    get_cert_path(server_path, "server");
+
+    CHKNOERR(setenv("XCM_TLS_CERT", client_path, 1));
+
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a0:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  a1:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a0\n"
+	    "    path: client0/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a0\n"
+	    "    path: client0/cert.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: a1\n"
+	    "    path: client1/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a1\n"
+	    "    path: client1/cert.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: server/key.pem\n"
+    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: server/cert.pem\n"
+	    "\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    paths:\n"
+	    "      - client0/tc.pem\n"
+	    "      - client1/tc.pem\n"
+	    "      - server/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(tu_executef_es("ln -s client0 %s", client_path));
+
+    pid_t symlinker_pid = symlinker("client0", "client1", client_path,
+				    "./cert/client.tmp");
 
     size_t num_accepts = 1000;
     pid_t server_pid =
@@ -3019,8 +3561,6 @@ TESTCASE_SERIALIZED(xcm, tls_change_cert_files_like_crazy)
 	CHKNOERR(xcm_close(conn));
     }
 
-    tu_execute("rm ./test/tls/current");
-
     CHKNOERR(tu_wait(server_pid));
 
     kill(symlinker_pid, SIGKILL);
@@ -3033,18 +3573,60 @@ TESTCASE_SERIALIZED(xcm, tls_change_cert_files_like_crazy)
 
 TESTCASE(xcm, tls_get_peer_subject_key_id)
 {
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: server/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: server/cert.pem\n"
+	    "  - type: ski\n"
+	    "    id: a\n"
+	    "    path: server/ski\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    path: server/tc.pem\n"
+	    "\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: client/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: client/cert.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    path: client/tc.pem\n"
+	    )
+	);
     const char *ip = "127.0.0.42";
     int tcp_port = gen_tcp_port();
 
     char tls_addr[64];
     snprintf(tls_addr, sizeof(tls_addr), "tls:%s:%d", ip, tcp_port);
 
-    if (setenv("XCM_TLS_CERT", "./test/tls/subca_only_cert_1", 1) < 0)
-	return UTEST_FAIL;
-
+    char path[PATH_MAX];
     pid_t server_pid =
-	simple_server(NULL, tls_addr, "", "", "./test/tls/subca_only_cert_2",
+	simple_server(NULL, tls_addr, "", "", get_cert_path(path, "server"),
 		      false);
+
+    if (setenv("XCM_TLS_CERT", get_cert_path(path, "client"), 1) < 0)
+	return UTEST_FAIL;
 
     tu_wait_for_server_port_binding(ip, tcp_port);
 
@@ -3066,15 +3648,20 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 
     CHKNOERR(wait_until_finished(conn, 16));
 
-    uint8_t expected_key_id[] = {
-	0x04, 0xF3, 0x52, 0xB0, 0x78, 0xEE, 0x7E, 0xC9, 0x33, 0x8F,
-	0x46, 0x09, 0x5C, 0x3F, 0x56, 0x6C, 0x0E, 0x52, 0xD0, 0x16
-    };
+    char ski_path[PATH_MAX];
+    snprintf(ski_path, sizeof(ski_path), "%s/server/ski", get_cert_base());
+
+    char expected_key_id[1024];
+    ssize_t expected_len =
+	tu_read_file(ski_path, expected_key_id, sizeof(expected_key_id));
+    CHKNOERR(expected_len);
+
+    CHK(expected_key_id > 0);
 
     len = xcm_attr_get(conn, "tls.peer_subject_key_id", NULL, key_id,
 		       sizeof(key_id));
 
-    CHKINTEQ(len, sizeof(expected_key_id));
+    CHKINTEQ(len, expected_len);
 
     CHK(memcmp(key_id, expected_key_id, len) == 0);
 

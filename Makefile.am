@@ -140,6 +140,7 @@ clean-local:
 	rm -rf doc/latex
 	rm -f common/*.d libxcm/*.d libxcmc/*.d example/*.d tools/*.d
 	rm -f .doxygenerated
+	rm -rf test/cert
 
 distclean-local:
 	rm -rf autom4te.cache m4

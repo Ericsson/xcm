@@ -32,9 +32,12 @@ void ut_free(void *ptr);
 
 int ut_send_all(int fd, void* buf, size_t count, int flags);
 
-int ut_snprintf(char *buf, size_t capacity, const char *format, ...);
-void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap);
-void ut_aprintf(char *buf, size_t capacity, const char *format, ...);
+int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
+    __attribute__ ((format (printf, 3, 4)));
+void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
+    __attribute__ ((format (printf, 3, 0)));
+void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
+    __attribute__ ((format (printf, 3, 4)));
 
 int ut_set_blocking(int fd, bool should_block);
 bool ut_is_blocking(int fd);

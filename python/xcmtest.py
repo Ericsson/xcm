@@ -35,11 +35,42 @@ if config.has_sctp():
         "sctp:127.0.0.1:%d" % random.randint(10000, 12000)
     ])
 
+CERT_DIR = "./test/cert/%d" % os.getpid()
+
+CERT_CONF = """
+base-path: %s
+
+certs:
+  root:
+    subject_name: root
+    ca: True
+  leaf:
+    subject_name: leaf
+    issuer: root
+
+files:
+  - type: key
+    id: leaf
+    path: key.pem
+  - type: cert
+    id: leaf
+    path: cert.pem
+  - type: ski
+    id: leaf
+    path: ski
+  - type: bundle
+    certs:
+      - root
+    path: tc.pem
+""" % CERT_DIR
+
 class TestXcm(unittest.TestCase):
     def setUp(self):
-        os.putenv("XCM_TLS_CERT", "./test/tls/with_root_cert")
+        os.system("echo '%s' | ./test/gencert.py" % CERT_CONF)
+        os.putenv("XCM_TLS_CERT", CERT_DIR)
     def tearDown(self):
         os.unsetenv("XCM_TLS_CERT")
+        os.system("rm -rf %s" % CERT_DIR)
     def test_connect_attrs(self):
         addr = "tcp:127.0.0.1:%d" % random.randint(10000, 12000)
         server_process = echo_server(addr)
@@ -100,13 +131,12 @@ class TestXcm(unittest.TestCase):
 
             if addr.startswith("tls") or addr.startswith("tcp"):
                 self.assertGreater(conn.get_attr("tcp.rtt"), 0)
+
             if addr.startswith("tls"):
-                key_id = bytes([0xC0, 0x6D, 0x73, 0x1C, 0x13,
-                                0x25, 0xB3, 0x26, 0x10, 0x51,
-                                0xFE, 0xAC, 0x98, 0xDB, 0x44,
-                                0x35, 0xDE, 0xCD, 0x80, 0x8B])
-                self.assertEqual(conn.get_attr("tls.peer_subject_key_id"),
-                                 key_id)
+                with open("%s/ski" % CERT_DIR, "rb") as f:
+                    key_id = f.read()
+                    self.assertEqual(conn.get_attr("tls.peer_subject_key_id"),
+                                     key_id)
 
             orig_msg = b'\x01\x02\x00\x03\x09\x02\x00\x04'
             conn.send(orig_msg)

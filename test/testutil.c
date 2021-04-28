@@ -101,7 +101,7 @@ void tu_executef(const char *fmt, ...)
     va_list argp;
     va_start(argp, fmt);
 
-    char cmd[1024];
+    char cmd[8192];
     vsnprintf(cmd, sizeof(cmd), fmt, argp);
     va_end(argp);
 
@@ -113,7 +113,7 @@ int tu_executef_es(const char *fmt, ...)
     va_list argp;
     va_start(argp, fmt);
 
-    char cmd[1024];
+    char cmd[8192];
     vsnprintf(cmd, sizeof(cmd), fmt, argp);
     va_end(argp);
 
@@ -375,4 +375,32 @@ int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 	return -1;
 
     return 0;
+}
+
+ssize_t tu_read_file(const char *filename, char *buf, size_t capacity)
+{
+    FILE *f = fopen(filename, "r");
+
+    if (!f)
+	return -1;
+
+    ssize_t len;
+    for (len = 0; len < capacity; len++) {
+	int c = fgetc(f);
+
+	if (c == EOF) {
+	    if (ferror(f))
+		len = -1;
+	    goto out;
+	}
+
+	buf[len] = (char)c;
+    }
+
+    len = -1;
+
+out:
+    fclose(f);
+
+    return len;
 }
