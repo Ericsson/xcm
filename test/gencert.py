@@ -115,30 +115,6 @@ def write_bundle(bundle_file, bundle):
             f.write(cert_pem)
 
 
-def write_endpoint_files(base_path, endpoints_conf, keys, certs):
-    for endpoint_name, endpoint in endpoints_conf.items():
-        key_conf = endpoint['key']
-        key = keys[key_conf['id']]
-        write_key(os.path.join(base_path, key_conf['path']), key)
-
-        cert_conf = endpoint['cert']
-        cert = certs[cert_conf['id']]
-        write_cert(os.path.join(base_path, cert_conf['path']), cert)
-
-        tc_conf = endpoint['tc']
-        tc_certs = [certs[cert_id] for cert_id in tc_conf['certs']]
-
-        write_bundle(os.path.join(base_path, tc_conf['path']), tc_certs)
-
-        ski_conf = endpoint.get('ski')
-        if ski_conf is not None:
-            cert = certs[ski_conf['id']]
-            ski = cert.extensions.get_extension_for_oid(
-                x509.oid.ExtensionOID.SUBJECT_KEY_IDENTIFIER
-            ).value.digest
-            open(os.path.join(base_path, ski_conf['path']), "wb").write(ski)
-
-
 def get_paths(conf):
     if 'path' in conf:
         return [conf['path']]
@@ -184,7 +160,4 @@ base_path = conf['base-path']
 
 keys, certs = create_certs(conf['certs'])
 
-if 'endpoints' in conf:
-    write_endpoint_files(base_path, conf['endpoints'], keys, certs)
-if 'files' in conf:
-    write_files(base_path, conf['files'], keys, certs)
+write_files(base_path, conf['files'], keys, certs)
