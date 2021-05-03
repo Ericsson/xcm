@@ -2093,12 +2093,12 @@ TESTCASE(xcm, tls_keepalive_attr)
 }
 #endif
 
-#define SHORT_HICKUP_DURATION (1700) /* ms */
-#define TOO_LONG_HICKUP_DURATION (3500) /* ms */
-#define ALLOWED_HICKUP_ERROR (100)
+#define SHORT_HICCUP_DURATION (1700) /* ms */
+#define TOO_LONG_HICCUP_DURATION (3500) /* ms */
+#define ALLOWED_HICCUP_ERROR (100)
 
-static pid_t create_hickup(sa_family_t ip_version, int tcp_port,
-			   int target_hickup_time, int max_error)
+static pid_t create_hiccup(sa_family_t ip_version, int tcp_port,
+			   int target_hiccup_time, int max_error)
 {
     double start = tu_ftime();
     manage_tcp_filter(ip_version, tcp_port, true);
@@ -2110,19 +2110,19 @@ static pid_t create_hickup(sa_family_t ip_version, int tcp_port,
     } else if (p > 0)
 	return p;
 
-    tu_msleep(target_hickup_time);
+    tu_msleep(target_hiccup_time);
 
     manage_tcp_filter(ip_version, tcp_port, false);
 
-    int actual_hickup = (tu_ftime() - start) * 1000;
+    int actual_hiccup = (tu_ftime() - start) * 1000;
 
-    if (actual_hickup > (target_hickup_time + max_error))
+    if (actual_hiccup > (target_hiccup_time + max_error))
 	exit(EXIT_FAILURE);
 
     exit(EXIT_SUCCESS);
 }
 
-static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
+static int run_net_hiccup_op(const char *proto, sa_family_t ip_version,
 			     bool cause_time_out, bool idle)
 {
     bool restart;
@@ -2130,7 +2130,7 @@ static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
     do {
 	const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
 
-	const int tcp_port = 15343;
+	const int tcp_port = gen_tcp_port();
 
 	char addr[64];
 	snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
@@ -2145,22 +2145,22 @@ static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
 	struct xcm_socket *conn_socket = tu_connect_retry(addr, 0);
 	CHK(conn_socket);
 
-	const int target_hickup_time =
-	    cause_time_out ? TOO_LONG_HICKUP_DURATION : SHORT_HICKUP_DURATION;
+	const int target_hiccup_time =
+	    cause_time_out ? TOO_LONG_HICCUP_DURATION : SHORT_HICCUP_DURATION;
 
-	pid_t hickup_pid = create_hickup(ip_version, tcp_port,
-					 target_hickup_time,
-					 ALLOWED_HICKUP_ERROR);
-	CHKNOERR(hickup_pid);
+	pid_t hiccup_pid = create_hiccup(ip_version, tcp_port,
+					 target_hiccup_time,
+					 ALLOWED_HICCUP_ERROR);
+	CHKNOERR(hiccup_pid);
 
 	if (idle)
-	    tu_msleep(target_hickup_time+ALLOWED_HICKUP_ERROR);
+	    tu_msleep(target_hiccup_time+ALLOWED_HICCUP_ERROR);
 
 	int op_rc = xcm_send(conn_socket, client_msg, strlen(client_msg));
 	int op_errno = errno;
 
 	if (!idle)
-	    tu_msleep(target_hickup_time+ALLOWED_HICKUP_ERROR);
+	    tu_msleep(target_hiccup_time+ALLOWED_HICCUP_ERROR);
 
 	if (op_rc == 0) {
 	    char buf[1024];
@@ -2169,7 +2169,7 @@ static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
 	    op_errno = errno;
 	}
 
-	restart = tu_wait(hickup_pid) < 0;
+	restart = tu_wait(hiccup_pid) < 0;
 
 	if (!restart) {
 	    if (cause_time_out)
@@ -2187,48 +2187,49 @@ static int run_net_hickup_op(const char *proto, sa_family_t ip_version,
     return UTEST_SUCCESS;
 }
 
-static int run_net_hickup_timeout(const char *proto, sa_family_t ip_version,
+static int run_net_hiccup_timeout(const char *proto, sa_family_t ip_version,
 				  bool cause_time_out)
 {
     int rc;
-    if ((rc = run_net_hickup_op(proto, ip_version, cause_time_out, true)) < 0)
+    if ((rc = run_net_hiccup_op(proto, ip_version, cause_time_out, true)) < 0)
 	return rc;
-    if ((rc = run_net_hickup_op(proto, ip_version, cause_time_out, false)) < 0)
+    if ((rc = run_net_hiccup_op(proto, ip_version, cause_time_out, false)) < 0)
 	return rc;
     return UTEST_SUCCESS;
 }
 
-static int run_net_hickup(const char *proto, sa_family_t ip_version)
+static int run_net_hiccup(const char *proto, sa_family_t ip_version)
 {
     int rc;
-    if ((rc = run_net_hickup_timeout(proto, ip_version, false)) < 0)
+    if ((rc = run_net_hiccup_timeout(proto, ip_version, false)) < 0)
 	return rc;
-    if ((rc = run_net_hickup_timeout(proto, ip_version, true)) < 0)
+    if ((rc = run_net_hiccup_timeout(proto, ip_version, true)) < 0)
 	return rc;
     return UTEST_SUCCESS;
 }
 
-TESTCASE_TIMEOUT(xcm, tcp_net_hickup, 120.0)
+TESTCASE_TIMEOUT(xcm, tcp_net_hiccup, 120.0)
 {
     REQUIRE_ROOT;
     REQUIRE_NOT_IN_VALGRIND;
 
-    if (run_net_hickup("tcp", AF_INET) < 0)
+    if (run_net_hiccup("tcp", AF_INET) < 0)
 	return UTEST_FAIL;
-    if (run_net_hickup("tcp", AF_INET6) < 0)
+    if (run_net_hiccup("tcp", AF_INET6) < 0)
 	return UTEST_FAIL;
     return UTEST_SUCCESS;
 }
 
 #ifdef XCM_TLS
 
-TESTCASE_TIMEOUT(xcm, tls_net_hickup, 120.0)
+TESTCASE_TIMEOUT(xcm, tls_net_hiccup, 120.0)
 {
     REQUIRE_ROOT;
+    REQUIRE_NOT_IN_VALGRIND;
 
-    if (run_net_hickup("tls", AF_INET) < 0)
+    if (run_net_hiccup("tls", AF_INET) < 0)
 	return UTEST_FAIL;
-    if (run_net_hickup("tls", AF_INET6) < 0)
+    if (run_net_hiccup("tls", AF_INET6) < 0)
 	return UTEST_FAIL;
     return UTEST_SUCCESS;
 }
