@@ -830,9 +830,8 @@ extern "C" {
  * @subsubsection tls_certificates TLS Certificate and Key Storage
  *
  * The TLS transport reads the leaf certificate and its private key,
- * from the file system, as well as a trust chain file (i.e. a file
- * containing a list of trusted CA certificates). Default paths are
- * configured at build-time.
+ * from the file system, as well as a file containing all trusted CA
+ * certificates. Default paths are configured at build-time.
  *
  * @ref tls_attr may be used to override one or more of the default
  * paths, on a per-socket basis. Paths set on server sockets are
@@ -852,7 +851,7 @@ extern "C" {
  * namespace is given a name per the iproute2 convention, XCM will
  * retrieve this name and use it in the certificate and key lookup.
  *
- * In case the certificate, key and trust chain files are configured
+ * In case the certificate, key and trusted CA files are configured
  * using @ref tls_attr, no network namespace lookup will be performed.
  *
  * In the certificate directory (either the compile-time default, or
@@ -868,33 +867,34 @@ extern "C" {
  * key_<ns>.pem
  * @endcode
  *
- * The trust chain is stored in:
+ * The trusted CA certificates are stored in:
  * @code
  * tc_<ns>.pem
  * @endcode
  *
  * For the default namespace (or any other network namespace not named
  * according to iproute2 standards), the certificate need to be stored
- * in a file "cert.pem", the private key in "key.pem" and the trust
- * chain in "tc.pem".
+ * in a file "cert.pem", the private key in "key.pem" and the trusted
+ * CA certificates in "tc.pem".
  *
- * In case the certificate, key or trust chain files are not in place
+ * In case the certificate, key or trusted CAs files are not in place
  * (for a particular namespace), a xcm_server() call will return an
  * error and set errno to EPROTO. The application may choose to retry
  * at a later time.
  *
  * @paragraph cert_update Runtime Certificate File Updates
  *
- * In case a certificate, private key, or trust chain file is
+ * In case a certificate, private key, or trusted CAs file is
  * modified, the new version of the file(s) will be used by new
- * connections, but will not affect already-existing connections. The
- * TLS transport works with differences between set of files, and thus
- * the new generation of files need not nesserarily be newer (as in
- * having a more recent file system mtime).
+ * connections. Such a change does not affect already-established
+ * connections. The TLS transport works with differences between set
+ * of files, and thus the new generation of files need not nesserarily
+ * be newer (as in having a more recent file system mtime).
  *
- * The certificate, key and trust chain should be updated in an atomic
- * manner, or XCM may end up using the certificate file from one
- * generation of files and the key file from another, for example.
+ * The certificate, key and trusted CA certificates should be updated
+ * in an atomic manner, or XCM may end up using the certificate file
+ * from one generation of files and the key file from another, for
+ * example.
  *
  * One way of achieving an atomic update is to have the three files in
  * a common directory. This certificate directory is then made a
