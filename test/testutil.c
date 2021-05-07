@@ -191,21 +191,42 @@ int tu_leave_ns(int old_ns_fd)
     return 0;
 }
 
+static uint32_t rand32(void)
+{
+    uint32_t r;
+
+    tu_randblk(&r, sizeof(r));
+
+    return r;
+}
+
 int tu_randint(int min, int max)
 {
     if (min == max)
 	return min;
 
-    int diff = max-min;
+    int diff = max - min;
 
-    return min+(random() % diff);
+    return min + (rand32() % diff);
 }
 
-void tu_randomize(uint8_t *buf, int len)
+int tu_randbool(void)
 {
-    int i;
-    for (i=0; i<len; i++)
-	buf[i] = (uint8_t)tu_randint(0, 255);
+    return tu_randint(0, 1);
+}
+
+void tu_randblk(void *buf, int len)
+{
+    while (len > 0) {
+	/* getentropy() puts a limit of 256 bytes at a time */
+	size_t batch = UT_MIN(len, 256);
+
+	if (getentropy(buf, batch) < 0)
+	    abort();
+
+	buf += batch;
+	len -= batch;
+    }
 }
 
 bool tu_is_kernel_at_least(int wanted_major, int wanted_minor)
@@ -270,7 +291,7 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
     char actual_value[256] = { 0 };
 
     int rc;
-    if (random() % 1)
+    if (tu_randbool())
 	rc = xcm_attr_get(s, attr_name, &type, actual_value,
 			  sizeof(actual_value));
     else {
@@ -305,7 +326,7 @@ int tu_assure_bool_attr(struct xcm_socket *s, const char *attr_name,
     bool actual_value;
 
     int rc;
-    if (random() % 1) {
+    if (tu_randbool()) {
 	enum xcm_attr_type type = 4711;
 	rc = xcm_attr_get(s, attr_name, &type, &actual_value,
 			  sizeof(actual_value));
@@ -343,7 +364,7 @@ int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
     int64_t actual_value;
 
     int rc;
-    if (random() % 1) {
+    if (tu_randbool()) {
 	enum xcm_attr_type type = 4711;
 	rc = xcm_attr_get(s, attr_name, &type, &actual_value,
 			  sizeof(actual_value));

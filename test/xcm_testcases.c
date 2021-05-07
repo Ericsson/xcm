@@ -4085,7 +4085,7 @@ static int tcp_spammer(int dport, int max_writes, int write_max_size,
     do {
 	size_t write_sz = tu_randint(1, write_max_size);
 	uint8_t buf[write_sz];
-	tu_randomize(buf, write_sz);
+	tu_randblk(buf, write_sz);
 	send_rc = send(sock, buf, write_sz, 0);
     } while (send_rc > 0 && --writes_left > 0);
 

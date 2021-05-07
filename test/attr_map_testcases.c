@@ -165,7 +165,7 @@ TESTCASE(attr_map, access_bin)
     size_t data_len = 1000001;
     void *data = ut_malloc(data_len);
 
-    tu_randomize(data, data_len);
+    tu_randblk(data, data_len);
 
     xcm_attr_map_add(attr_map, "bin", xcm_attr_type_bin, data, data_len);
 

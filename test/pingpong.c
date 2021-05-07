@@ -510,7 +510,7 @@ pid_t pingpong_run_forking_server(const char *server_addr, int pings_per_client,
 struct msg
 {
     int len;
-    int payload[MAX_MSG];
+    char payload[MAX_MSG];
 };
 
 static struct msg *random_msg(size_t max_len)
@@ -521,9 +521,7 @@ static struct msg *random_msg(size_t max_len)
 
     ut_assert(msg->len <= MAX_MSG);
 
-    int i;
-    for (i=0; i<msg->len; i++)
-	msg->payload[i] = (char)random();
+    tu_randblk(msg->payload, msg->len);
 
     return msg;
 }
@@ -559,10 +557,6 @@ pid_t pingpong_run_client(const char *server_addr, int num_pings,
 	return -1;
     else if (p > 0)
 	return p;
-
-    /* re-seed random generator, to have different client send
-       different-sized messages */
-    srandom(time(NULL)+ut_gettid());
 
     struct xcm_socket *conn = tu_connect_retry(server_addr, 0);
 
@@ -653,7 +647,7 @@ static void try_relay_chunk(int from_fd, int to_fd)
 {
     int rc;
 
-    int chunk_size = random()%(RELAY_MAX_READ-1) + 1;
+    int chunk_size = tu_randint(1, RELAY_MAX_READ);
 
     char buf[chunk_size];
 
@@ -757,7 +751,7 @@ pid_t pingpong_run_tcp_relay(uint16_t local_port, in_addr_t to_host,
 
 	relay(conn_sock_a, conn_sock_b);
 
-	useconds_t t = random() % SLEEP_MAX_US;
+	useconds_t t = tu_randint(0, SLEEP_MAX_US);
 	usleep(t);
     }
 }

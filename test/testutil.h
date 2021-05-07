@@ -31,7 +31,8 @@ int tu_enter_ns(const char *ns_name);
 int tu_leave_ns(int old_ns);
 
 int tu_randint(int min, int max);
-void tu_randomize(uint8_t *buf, int len);
+int tu_randbool(void);
+void tu_randblk(void *buf, int len);
 bool tu_is_kernel_at_least(int wanted_major, int wanted_minor);
 
 bool tu_server_port_bound(const char *ip, uint16_t port);
