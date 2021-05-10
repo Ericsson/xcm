@@ -40,9 +40,9 @@ XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_compat.c libxcm/xcm_addr.c \
 	libxcm/xcm_addr_compat.c libxcm/xcm_attr_map.c libxcm/xcm_tp.c \
 	libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c libxcm/common_tp.c \
-	libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c \
+	libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c libxcm/xcm_dns.c \
 	libxcm/xcm_dns_glibc.c libxcm/epoll_reg.c libxcm/epoll_reg_set.c \
-	libxcm/active_fd.c common/util.c
+	libxcm/active_fd.c common/slist.c common/util.c
 
 if TLS
 LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/ctx_store.c \
@@ -116,10 +116,10 @@ UTEST_SOURCES = test/utest/utest.c  test/utest/utestreport.c \
 TEST_CPPFLAGS=-I$(srcdir)/test -I$(srcdir)/test/utest
 
 XCMTEST_TESTCASE_SOURCES = test/xcm_testcases.c test/addr_testcases.c \
-	test/attr_map_testcases.c
+	test/attr_map_testcases.c test/slist_testcases.c
 
 xcmtest_SOURCES = $(XCMTEST_TESTCASE_SOURCES) $(UTEST_SOURCES) \
-	common/util.c test/testutil.c test/pingpong.c
+	common/util.c common/slist.c test/testutil.c test/pingpong.c
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
 xcmtest_LDADD = libxcm.la
 if CTL

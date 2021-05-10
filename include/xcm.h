@@ -24,8 +24,8 @@ extern "C" {
  * available in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.16 [API]
- * @version 1.2.0 [Implementation]
+ * @version 0.17 [API]
+ * @version 1.3.0 [Implementation]
  *
  * The low API/ABI version number is purely a result of all XCM
  * releases being backward compatible, and thus left the major version
@@ -350,7 +350,7 @@ extern "C" {
  * In this example, the application connects and tries to send a
  * message, before knowing if the connection is actually
  * established. This may fail (for example, in case TCP and/or
- * TLS-level connection establishement has not yet been completed), in
+ * TLS-level connection establishment has not yet been completed), in
  * which case the application will fall back and wait with the use of
  * xcm_await(), xcm_fd() and select().
  *
@@ -419,8 +419,8 @@ extern "C" {
  *
  * In many cases, the application is handed a connection socket before
  * the connection establishment is completed. Any errors occuring
- * during this process is handed over to the application at the next
- * XCM call; would it be xcm_finish(), xcm_send() or xcm_receive().
+ * during this process is handed over to the application at a future
+ * call to xcm_finish(), xcm_send() or xcm_receive().
  *
  * @startuml{nb_delayed_connection_refused.png}
  * client -> libxcm: xcm_connect("utls:192.168.1.17:17", XCM_NONBLOCK);
@@ -818,18 +818,16 @@ extern "C" {
  * @subsection tls_transport TLS Transport
  *
  * The TLS transport uses TLS to provide a secure, private, two-way
- * authenticated transport.
+ * authenticated transport. A TLS connection is a byte stream, but the
+ * XCM TLS transport adds framing in the same manner as does the XCM
+ * TCP transport.
  *
- * TLS is a byte-stream service, but the XCM TLS transport adds
- * framing in the same manner as does the XCM TCP transport.
- *
- * The TLS transport supports IPv4 and IPv6.
- *
- * The TLS transport disables the Nagle algorithm of TCP.
+ * The TLS transport supports IPv4 and IPv6. It disables the Nagle
+ * algorithm of TCP.
  *
  * @subsubsection tls_certificates TLS Certificate and Key Storage
  *
- * The TLS transport reads the leaf certificate and its private key,
+ * The TLS transport reads the leaf certificate and its private key
  * from the file system, as well as a file containing all trusted CA
  * certificates. Default paths are configured at build-time.
  *
@@ -903,6 +901,53 @@ extern "C" {
  * the old symbolic link is replace an atomic manner (i.e. with
  * rename(2)).
  *
+ * @subsubsection name_verification X.509v3 Subject Name Verification
+ *
+ * The TLS transport supports verifying the remote peer's certificate
+ * subject name against an application-specified expected name, or a
+ * set of names. "Subject name" here is used as per RFC 6125
+ * definition, and is either a Distingushed Name (DN) of the X.509
+ * certificate's subject field, or a DNS type subject alternative name
+ * extension. XCM does not make any distinction between the two.
+ *
+ * Subject name verification may be enabled by setting the
+ * "tls.verify_peer_name" socket attribute to true. It is disabled by
+ * default.
+ *
+ * If enabled, XCM will verify the hostname in the address supplied in
+ * the xcm_connect_a() call. In case the attribute "tls.peer_names" is
+ * also supplied, it overrides this behavior. The value of this
+ * attribute is a ':'-separated set of subject names.
+ *
+ * If there is a non-zero overlap between these two sets, the
+ * verification is considered successful. The actual procedure is
+ * delegated to OpenSSL. Wildcard matching is disabled (@c
+ * X509_CHECK_FLAG_NO_WILDCARDS) and the check includes the subject
+ * field (@c X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT).
+ *
+ * Subject name verification may be used both by a client (in its
+ * xcm_connect_a() call) or by a server (in xcm_server_a() or
+ * xcm_accept_a()). "tls.peer_names" must be specified in case
+ * "tls.verify_peer_name" is set to true on connection sockets created
+ * by accepting a TLS connection from a server socket (since there is
+ * no hostname to fall back to).
+ *
+ * Connection sockets created by xcm_accept() or xcm_accept_a()
+ * inherit the "tls.verify_name" and "tls.peer_names" attributes from
+ * its parent server socket.
+ *
+ * After a connection is established, the "tls.peer_names" will be
+ * updated to reflect the remote peer's actual subject names, as
+ * opposed to those which were originally allowed.
+ *
+ * OpenSSL refers to this functionality as hostname validation, and
+ * that is also how it's usually used. However, the subject name
+ * passed in "tls.peer_names" need not be DNS domain name, but can be
+ * any kind of name or identifier. All names must follow DNS domain
+ * name syntax rules (including label and total length limitations).
+ * Also, while uppercase and lowercase letters are allowed in domain
+ * names, no significance is attached to the case.
+ *
  * @subsubsection tls_attr TLS Socket Attributes
  *
  * Attribute Name          | Socket Type | Value Type  | Mode | Description
@@ -910,6 +955,8 @@ extern "C" {
  * tls.cert_file           | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
  * tls.key_file            | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
  * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation.
+ * tls.verify_peer_name    | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation.
+ * tls.peer_names          | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
  * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
@@ -937,6 +984,12 @@ extern "C" {
  *
  * In case DNS is used:
  * <tt>tls:<hostname>:<port></tt> and <tt>ux:<hostname>:<port></tt>.
+ *
+ * @subsubsection utls_attr UTLS Socket Attributes
+ *
+ * UTLS sockets accept all the @ref tls_attr, as well as the @ref
+ * xcm_attr. In case a UTLS connection is being established as a UX
+ * connection socket, all TLS attributes are ignored.
  *
  * @subsubsection utls_limitations UTLS Limitations
  *
@@ -974,8 +1027,8 @@ extern "C" {
  * Namespaces is a Linux kernel facility concept for creating multiple,
  * independent namespaces for kernel resources of a certain kind.
  *
- * Linux Network Namespaces will affect all transports, including
- * the UX transport.
+ * Linux Network Namespaces will affect all transports, except the
+ * @ref uxf_transport.
  *
  * XCM has no explicit namespace support. Rather, the application is
  * expected to use the Linux kernel facilities for this functionality

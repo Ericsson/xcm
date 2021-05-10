@@ -7,13 +7,13 @@
 
 #include "util.h"
 #include "xcm_addr_limits.h"
+#include "xcm_dns.h"
 
 #include <arpa/inet.h>
 #include <ctype.h>
 /* for UNIX_PATH_MAX, which is not available in in <sys/un.h> */
 #include <linux/un.h>
 #include <netinet/in.h>
-#include <regex.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,35 +124,6 @@ int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_name,
     return addr_parse_ux_uxf(XCM_UXF_PROTO, uxf_addr_s, uxf_name, capacity);
 }
 
-#define DNS_MAX_LEN (253)
-#define DNS_RE "^[a-z0-9\\-]+(\\.[a-z0-9\\-]+\\.?)*$"
-
-static bool is_valid_dns_name(const char *name)
-{
-    if (strlen(name) > DNS_MAX_LEN)
-	return false;
-
-    regex_t re;
-    int rc = regcomp(&re, DNS_RE, REG_ICASE|REG_EXTENDED);
-
-    if (rc != 0)
-	abort(); /* out of memory */
-
-    bool result;
-    regmatch_t m;
-    rc = regexec(&re, name, 1, &m, 0);
-    if (rc == 0)
-	result = true;
-    else if (rc == REG_NOMATCH)
-	result = false;
-    else
-	abort();
-
-    regfree(&re);
-
-    return result;
-}
-
 static int host_parse(const char *host_s, struct xcm_addr_host *host)
 {
     if (strlen(host_s) == 0)
@@ -198,7 +169,7 @@ static int host_parse(const char *host_s, struct xcm_addr_host *host)
 	return 0;
     }
 
-    if (is_valid_dns_name(host_s)) {
+    if (xcm_dns_is_valid_name(host_s)) {
 	host->type = xcm_addr_type_name;
 	strcpy(host->name, host_s);
 	return 0;

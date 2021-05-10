@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: BSD-3-Clause
- * Copyright(c) 2020 Ericsson AB
+ * Copyright(c) 2020-2021 Ericsson AB
  */
 
 #include "active_fd.h"
@@ -10,6 +10,7 @@
 #include "log_tls.h"
 #include "log_tp.h"
 #include "mbuf.h"
+#include "slist.h"
 #include "tcp_attr.h"
 #include "util.h"
 #include "xcm.h"
@@ -34,6 +35,9 @@
  */
 
 #define TLS_CERT_ENV "XCM_TLS_CERT"
+
+#define HOSTNAME_VALIDATION_FLAGS \
+    (X509_CHECK_FLAG_NO_WILDCARDS|X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT)
 
 #define DEFAULT_CERT_DIR (SYSCONFDIR "/xcm/tls")
 
@@ -64,6 +68,9 @@ struct tls_socket
     char *cert_file;
     char *key_file;
     char *tc_file;
+
+    bool verify_peer_name;
+    struct slist *valid_peer_names;
 
     struct epoll_reg fd_reg;
 
@@ -224,8 +231,8 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static void inherit_cert_files(struct xcm_socket *conn_s,
-			       struct xcm_socket *server_s)
+static void inherit_tls_conf(struct xcm_socket *conn_s,
+			     struct xcm_socket *server_s)
 {
     struct tls_socket *conn_ts = TOTLS(conn_s);
     struct tls_socket *server_ts = TOTLS(server_s);
@@ -236,6 +243,11 @@ static void inherit_cert_files(struct xcm_socket *conn_s,
 	conn_ts->key_file = ut_strdup(server_ts->key_file);
     if (server_ts->tc_file)
 	conn_ts->tc_file = ut_strdup(server_ts->tc_file);
+
+    conn_ts->verify_peer_name = server_ts->verify_peer_name;
+
+    if (server_ts->valid_peer_names)
+	conn_ts->valid_peer_names = slist_clone(server_ts->valid_peer_names);
 }
 
 static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
@@ -261,7 +273,7 @@ static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
 	mbuf_init(&ts->conn.receive_mbuf);
 
 	if (parent)
-	    inherit_cert_files(s, parent);
+	    inherit_tls_conf(s, parent);
 
 	break;
     }
@@ -324,6 +336,7 @@ static int deinit(struct xcm_socket *s, bool owner)
 	ut_free(ts->cert_file);
 	ut_free(ts->key_file);
 	ut_free(ts->tc_file);
+	slist_destroy(ts->valid_peer_names);
 
 	if (ts->ssl_ctx)
 	    ctx_store_put(ts->ssl_ctx);
@@ -420,13 +433,46 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
     }
 }
 
+static int enable_hostname_validation(struct xcm_socket *s)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (ts->valid_peer_names == NULL) {
+	LOG_TLS_VERIFY_MISSING_PEER_NAMES(s);
+	errno = EINVAL;
+	return -1;
+    }
+
+    X509_VERIFY_PARAM *param = SSL_get0_param(ts->conn.ssl);
+    unsigned flags = HOSTNAME_VALIDATION_FLAGS;
+
+    X509_VERIFY_PARAM_set_hostflags(param, flags);
+
+    X509_VERIFY_PARAM_set1_host(param, NULL, 0);
+
+    /* name as per section 6.4.2 of RFC 6125 */
+    size_t i;
+    for (i = 0; i < slist_len(ts->valid_peer_names); i++) {
+	const char *name = slist_get(ts->valid_peer_names, i);
+	if (X509_VERIFY_PARAM_add1_host(param, name, 0))
+	    LOG_TLS_VALID_PEER_NAME(s, name);
+	else {
+	    LOG_TLS_INVALID_PEER_NAME(s, name);
+	    errno = EINVAL;
+	    return -1;
+	}
+    }
+
+    return 0;
+}
+
 static void verify_peer_cert(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    X509 *x509Object = SSL_get_peer_certificate(ts->conn.ssl);
+    X509 *remote_cert = SSL_get_peer_certificate(ts->conn.ssl);
 
-    if (x509Object != NULL) {
+    if (remote_cert != NULL) {
 	int rc = SSL_get_verify_result(ts->conn.ssl);
 
 	if (rc != X509_V_OK) {
@@ -437,7 +483,7 @@ static void verify_peer_cert(struct xcm_socket *s)
 	} else
 	    LOG_TLS_PEER_CERT_OK(s);
 
-	X509_free(x509Object);
+	X509_free(remote_cert);
     } else {
 	LOG_TLS_PEER_CERT_NOT_OK(s, "peer certificate not found");
 	TLS_SET_STATE(s, conn_state_bad);
@@ -719,6 +765,17 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err_deinit;
     }
 
+    if (ts->verify_peer_name)  {
+	if (ts->conn.remote_host.type == xcm_addr_type_name &&
+	    ts->valid_peer_names == NULL) {
+	    ts->valid_peer_names = slist_create();
+	    slist_append(ts->valid_peer_names, ts->conn.remote_host.name);
+	}
+
+	if (enable_hostname_validation(s) < 0)
+	    goto err_deinit;
+    }
+
     if (ts->conn.remote_host.type == xcm_addr_type_name) {
 	TLS_SET_STATE(s, conn_state_resolving);
 	ts->conn.query = xcm_dns_resolve(ts->conn.remote_host.name,
@@ -726,6 +783,11 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 	if (!ts->conn.query)
 	    goto err_deinit;
     } else {
+	if (ts->verify_peer_name && ts->valid_peer_names == NULL) {
+	    LOG_TLS_VERIFY_MISSING_HOSTNAME(s);
+	    errno = EINVAL;
+	    goto err_deinit;
+	}
 	TLS_SET_STATE(s, conn_state_tcp_connecting);
 	begin_connect(s);
     }
@@ -908,6 +970,9 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	errno = ENOMEM;
 	goto err_close;
     }
+
+    if (conn_ts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
+	goto err_close;
 
     if (SSL_set_fd(conn_ts->conn.ssl, conn_fd) != 1)
 	goto err_close;
@@ -1467,6 +1532,197 @@ static int get_tc_file_attr(struct xcm_socket *s,
     return xcm_tp_get_str_attr(TOTLS(s)->tc_file, value, capacity);
 }
 
+static int set_verify_peer_name_attr(struct xcm_socket *s,
+				     const struct xcm_tp_attr *attr,
+				     const void *value, size_t len)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (s->type == xcm_socket_type_conn &&
+	ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    return xcm_tp_set_bool_attr(value, len, &(ts->verify_peer_name));
+}
+
+static int get_verify_peer_name_attr(struct xcm_socket *s,
+				     const struct xcm_tp_attr *attr,
+				     void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOTLS(s)->verify_peer_name, value, capacity);
+}
+
+static void add_subject_field_cn(X509 *cert, struct slist *subject_names)
+{
+    X509_NAME *name = X509_get_subject_name(cert);
+
+    char cn[1024];
+    int len = X509_NAME_get_text_by_NID(name, NID_commonName, cn, sizeof(cn));
+
+    if (len < 0)
+	return;
+
+    if (!slist_has(subject_names, cn))
+	slist_append(subject_names, cn);
+}
+
+static void add_subject_alternative_names(X509 *cert,
+					  struct slist *subject_names)
+{
+    STACK_OF(GENERAL_NAME) *names = (STACK_OF(GENERAL_NAME) *)
+	X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
+
+    int i;
+    for (i = 0; i < sk_GENERAL_NAME_num(names); i++) {
+	GENERAL_NAME *name = sk_GENERAL_NAME_value(names, i);
+
+	if (name->type != GEN_DNS)
+	    continue;
+
+	const char *value = (const char *)
+	    ASN1_STRING_get0_data(name->d.dNSName);
+
+	if (ASN1_STRING_length(name->d.dNSName) != strlen(value))
+	    continue;
+
+	if (!slist_has(subject_names, value))
+	    slist_append(subject_names, value);
+    }
+
+    sk_GENERAL_NAME_pop_free(names, GENERAL_NAME_free);
+}
+
+#define SAN_DELIMITER ':'
+
+static int set_peer_names_attr(struct xcm_socket *s,
+			       const struct xcm_tp_attr *attr,
+			       const void *value, size_t len)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (s->type == xcm_socket_type_conn &&
+	ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    if (ts->valid_peer_names) {
+	slist_destroy(ts->valid_peer_names);
+	ts->valid_peer_names = NULL;
+    }
+
+    /* XXX: check strings to be valid hostnames */
+
+    struct slist *new_names = slist_split(value, SAN_DELIMITER);
+
+    if (slist_len(new_names) > 0) {
+	size_t i;
+	for (i = 0; i < slist_len(new_names); i++) {
+	    const char *name = slist_get(new_names, i);
+	    if (!xcm_dns_is_valid_name(name)) {
+		LOG_TLS_INVALID_PEER_NAME(s, name);
+		slist_destroy(new_names);
+		errno = EINVAL;
+		return -1;
+	    }
+	}
+
+	ts->valid_peer_names = new_names;
+    } else
+	slist_destroy(new_names);
+
+    return 0;
+}
+
+static int get_valid_peer_names_attr(struct xcm_socket *s,
+				     const struct xcm_tp_attr *attr,
+				     void *value, size_t capacity)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (!ts->valid_peer_names) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    char *result = slist_join(ts->valid_peer_names, SAN_DELIMITER);
+    size_t result_len = strlen(result);
+
+    if (result_len >= capacity) {
+	errno = EOVERFLOW;
+	ut_free(result);
+	return -1;
+    }
+
+    strcpy(value, result);
+
+    ut_free(result);
+
+    return result_len + 1;
+}
+
+static int get_actual_peer_names_attr(struct xcm_socket *s,
+				      const struct xcm_tp_attr *attr,
+				      void *value, size_t capacity)
+{
+    struct tls_socket *ts = TOTLS(s);
+    X509 *remote_cert = SSL_get_peer_certificate(ts->conn.ssl);
+    if (remote_cert == NULL)
+	return 0;
+
+    memset(value, 0, capacity);
+
+    struct slist *subject_names = slist_create();
+
+    add_subject_field_cn(remote_cert, subject_names);
+    add_subject_alternative_names(remote_cert, subject_names);
+
+    X509_free(remote_cert);
+
+    if (slist_len(subject_names) == 0) {
+	errno = ENOENT;
+	slist_destroy(subject_names);
+	return -1;
+    }
+
+    char *result = slist_join(subject_names, SAN_DELIMITER);
+
+    slist_destroy(subject_names);
+
+    if (strlen(result) >= capacity) {
+	errno = EOVERFLOW;
+	ut_free(result);
+	return -1;
+    }
+
+    strcpy(value, result);
+
+    ut_free(result);
+
+    return strlen(value) + 1;
+}
+
+
+static int get_peer_names_attr(struct xcm_socket *s,
+			       const struct xcm_tp_attr *attr,
+			       void *value, size_t capacity)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (capacity == 0) {
+	errno = EOVERFLOW;
+	return -1;
+    }
+
+    if (s->type == xcm_socket_type_conn &&
+	ts->conn.state == conn_state_ready)
+	return get_actual_peer_names_attr(s, attr, value, capacity);
+    else
+	return get_valid_peer_names_attr(s, attr, value, capacity);
+}
+
 static int get_peer_subject_key_id(struct xcm_socket *s,
 				   const struct xcm_tp_attr *attr,
 				   void *value, size_t capacity)
@@ -1504,7 +1760,15 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
     return len;
 }
 
+#define COMMON_ATTRS \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
+			set_verify_peer_name_attr, get_verify_peer_name_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_PEER_NAMES, xcm_attr_type_str, \
+			set_peer_names_attr, get_peer_names_attr)
+
+
 static struct xcm_tp_attr conn_attrs[] = {
+    COMMON_ATTRS,
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str,
 			set_cert_file_attr, get_cert_file_attr),
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str,
@@ -1535,6 +1799,7 @@ static struct xcm_tp_attr conn_attrs[] = {
 };
 
 static struct xcm_tp_attr server_attrs[] = {
+    COMMON_ATTRS,
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str,
 			set_cert_file_attr, get_cert_file_attr),
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str,

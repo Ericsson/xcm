@@ -27,4 +27,6 @@ void xcm_dns_query_free(struct xcm_dns_query *query);
 
 int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref);
 
+bool xcm_dns_is_valid_name(const char *name);
+
 #endif

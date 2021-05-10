@@ -16,6 +16,21 @@
 #define LOG_TLS_CONN_ESTABLISHED(s, fd)		\
     LOG_CONN_ESTABLISHED("TLS", s, fd)
 
+#define LOG_TLS_VERIFY_MISSING_PEER_NAMES(s)				\
+    log_debug_sock(s, "Hostname verification enabled, but no peer names " \
+		   "are configured.")
+
+#define LOG_TLS_VERIFY_MISSING_HOSTNAME(s)				\
+    log_debug_sock(s, "Hostname verification enabled, but no peer names " \
+		   "are configured, and XCM address does not contain " \
+		   "any hostname.")
+
+#define LOG_TLS_VALID_PEER_NAME(s, name)				\
+    log_debug_sock(s, "Added \"%s\" as a valid remote peer name.", name)
+
+#define LOG_TLS_INVALID_PEER_NAME(s, name)			\
+    log_debug_sock(s, "Invalid peer name \"%s\".", name)
+
 #define LOG_TLS_PEER_CERT_OK(s)						\
     log_debug_sock(s, "Peer certificate verified successfully.")
 

@@ -39,7 +39,7 @@ xcm.h. `make doxygen` will create HTML version. If the `pdflatex` tool
 is installed, a PDF version will also be produced.
 
 An online copy of this API version's documentation can be found here:
-https://ericsson.github.io/xcm/api/0.16/
+https://ericsson.github.io/xcm/api/0.17/
 
 ## Building
 

@@ -237,7 +237,7 @@ int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity)
     return len+1;
 }
 
-static int set_bool_attr(const void *buf, size_t len, bool *value)
+int xcm_tp_set_bool_attr(const void *buf, size_t len, bool *value)
 {
     if (len != sizeof(bool)) {
 	errno = EINVAL;
@@ -249,7 +249,7 @@ static int set_bool_attr(const void *buf, size_t len, bool *value)
     return 0;
 }
 
-static int get_bool_attr(bool value, void *buf, size_t capacity)
+int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity)
 {
     if (sizeof(bool) > capacity) {
 	errno = EOVERFLOW;
@@ -311,7 +311,7 @@ static int set_blocking_attr(struct xcm_socket *s,
 {
     bool is_blocking;
 
-    if (set_bool_attr(value, len, &is_blocking) < 0)
+    if (xcm_tp_set_bool_attr(value, len, &is_blocking) < 0)
 	return -1;
 
     if (xcm_set_blocking(s, is_blocking) < 0)
@@ -324,7 +324,7 @@ static int get_blocking_attr(struct xcm_socket *s,
 			     const struct xcm_tp_attr *attr,
 			     void *value, size_t capacity)
 {
-    return get_bool_attr(s->is_blocking, value, capacity);
+    return xcm_tp_get_bool_attr(s->is_blocking, value, capacity);
 }
 
 static int get_max_msg_attr(struct xcm_socket *s,

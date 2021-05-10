@@ -28,14 +28,18 @@ def gen_private_key():
                                     backend=default_backend())
 
 
-def create_cert(subject_name, ca=False, issuer_key=None, issuer_cert=None):
+def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None):
     private_key = gen_private_key()
 
     public_key = private_key.public_key()
 
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject_name)])
+    name = \
+        x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject_names[0])])
+
     constraints = x509.BasicConstraints(ca=ca, path_length=None)
-    alt_name = x509.SubjectAlternativeName([x509.DNSName(subject_name)])
+
+    dns_names = [x509.DNSName(subject_name) for subject_name in subject_names]
+    alt_name = x509.SubjectAlternativeName(dns_names)
 
     now = datetime.datetime.utcnow()
 
@@ -65,12 +69,18 @@ def create_cert(subject_name, ca=False, issuer_key=None, issuer_cert=None):
 
     return private_key, cert
 
+def get_subject_names(conf):
+    if 'subject_name' in conf:
+        return [conf['subject_name']]
+    else:
+        return conf['subject_names']
+    
 
 def create_certs(conf_certs):
     keys = {}
     certs = {}
     for id, params in conf_certs.items():
-        subject_name = params['subject_name']
+        subject_names = get_subject_names(params)
         ca = params.get('ca', False)
 
         issuer = params.get('issuer')
@@ -82,7 +92,7 @@ def create_certs(conf_certs):
             issuer_cert = None
 
         keys[id], certs[id] = \
-            create_cert(subject_name, ca, issuer_key, issuer_cert)
+            create_cert(subject_names, ca, issuer_key, issuer_cert)
 
     return keys, certs
 
