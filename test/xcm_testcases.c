@@ -486,7 +486,7 @@ static int teardown_named_ns(const char *name)
 
 static const char *get_cert_base(void)
 {
-    static char cdir[PATH_MAX];
+    static char cdir[64];
     snprintf(cdir, sizeof(cdir), "./test/cert/%d", getpid());
     return cdir;
 }
