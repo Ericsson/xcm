@@ -1483,12 +1483,15 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
 	return 0;
 
     const ASN1_OCTET_STRING *key = X509_get0_subject_key_id(remote_cert);
-    if (key == NULL)
+    if (key == NULL) {
+	X509_free(remote_cert);
 	return 0;
+    }
 
     int len = ASN1_STRING_length(key);
     if (len > capacity) {
 	errno = EOVERFLOW;
+	X509_free(remote_cert);
 	return -1;
     }
 
