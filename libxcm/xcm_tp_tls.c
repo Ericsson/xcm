@@ -674,17 +674,17 @@ static int get_cert_files(struct xcm_socket *s)
     return 0;
 }
 
-static void copy_cert_files(struct xcm_socket *server_s,
-			    struct xcm_socket *conn_s)
+static void inherit_cert_files(struct xcm_socket *server_s,
+			       struct xcm_socket *conn_s)
 {
     struct tls_socket *conn_ts = TOTLS(conn_s);
     struct tls_socket *server_ts = TOTLS(server_s);
 
-    if (server_ts->cert_file)
+    if (server_ts->cert_file && !conn_ts->cert_file)
 	conn_ts->cert_file = ut_strdup(server_ts->cert_file);
-    if (server_ts->key_file)
+    if (server_ts->key_file && !conn_ts->key_file)
 	conn_ts->key_file = ut_strdup(server_ts->key_file);
-    if (server_ts->tc_file)
+    if (server_ts->tc_file && !conn_ts->tc_file)
 	conn_ts->tc_file = ut_strdup(server_ts->tc_file);
 }
 
@@ -888,7 +888,7 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (ut_set_blocking(conn_fd, false) < 0)
 	goto err_close;
 
-    copy_cert_files(server_s, conn_s);
+    inherit_cert_files(server_s, conn_s);
 
     if (get_cert_files(conn_s) < 0)
 	goto err_close;

@@ -3019,6 +3019,87 @@ TESTCASE(xcm, tls_shared_root_ca_with_attrs)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, tls_accept_attrs_override_server_attrs)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: valid/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: valid/key.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - a\n"
+	    "    path: valid/tc.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: invalid/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: invalid/key.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - b\n"
+	    "    path: invalid/tc.pem\n"
+	    )
+	);
+
+    struct xcm_attr_map *valid_attrs =
+	create_cert_attrs(get_cert_base(), "valid/cert.pem",
+			  "valid/key.pem", "valid/tc.pem");
+    xcm_attr_map_add_bool(valid_attrs, "xcm.blocking", false);
+
+    struct xcm_attr_map *invalid_attrs =
+	create_cert_attrs(get_cert_base(), "invalid/cert.pem",
+			  "invalid/key.pem", "invalid/tc.pem");
+    xcm_attr_map_add_bool(invalid_attrs, "xcm.blocking", false);
+
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_socket *server_sock = xcm_server_a(tls_addr, invalid_attrs);
+    CHK(server_sock);
+
+    struct xcm_socket *client_sock = NULL;
+    struct xcm_socket *accepted_sock = NULL;
+
+    bool client_done = false;
+    bool server_done = false;
+
+    while (!client_done || !server_done) {
+	if (!client_sock)
+	    client_sock = xcm_connect_a(tls_addr, valid_attrs);
+	else if (xcm_finish(client_sock) == 0)
+	    client_done = true;
+
+	if (!accepted_sock)
+	    accepted_sock = xcm_accept_a(server_sock, valid_attrs);
+	else if (xcm_finish(accepted_sock) == 0)
+	    server_done = true;
+    }
+
+    CHKNOERR(xcm_close(server_sock));
+    CHKNOERR(xcm_close(accepted_sock));
+    CHKNOERR(xcm_close(client_sock));
+
+    xcm_attr_map_destroy(valid_attrs);
+    xcm_attr_map_destroy(invalid_attrs);
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(xcm, tls_key_and_certificates_mixed_up)
 {
     CHKNOERR(run_tls_handshake_attrs(get_cert_base(), "default/key.pem",
