@@ -106,10 +106,12 @@ static char *gen_ip6_port_addr(const char *proto)
 	NULL : addr;
 }
 
+#ifdef XCM_TLS
 static char *gen_tls_addr(void)
 {
     return gen_ip4_port_addr("tls");
 }
+#endif
 
 static bool has_domain_name(const char *addr)
 {
