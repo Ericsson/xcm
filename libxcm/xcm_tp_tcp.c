@@ -76,7 +76,7 @@ struct tcp_socket
 #define TCP_SET_STATE(_s, _state)		\
     TP_SET_STATE(_s, TOTCP(_s), _state)
 
-static int tcp_init(struct xcm_socket *s);
+static int tcp_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int tcp_connect(struct xcm_socket *s, const char *remote_addr);
 static int tcp_server(struct xcm_socket *s, const char *local_addr);
 static int tcp_close(struct xcm_socket *s);
@@ -189,7 +189,7 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static int tcp_init(struct xcm_socket *s)
+static int tcp_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct tcp_socket *ts = TOTCP(s);
 

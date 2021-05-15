@@ -41,7 +41,7 @@ struct ux_socket
 
 #define TOUX(s) XCM_TP_GETPRIV(s, struct ux_socket)
 
-static int ux_init(struct xcm_socket *s);
+static int ux_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int ux_connect(struct xcm_socket *s, const char *remote_addr);
 static int ux_server(struct xcm_socket *s, const char *local_addr);
 static int ux_close(struct xcm_socket *s);
@@ -172,7 +172,7 @@ static inline bool is_ux(struct xcm_socket *s)
     return XCM_TP_GETOPS(s) == &ux_ops;
 }
 
-static int ux_init(struct xcm_socket *s)
+static int ux_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct ux_socket *us = TOUX(s);
 

@@ -156,7 +156,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
     if (!s)
 	goto err;
 
-    if (xcm_tp_socket_init(s) < 0)
+    if (xcm_tp_socket_init(s, NULL) < 0)
 	goto err_destroy;
 
     if (attrs && set_attrs(s, attrs) < 0)
@@ -199,7 +199,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
     if (!s)
 	goto err;
 
-    if (xcm_tp_socket_init(s) < 0)
+    if (xcm_tp_socket_init(s, NULL) < 0)
 	goto err_destroy;
 
     if (attrs && set_attrs(s, attrs) < 0)
@@ -260,7 +260,7 @@ restart:
     if (is_blocking && socket_wait(server_s, XCM_SO_ACCEPTABLE) < 0)
 	goto err_destroy;
 
-    if (xcm_tp_socket_init(conn_s) < 0)
+    if (xcm_tp_socket_init(conn_s, server_s) < 0)
 	goto err_destroy;
 
     if (attrs && set_attrs(conn_s, attrs) < 0)

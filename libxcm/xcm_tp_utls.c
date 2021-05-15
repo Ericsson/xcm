@@ -49,7 +49,7 @@ struct utls_socket
 
 #define TOUTLS(s) XCM_TP_GETPRIV(s, struct utls_socket)
 
-static int utls_init(struct xcm_socket *s);
+static int utls_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int utls_connect(struct xcm_socket *s, const char *remote_addr);
 static int utls_server(struct xcm_socket *s, const char *local_addr);
 static int utls_close(struct xcm_socket *s);
@@ -129,7 +129,8 @@ static struct xcm_tp_proto *tls_proto(void)
 
 static struct xcm_socket *create_sub_socket(struct xcm_tp_proto *proto,
 					    enum xcm_socket_type type,
-					    int epoll_fd)
+					    int epoll_fd,
+					    struct xcm_socket *parent)
 {
     struct xcm_socket *s =
 	xcm_tp_socket_create(proto, type, epoll_fd, false);
@@ -137,7 +138,7 @@ static struct xcm_socket *create_sub_socket(struct xcm_tp_proto *proto,
     if (!s)
 	goto err;
 
-    if (xcm_tp_socket_init(s) < 0)
+    if (xcm_tp_socket_init(s, parent) < 0)
 	goto err_destroy;
 
     return s;
@@ -148,12 +149,22 @@ err:
     return NULL;
 }
 
-static int utls_init(struct xcm_socket *s)
+static int utls_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct utls_socket *us = TOUTLS(s);
 
-    us->ux_socket = create_sub_socket(ux_proto(), s->type, s->epoll_fd);
-    us->tls_socket = create_sub_socket(tls_proto(), s->type, s->epoll_fd);
+    struct xcm_socket *ux_parent = NULL;
+    struct xcm_socket *tls_parent = NULL;
+
+    if (parent) {
+	ux_parent = TOUTLS(parent)->ux_socket;
+	tls_parent = TOUTLS(parent)->tls_socket;
+    }
+
+    us->ux_socket =
+	create_sub_socket(ux_proto(), s->type, s->epoll_fd, ux_parent);
+    us->tls_socket =
+	create_sub_socket(tls_proto(), s->type, s->epoll_fd, tls_parent);
 
     if (!us->ux_socket || !us->tls_socket) {
 	xcm_tp_socket_destroy(us->ux_socket);

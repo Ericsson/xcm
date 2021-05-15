@@ -101,7 +101,7 @@ struct tls_socket
 #define TLS_SET_STATE(_s, _state)		\
     TP_SET_STATE(_s, TOTLS(_s), _state)
 
-static int tls_init(struct xcm_socket *s);
+static int tls_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int tls_connect(struct xcm_socket *s, const char *remote_addr);
 static int tls_server(struct xcm_socket *s, const char *local_addr);
 static int tls_close(struct xcm_socket *s);
@@ -224,7 +224,21 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static int tls_init(struct xcm_socket *s)
+static void inherit_cert_files(struct xcm_socket *conn_s,
+			       struct xcm_socket *server_s)
+{
+    struct tls_socket *conn_ts = TOTLS(conn_s);
+    struct tls_socket *server_ts = TOTLS(server_s);
+
+    if (server_ts->cert_file)
+	conn_ts->cert_file = ut_strdup(server_ts->cert_file);
+    if (server_ts->key_file)
+	conn_ts->key_file = ut_strdup(server_ts->key_file);
+    if (server_ts->tc_file)
+	conn_ts->tc_file = ut_strdup(server_ts->tc_file);
+}
+
+static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct tls_socket *ts = TOTLS(s);
 
@@ -245,6 +259,10 @@ static int tls_init(struct xcm_socket *s)
 
 	mbuf_init(&ts->conn.send_mbuf);
 	mbuf_init(&ts->conn.receive_mbuf);
+
+	if (parent)
+	    inherit_cert_files(s, parent);
+
 	break;
     }
     }
@@ -674,20 +692,6 @@ static int get_cert_files(struct xcm_socket *s)
     return 0;
 }
 
-static void inherit_cert_files(struct xcm_socket *server_s,
-			       struct xcm_socket *conn_s)
-{
-    struct tls_socket *conn_ts = TOTLS(conn_s);
-    struct tls_socket *server_ts = TOTLS(server_s);
-
-    if (server_ts->cert_file && !conn_ts->cert_file)
-	conn_ts->cert_file = ut_strdup(server_ts->cert_file);
-    if (server_ts->key_file && !conn_ts->key_file)
-	conn_ts->key_file = ut_strdup(server_ts->key_file);
-    if (server_ts->tc_file && !conn_ts->tc_file)
-	conn_ts->tc_file = ut_strdup(server_ts->tc_file);
-}
-
 static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -887,8 +891,6 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     if (ut_set_blocking(conn_fd, false) < 0)
 	goto err_close;
-
-    inherit_cert_files(server_s, conn_s);
 
     if (get_cert_files(conn_s) < 0)
 	goto err_close;

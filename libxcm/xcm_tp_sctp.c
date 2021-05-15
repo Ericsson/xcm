@@ -69,7 +69,7 @@ struct sctp_socket
 #define SCTP_SET_STATE(_s, _state)		\
     TP_SET_STATE(_s, TOSCTP(_s), _state)
 
-static int sctp_init(struct xcm_socket *s);
+static int sctp_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int sctp_connect(struct xcm_socket *s, const char *remote_addr);
 static int sctp_server(struct xcm_socket *s, const char *local_addr);
 static int sctp_close(struct xcm_socket *s);
@@ -175,7 +175,7 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static int sctp_init(struct xcm_socket *s)
+static int sctp_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct sctp_socket *ss = TOSCTP(s);
 

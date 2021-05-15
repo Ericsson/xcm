@@ -63,9 +63,9 @@ void xcm_tp_socket_destroy(struct xcm_socket *s)
     ut_free(s);
 }
 
-int xcm_tp_socket_init(struct xcm_socket *s)
+int xcm_tp_socket_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
-    return XCM_TP_CALL(init, s);
+    return XCM_TP_CALL(init, s, parent);
 }
 
 static void do_ctl(struct xcm_socket *s)

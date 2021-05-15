@@ -50,7 +50,7 @@ struct xcm_tp_ops {
        will be left in in a cleaned-up state, and 'close' need not be
        called. In all other situations, 'close' must be called, to
        allow for resource cleanup. */
-    int (*init)(struct xcm_socket *s);
+    int (*init)(struct xcm_socket *s, struct xcm_socket *parent);
     int (*connect)(struct xcm_socket *s, const char *remote_addr);
     int (*server)(struct xcm_socket *s, const char *local_addr);
     int (*close)(struct xcm_socket *s);
@@ -112,7 +112,7 @@ struct xcm_socket *xcm_tp_socket_create(const struct xcm_tp_proto *proto,
 					int epoll_fd, bool is_blocking);
 void xcm_tp_socket_destroy(struct xcm_socket *s);
 
-int xcm_tp_socket_init(struct xcm_socket *s);
+int xcm_tp_socket_init(struct xcm_socket *s, struct xcm_socket *parent);
 int xcm_tp_socket_connect(struct xcm_socket *s, const char *remote_addr);
 int xcm_tp_socket_server(struct xcm_socket *s, const char *local_addr);
 int xcm_tp_socket_close(struct xcm_socket *s);
