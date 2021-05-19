@@ -10,8 +10,9 @@
 
 #include <stdint.h>
 
-#define LOG_TLS_HANDSHAKE(s)					\
-    log_debug_sock(s, "Attempting to finish TLS handshake.")
+#define LOG_TLS_HANDSHAKE(s, client)					\
+    log_debug_sock(s, "Attempting to finish TLS handshake, in TLS %s role.", \
+		   (client) ? "client" : "server")
 
 #define LOG_TLS_CONN_ESTABLISHED(s, fd)		\
     LOG_CONN_ESTABLISHED("TLS", s, fd)

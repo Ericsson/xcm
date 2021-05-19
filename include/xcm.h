@@ -817,10 +817,10 @@ extern "C" {
  *
  * @subsection tls_transport TLS Transport
  *
- * The TLS transport uses TLS to provide a secure, private, two-way
- * authenticated transport. A TLS connection is a byte stream, but the
- * XCM TLS transport adds framing in the same manner as does the XCM
- * TCP transport.
+ * The TLS transport uses the Transport Layer Security (TLS) protocol
+ * to provide a secure, private, two-way authenticated transport over
+ * TCP. A TLS connection is a byte stream, but the XCM TLS transport
+ * adds framing in the same manner as does the XCM TCP transport.
  *
  * The TLS transport supports IPv4 and IPv6. It disables the Nagle
  * algorithm of TCP.
@@ -901,6 +901,27 @@ extern "C" {
  * the old symbolic link is replace an atomic manner (i.e. with
  * rename(2)).
  *
+ * @subsubsection tls_role TLS Role Configuration
+ *
+ * By default, on sockets that represent the client side of a XCM TLS
+ * connection (e.g., returned from xcm_connect_a()), the XCM TLS
+ * transport will act as a TLS client. Similarly, the default behavior
+ * for sockets representing the XCM (and TCP) server side of a
+ * connection is to act as a TLS server.
+ *
+ * The default may be changed by setting the "tls.client" attribute,
+ * so that sockets that are XCM (and TCP) level clients, act as TLS
+ * servers, and vice versa. If the value is true, the socket will act
+ * as a TLS client, and if false, the socket is a TLS server.
+ *
+ * Connection sockets created by xcm_accept() or xcm_accept_a()
+ * inherit the "tls.client" attribute value from their parent server
+ * sockets.
+ *
+ * The TLS role must be specified at the time of socket
+ * creation, and thus cannot be changed on already-established
+ * connections.
+ *
  * @subsubsection name_verification X.509v3 Subject Name Verification
  *
  * The TLS transport supports verifying the remote peer's certificate
@@ -934,7 +955,7 @@ extern "C" {
  *
  * Connection sockets created by xcm_accept() or xcm_accept_a()
  * inherit the "tls.verify_name" and "tls.peer_names" attributes from
- * its parent server socket.
+ * their parent server sockets.
  *
  * After a connection is established, the "tls.peer_names" will be
  * updated to reflect the remote peer's actual subject names, as
@@ -955,6 +976,7 @@ extern "C" {
  * tls.cert_file           | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
  * tls.key_file            | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
  * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation.
+ * tls.client              | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
  * tls.verify_peer_name    | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation.
  * tls.peer_names          | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
  * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.

@@ -3023,13 +3023,36 @@ TESTCASE(xcm, tls_shared_root_ca_with_attrs)
     return UTEST_SUCCESS;
 }
 
+static void assure_non_blocking(struct xcm_attr_map *attrs)
+{
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+}
+
+static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
+{
+    CHKERRNO(xcm_attr_set_str(conn, "tls.cert_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.key_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
+
+    return UTEST_SUCCESS;
+}
+
+#define ESTABLISHMENT_TIMEOUT (1.0) /* Valgrind makes things slooow */
+
 static int establish(const char *server_addr,
-		     const struct xcm_attr_map *server_attrs,
-		     const struct xcm_attr_map *accept_attrs,
+		     struct xcm_attr_map *server_attrs,
+		     struct xcm_attr_map *accept_attrs,
 		     const char *connect_addr,
-		     const struct xcm_attr_map *connect_attrs,
+		     struct xcm_attr_map *connect_attrs,
 		     bool success_expected)
 {
+    assure_non_blocking(server_attrs);
+    assure_non_blocking(accept_attrs);
+    assure_non_blocking(connect_attrs);
+
     struct xcm_socket *server_sock = xcm_server_a(server_addr, server_attrs);
     struct xcm_socket *connect_sock = NULL;
     struct xcm_socket *accepted_sock = NULL;
@@ -3041,6 +3064,7 @@ static int establish(const char *server_addr,
 
     bool connect_done = false;
     bool accept_done = false;
+    double deadline = tu_ftime() + ESTABLISHMENT_TIMEOUT;
 
     while (!connect_done || !accept_done) {
 	if (!connect_sock) {
@@ -3067,9 +3091,17 @@ static int establish(const char *server_addr,
 	    else if (errno != EAGAIN)
 		goto out;
 	}
+
+	if (tu_ftime() > deadline)
+	    goto out;
     }
 
+    if (check_setting_now_ro_tls_attrs(connect_sock) < 0 ||
+	check_setting_now_ro_tls_attrs(accepted_sock) < 0)
+	goto out;
+
     success = true;
+
 out:
 
     CHKNOERR(xcm_close(server_sock));
@@ -3080,9 +3112,9 @@ out:
 }
 
 static int establish_2tls(const char *tls_addr,
-			  const struct xcm_attr_map *server_attrs,
-			  const struct xcm_attr_map *accept_attrs,
-			  const struct xcm_attr_map *connect_attrs,
+			  struct xcm_attr_map *server_attrs,
+			  struct xcm_attr_map *accept_attrs,
+			  struct xcm_attr_map *connect_attrs,
 			  bool success_expected)
 {
     struct xcm_addr_host host;
@@ -3149,12 +3181,10 @@ TESTCASE(xcm, tls_accept_attrs_override_server_attrs)
     struct xcm_attr_map *valid_attrs =
 	create_cert_attrs(get_cert_base(), "valid/cert.pem",
 			  "valid/key.pem", "valid/tc.pem");
-    xcm_attr_map_add_bool(valid_attrs, "xcm.blocking", false);
 
     struct xcm_attr_map *invalid_attrs =
 	create_cert_attrs(get_cert_base(), "invalid/cert.pem",
 			  "invalid/key.pem", "invalid/tc.pem");
-    xcm_attr_map_add_bool(invalid_attrs, "xcm.blocking", false);
 
     char *tls_addr = gen_tls_addr();
 
@@ -3602,19 +3632,16 @@ TESTCASE(xcm, tls_name_verification)
 	);
 
     struct xcm_attr_map *empty_attrs = xcm_attr_map_create();
-    xcm_attr_map_add_bool(empty_attrs, "xcm.blocking", false);
 
     struct xcm_attr_map *server_attrs =
 	create_cert_attrs(get_cert_base(), "server/cert.pem",
 			  "server/key.pem", "server/tc.pem");
-    xcm_attr_map_add_bool(server_attrs, "xcm.blocking", false);
     xcm_attr_map_add_bool(server_attrs, "tls.verify_peer_name", true);
     xcm_attr_map_add_str(server_attrs, "tls.peer_names", "client0");
 
     struct xcm_attr_map *client0_attrs =
 	create_cert_attrs(get_cert_base(), "client0/cert.pem",
 			  "client0/key.pem", "client0/tc.pem");
-    xcm_attr_map_add_bool(client0_attrs, "xcm.blocking", false);
     xcm_attr_map_add_bool(client0_attrs, "tls.verify_peer_name", true);
     xcm_attr_map_add_str(client0_attrs, "tls.peer_names", "localhost");
 
@@ -3625,7 +3652,6 @@ TESTCASE(xcm, tls_name_verification)
     struct xcm_attr_map *client1_attrs =
 	create_cert_attrs(get_cert_base(), "client1/cert.pem",
 			  "client1/key.pem", "client1/tc.pem");
-    xcm_attr_map_add_bool(client1_attrs, "xcm.blocking", false);
     xcm_attr_map_add_bool(client1_attrs, "tls.verify_peer_name", true);
     xcm_attr_map_add_str(client1_attrs, "tls.peer_names", "localhost");
 
@@ -3686,6 +3712,42 @@ TESTCASE(xcm, tls_name_verification)
     xcm_attr_map_destroy(client0_attrs);
     xcm_attr_map_destroy(client0_dns_attrs);
     xcm_attr_map_destroy(client1_attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_role_reversal)
+{
+    struct xcm_attr_map *empty_attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *server_role_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(server_role_attrs, "tls.client", false);
+
+    struct xcm_attr_map *client_role_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(client_role_attrs, "tls.client", true);
+
+    char *tls_addr = gen_tls_addr();
+
+    CHKNOERR(establish_2tls(tls_addr, empty_attrs, server_role_attrs,
+			    client_role_attrs, true));
+
+    CHKNOERR(establish_2tls(tls_addr, empty_attrs, client_role_attrs,
+			    server_role_attrs, true));
+
+    CHKNOERR(establish_2tls(tls_addr, client_role_attrs, empty_attrs,
+			    server_role_attrs, true));
+
+    CHKNOERR(establish_2tls(tls_addr, client_role_attrs, empty_attrs,
+			    client_role_attrs, false));
+
+    CHKNOERR(establish_2tls(tls_addr, server_role_attrs, server_role_attrs,
+			    server_role_attrs, false));
+
+    xcm_attr_map_destroy(empty_attrs);
+    xcm_attr_map_destroy(server_role_attrs);
+    xcm_attr_map_destroy(client_role_attrs);
+
+    ut_free(tls_addr);
 
     return UTEST_SUCCESS;
 }

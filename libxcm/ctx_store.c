@@ -444,18 +444,15 @@ err:
     return NULL;
 }
 
-SSL_CTX *ctx_store_get_client_ctx(const char *cert_file, const char *key_file,
-				  const char *tc_file)
+SSL_CTX *ctx_store_get_ctx(bool client, const char *cert_file,
+			   const char *key_file, const char *tc_file)
 {
-    return ctx_cache_get_ctx(&client_cache, cert_file, key_file, tc_file,
-			     load_client_ssl_ctx);
-}
-
-SSL_CTX *ctx_store_get_server_ctx(const char *cert_file, const char *key_file,
-				  const char *tc_file)
-{
-    return ctx_cache_get_ctx(&server_cache, cert_file, key_file, tc_file,
-			     load_server_ssl_ctx);
+    if (client)
+	return ctx_cache_get_ctx(&client_cache, cert_file, key_file, tc_file,
+				 load_client_ssl_ctx);
+    else
+	return ctx_cache_get_ctx(&server_cache, cert_file, key_file, tc_file,
+				 load_server_ssl_ctx);
 }
 
 void ctx_store_put(SSL_CTX *ssl_ctx)

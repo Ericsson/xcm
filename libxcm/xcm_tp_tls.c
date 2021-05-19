@@ -74,6 +74,7 @@ struct tls_socket
 
     struct epoll_reg fd_reg;
 
+    bool tls_client;
     SSL_CTX *ssl_ctx;
 
     union {
@@ -244,6 +245,8 @@ static void inherit_tls_conf(struct xcm_socket *conn_s,
     if (server_ts->tc_file)
 	conn_ts->tc_file = ut_strdup(server_ts->tc_file);
 
+    conn_ts->tls_client = server_ts->tls_client;
+
     conn_ts->verify_peer_name = server_ts->verify_peer_name;
 
     if (server_ts->valid_peer_names)
@@ -262,6 +265,8 @@ static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
 	    return -1;
+
+	ts->tls_client = true;
 
 	ts->conn.state = conn_state_initialized;
 
@@ -627,6 +632,30 @@ static void try_finish_resolution(struct xcm_socket *s)
     ts->conn.query = NULL;
 }
 
+static void try_finish_tls_handshake(struct xcm_socket *s)
+{
+    struct tls_socket *ts = TOTLS(s);
+    
+    LOG_TLS_HANDSHAKE(s, ts->tls_client);
+
+    ts->conn.ssl_events = 0;
+
+    int (*handshake)(SSL *ssl) = ts->tls_client ? SSL_connect : SSL_accept;
+
+    UT_SAVE_ERRNO;
+    int rc = handshake(ts->conn.ssl);
+    UT_RESTORE_ERRNO(accept_errno);
+
+    if (rc < 1)
+	handle_ssl_error(s, rc, accept_errno);
+    else {
+	TLS_SET_STATE(s, conn_state_ready);
+	verify_peer_cert(s);
+	if (ts->conn.state == conn_state_ready)
+	    LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s));
+    }
+}
+
 static void try_finish_connect(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -655,23 +684,7 @@ static void try_finish_connect(struct xcm_socket *s)
 	TLS_SET_STATE(s, conn_state_tls_connecting);
     }
     case conn_state_tls_connecting: {
-	LOG_TLS_HANDSHAKE(s);
-
-	ts->conn.ssl_events = 0;
-
-	UT_SAVE_ERRNO;
-	int rc = SSL_connect(ts->conn.ssl);
-	UT_RESTORE_ERRNO(connect_errno);
-
-	if (rc < 1)
-	    handle_ssl_error(s, rc, connect_errno);
-	else {
-	    TLS_SET_STATE(s, conn_state_ready);
-	    verify_peer_cert(s);
-	    if (ts->conn.state == conn_state_ready)
-		LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s));
-	}
-
+	try_finish_tls_handshake(s);
 	break;
     }
     default:
@@ -753,8 +766,8 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err_deinit;
     }
 
-    ts->ssl_ctx =
-	ctx_store_get_client_ctx(ts->cert_file, ts->key_file, ts->tc_file);
+    ts->ssl_ctx = ctx_store_get_ctx(ts->tls_client, ts->cert_file,
+				    ts->key_file, ts->tc_file);
 
     if (!ts->ssl_ctx)
 	goto err_deinit;
@@ -837,8 +850,8 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
      * error detection - is effectivily disabled if the application
      * changes XCM_TLS_CERT during runtime.
      */
-    ts->ssl_ctx =
-	ctx_store_get_server_ctx(ts->cert_file, ts->key_file, ts->tc_file);
+    ts->ssl_ctx = ctx_store_get_ctx(ts->tls_client, ts->cert_file,
+				    ts->key_file, ts->tc_file);
     if (!ts->ssl_ctx)
 	goto err_deinit;
 
@@ -909,22 +922,7 @@ static void try_finish_accept(struct xcm_socket *s)
     if (ts->conn.state != conn_state_tls_accepting)
 	return;
 
-    LOG_TLS_HANDSHAKE(s);
-
-    ts->conn.ssl_events = 0;
-
-    UT_SAVE_ERRNO;
-    int rc = SSL_accept(ts->conn.ssl);
-    UT_RESTORE_ERRNO(accept_errno);
-
-    if (rc < 1)
-	handle_ssl_error(s, rc, accept_errno);
-    else {
-	TLS_SET_STATE(s, conn_state_ready);
-	verify_peer_cert(s);
-	if (ts->conn.state == conn_state_ready)
-	    LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s));
-    }
+    try_finish_tls_handshake(s);
 }
 
 static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
@@ -958,8 +956,8 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	goto err_close;
 
     conn_ts->ssl_ctx =
-	ctx_store_get_server_ctx(conn_ts->cert_file, conn_ts->key_file,
-				 conn_ts->tc_file);
+	ctx_store_get_ctx(conn_ts->tls_client, conn_ts->cert_file,
+			  conn_ts->key_file, conn_ts->tc_file);
     if (!conn_ts->ssl_ctx) {
 	errno = EPROTO;
 	goto err_close;
@@ -1442,6 +1440,28 @@ static void try_finish_in_progress(struct xcm_socket *s)
     }
 }
 
+static int set_client_attr(struct xcm_socket *s,
+			   const struct xcm_tp_attr *attr,
+			   const void *value, size_t len)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (s->type == xcm_socket_type_conn &&
+	ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    return xcm_tp_set_bool_attr(value, len, &(ts->tls_client));
+}
+
+static int get_client_attr(struct xcm_socket *s,
+			   const struct xcm_tp_attr *attr,
+			   void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOTLS(s)->tls_client, value, capacity);
+}
+
 #define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
 					   const struct xcm_tp_attr *attr, \
@@ -1760,21 +1780,22 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
     return len;
 }
 
-#define COMMON_ATTRS \
+#define COMMON_ATTRS							\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CLIENT, xcm_attr_type_bool,	\
+			set_client_attr, get_client_attr),		\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
 			set_verify_peer_name_attr, get_verify_peer_name_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_PEER_NAMES, xcm_attr_type_str, \
-			set_peer_names_attr, get_peer_names_attr)
-
+			set_peer_names_attr, get_peer_names_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str, \
+			set_cert_file_attr, get_cert_file_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str, \
+			set_key_file_attr, get_key_file_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str, \
+			set_tc_file_attr, get_tc_file_attr)
 
 static struct xcm_tp_attr conn_attrs[] = {
     COMMON_ATTRS,
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str,
-			set_cert_file_attr, get_cert_file_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str,
-			set_key_file_attr, get_key_file_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str,
-			set_tc_file_attr, get_tc_file_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
 			xcm_attr_type_bin, get_peer_subject_key_id),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
@@ -1799,13 +1820,7 @@ static struct xcm_tp_attr conn_attrs[] = {
 };
 
 static struct xcm_tp_attr server_attrs[] = {
-    COMMON_ATTRS,
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str,
-			set_cert_file_attr, get_cert_file_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str,
-			set_key_file_attr, get_key_file_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str,
-			set_tc_file_attr, get_tc_file_attr),
+    COMMON_ATTRS
 };
 
 static void tls_get_attrs(struct xcm_socket* s,

@@ -141,6 +141,7 @@ clean-local:
 	rm -f common/*.d libxcm/*.d libxcmc/*.d example/*.d tools/*.d
 	rm -f .doxygenerated
 	rm -rf test/cert
+	rm -rf test/ctl
 
 distclean-local:
 	rm -rf autom4te.cache m4
