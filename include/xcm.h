@@ -825,7 +825,7 @@ extern "C" {
  * The TLS transport supports IPv4 and IPv6. It disables the Nagle
  * algorithm of TCP.
  *
- * @subsubsection tls_certificates TLS Certificate and Key Storage
+ * @subsubsection tls_certificates Certificate and Key Storage
  *
  * The TLS transport reads the leaf certificate and its private key
  * from the file system, as well as a file containing all trusted CA
@@ -901,7 +901,7 @@ extern "C" {
  * the old symbolic link is replace an atomic manner (i.e. with
  * rename(2)).
  *
- * @subsubsection tls_role TLS Role Configuration
+ * @subsubsection tls_role Role Configuration
  *
  * By default, on sockets that represent the client side of a XCM TLS
  * connection (e.g., returned from xcm_connect_a()), the XCM TLS
@@ -921,6 +921,21 @@ extern "C" {
  * The TLS role must be specified at the time of socket
  * creation, and thus cannot be changed on already-established
  * connections.
+ *
+ * @subsubsection tls_auth Authentication
+ *
+ * By default, both the client and server side authenticate the other
+ * peer, often known as _mutual TLS_ (mTLS).
+ *
+ * TLS remote peer authentication may be disabled by setting the
+ * "tls.auth" socket attribute to false.
+ *
+ * Connection sockets created by xcm_accept() or xcm_accept_a()
+ * inherit the "tls.auth" attribute value from their parent server
+ * sockets.
+ *
+ * The "tls.auth" socket attribute may only be set at the time of
+ * socket creation (except for server sockets).
  *
  * @subsubsection name_verification X.509v3 Subject Name Verification
  *
@@ -976,7 +991,8 @@ extern "C" {
  * tls.cert_file           | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
  * tls.key_file            | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
  * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation.
- * tls.client              | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
+ * tls.client              | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only
+ * tls.auth                | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation.
  * tls.verify_peer_name    | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation.
  * tls.peer_names          | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
  * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.

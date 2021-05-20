@@ -165,6 +165,7 @@ static int check_keepalive_conf(struct xcm_socket *s)
 
 static void determine_path(char *path, const char *file_type,
 			   const char *ns, const char *cert_dir,
+			   const struct xcm_attr_map *parent_attrs,
 			   const struct xcm_attr_map *attrs)
 
 {
@@ -173,15 +174,18 @@ static void determine_path(char *path, const char *file_type,
 
     if (attrs && xcm_attr_map_exists(attrs, attr_name))
 	strcpy(path, xcm_attr_map_get_str(attrs, attr_name));
+    else if (parent_attrs && xcm_attr_map_exists(parent_attrs, attr_name))
+	strcpy(path, xcm_attr_map_get_str(parent_attrs, attr_name));
     else if (ns)
 	snprintf(path, PATH_MAX, "%s/%s_%s.pem", cert_dir, file_type, ns);
     else
 	snprintf(path, PATH_MAX, "%s/%s.pem", cert_dir, file_type);
 }
 
-static void check_cert_attrs(struct xcm_socket *s, const char *ns,
-			     const char *cert_dir,
-			     const struct xcm_attr_map *attrs)
+static int check_cert_attrs(struct xcm_socket *s, const char *ns,
+			    const char *cert_dir,
+			    const struct xcm_attr_map *parent_attrs,
+			    const struct xcm_attr_map *attrs)
 {
     if (!cert_dir)
 	cert_dir = getenv("XCM_TLS_CERT");
@@ -190,16 +194,53 @@ static void check_cert_attrs(struct xcm_socket *s, const char *ns,
     char key_file[PATH_MAX];
     char tc_file[PATH_MAX];
 
-    determine_path(cert_file, "cert", ns, cert_dir, attrs);
-    determine_path(key_file, "key", ns, cert_dir, attrs);
-    determine_path(tc_file, "tc", ns, cert_dir, attrs);
+    determine_path(cert_file, "cert", ns, cert_dir, parent_attrs, attrs);
+    determine_path(key_file, "key", ns, cert_dir, parent_attrs, attrs);
+    determine_path(tc_file, "tc", ns, cert_dir, parent_attrs, attrs);
 
     if (tu_assure_str_attr(s, "tls.cert_file", cert_file) < 0)
-	exit(ERRNO_TO_STATUS(errno));
+	return -1;
     if (tu_assure_str_attr(s, "tls.key_file", key_file) < 0)
-	exit(ERRNO_TO_STATUS(errno));
+	return -1;
     if (tu_assure_str_attr(s, "tls.tc_file", tc_file) < 0)
-	exit(ERRNO_TO_STATUS(errno));
+	return -1;
+
+    return 0;
+}
+
+static int check_bool_attr(struct xcm_socket *s,
+			   const struct xcm_attr_map *parent_attrs,
+			   const struct xcm_attr_map *attrs,
+			   const char *attr_name, bool default_value)
+{
+    bool expected_value = default_value;
+
+    if (parent_attrs && xcm_attr_map_exists(parent_attrs, attr_name))
+	expected_value = *xcm_attr_map_get_bool(parent_attrs, attr_name);
+
+    if (attrs && xcm_attr_map_exists(attrs, attr_name))
+	expected_value = *xcm_attr_map_get_bool(attrs, attr_name);
+
+    return tu_assure_bool_attr(s, attr_name, expected_value);
+}
+
+static int check_tls_attrs(struct xcm_socket *s, const char *ns,
+			   const char *cert_dir,
+			   const struct xcm_attr_map *parent_attrs,
+			   const struct xcm_attr_map *attrs)
+{
+    if (check_cert_attrs(s, ns, cert_dir, parent_attrs, attrs) < 0)
+	return -1;
+
+    if (check_bool_attr(s, parent_attrs, attrs,
+			"tls.auth", true) < 0)
+	return -1;
+
+    if (check_bool_attr(s, parent_attrs, attrs,
+			"tls.verify_peer_name", false) < 0)
+	return -1;
+
+    return 0;
 }
 
 static bool is_tls(const char *addr)
@@ -252,8 +293,9 @@ static pid_t simple_server(const char *ns, const char *addr,
     if (!server_sock)
 	exit(ERRNO_TO_STATUS(errno));
 
-    if (is_tls_or_utls(addr))
-	check_cert_attrs(server_sock, ns, server_cert_dir, attrs);
+    if (is_tls_or_utls(addr) &&
+	check_tls_attrs(server_sock, ns, server_cert_dir, NULL, attrs) < 0)
+	exit(ERRNO_TO_STATUS(errno));
 
     if (!is_wildcard_addr(addr) && !has_domain_name(addr) &&
 	strcmp(xcm_local_addr(server_sock), addr) != 0)
@@ -283,7 +325,7 @@ static pid_t simple_server(const char *ns, const char *addr,
 	exit(ERRNO_TO_STATUS(errno));
 
     if (is_tls(xcm_local_addr(conn)))
-	check_cert_attrs(conn, ns, server_cert_dir, attrs);
+	check_tls_attrs(conn, ns, server_cert_dir, NULL, attrs);
 
     if (polling_accept)
 	CHKNOERR(xcm_set_blocking(server_sock, true));
@@ -3033,6 +3075,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_str(conn, "tls.cert_file", "cert.pem"), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.key_file", "cert.pem"), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
@@ -3040,7 +3083,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     return UTEST_SUCCESS;
 }
 
-#define ESTABLISHMENT_TIMEOUT (1.0) /* Valgrind makes things slooow */
+#define ESTABLISHMENT_TIMEOUT (is_in_valgrind() ? 5.0 : 1.0)
 
 static int establish(const char *server_addr,
 		     struct xcm_attr_map *server_attrs,
@@ -3096,9 +3139,21 @@ static int establish(const char *server_addr,
 	    goto out;
     }
 
-    if (check_setting_now_ro_tls_attrs(connect_sock) < 0 ||
-	check_setting_now_ro_tls_attrs(accepted_sock) < 0)
-	goto out;
+    if (is_tls(server_addr) ||
+	(is_tls(connect_addr) && is_utls(server_addr))) {
+
+	if (check_tls_attrs(accepted_sock, NULL, NULL, server_attrs,
+			    accept_attrs) < 0)
+	    goto out;
+	if (check_setting_now_ro_tls_attrs(accepted_sock) < 0)
+	    goto out;
+
+	if (check_tls_attrs(connect_sock, NULL, NULL, NULL,
+			    connect_attrs) < 0)
+	    goto out;
+	if (check_setting_now_ro_tls_attrs(connect_sock) < 0)
+	    goto out;
+    }
 
     success = true;
 
@@ -3117,16 +3172,16 @@ static int establish_2tls(const char *tls_addr,
 			  struct xcm_attr_map *connect_attrs,
 			  bool success_expected)
 {
+    if (establish(tls_addr, server_attrs, accept_attrs,
+		  tls_addr, connect_attrs, success_expected) < 0)
+	return UTEST_FAIL;
+
     struct xcm_addr_host host;
     uint16_t port;
     CHKNOERR(xcm_addr_parse_tls(tls_addr, &host, &port));
 
     char utls_addr[128];
     CHKNOERR(xcm_addr_make_utls(&host, port, utls_addr, sizeof(utls_addr)));
-
-    if (establish(tls_addr, server_attrs, accept_attrs,
-		  tls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
 
     /* Test UTLS client and server sockets. Since UTLS <-> UTLS would
        result in a UX connection, use TLS on one side, and UTLS on the
@@ -3347,6 +3402,86 @@ TESTCASE(xcm, tls_one_way_mistrust)
 
     /* server mistrusts client */
     CHKNOERR(run_tls_handshake("ep-y", "ep-x", false));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_auth_conf)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root-a:\n"
+	    "    subject_name: root-a\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root-a\n"
+	    "  root-b:\n"
+	    "    subject_name: root-b\n"
+	    "    ca: True\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root-b\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: truster/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: truster/key.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root-b\n"
+	    "    path: truster/tc.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: trusted/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: trusted/key.pem\n"
+	    /* XXX: CA bundle should not be needed */
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root-b\n"
+	    "    path: trusted/tc.pem\n"
+	    )
+	);
+
+    struct xcm_attr_map *accept_attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *truster_attrs =
+	create_cert_attrs(get_cert_base(), "truster/cert.pem",
+			  "truster/key.pem", "truster/tc.pem");
+
+    struct xcm_attr_map *trusted_attrs =
+	create_cert_attrs(get_cert_base(), "trusted/cert.pem",
+			  "trusted/key.pem", "trusted/tc.pem");
+
+    char *tls_addr = gen_tls_addr();
+
+    CHKNOERR(establish_2tls(tls_addr, trusted_attrs, accept_attrs,
+			    truster_attrs, false));
+
+    xcm_attr_map_add_bool(trusted_attrs, "tls.auth", false);
+    CHKNOERR(establish_2tls(tls_addr, trusted_attrs, accept_attrs,
+			    truster_attrs, true));
+
+    CHKNOERR(establish_2tls(tls_addr, truster_attrs, accept_attrs,
+			    trusted_attrs, true));
+
+    xcm_attr_map_add_bool(trusted_attrs, "tls.auth", true);
+    xcm_attr_map_add_bool(accept_attrs, "tls.auth", false);
+    CHKNOERR(establish_2tls(tls_addr, trusted_attrs, accept_attrs,
+			    truster_attrs, true));
+
+    xcm_attr_map_destroy(accept_attrs);
+    xcm_attr_map_destroy(truster_attrs);
+    xcm_attr_map_destroy(trusted_attrs);
+
+    ut_free(tls_addr);
 
     return UTEST_SUCCESS;
 }

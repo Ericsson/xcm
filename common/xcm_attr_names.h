@@ -49,6 +49,7 @@
 #define XCM_ATTR_TLS_TC_FILE "tls.tc_file"
 
 #define XCM_ATTR_TLS_CLIENT "tls.client"
+#define XCM_ATTR_TLS_AUTH "tls.auth"
 #define XCM_ATTR_TLS_VERIFY_PEER_NAME "tls.verify_peer_name"
 #define XCM_ATTR_TLS_PEER_NAMES "tls.peer_names"
 #define XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID "tls.peer_subject_key_id"

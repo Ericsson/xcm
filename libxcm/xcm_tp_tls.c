@@ -69,12 +69,13 @@ struct tls_socket
     char *key_file;
     char *tc_file;
 
+    bool tls_auth;
+    bool tls_client;
     bool verify_peer_name;
     struct slist *valid_peer_names;
 
     struct epoll_reg fd_reg;
 
-    bool tls_client;
     SSL_CTX *ssl_ctx;
 
     union {
@@ -232,30 +233,30 @@ static void assert_socket(struct xcm_socket *s)
     }
 }
 
-static void inherit_tls_conf(struct xcm_socket *conn_s,
-			     struct xcm_socket *server_s)
+static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
 {
-    struct tls_socket *conn_ts = TOTLS(conn_s);
-    struct tls_socket *server_ts = TOTLS(server_s);
+    struct tls_socket *ts = TOTLS(s);
+    struct tls_socket *parent_ts = TOTLS(parent_s);
 
-    if (server_ts->cert_file)
-	conn_ts->cert_file = ut_strdup(server_ts->cert_file);
-    if (server_ts->key_file)
-	conn_ts->key_file = ut_strdup(server_ts->key_file);
-    if (server_ts->tc_file)
-	conn_ts->tc_file = ut_strdup(server_ts->tc_file);
+    ts->cert_file = ut_strdup(parent_ts->cert_file);
+    ts->key_file = ut_strdup(parent_ts->key_file);
+    ts->tc_file = ut_strdup(parent_ts->tc_file);
 
-    conn_ts->tls_client = server_ts->tls_client;
+    ts->tls_auth = parent_ts->tls_auth;
 
-    conn_ts->verify_peer_name = server_ts->verify_peer_name;
+    ts->tls_client = parent_ts->tls_client;
 
-    if (server_ts->valid_peer_names)
-	conn_ts->valid_peer_names = slist_clone(server_ts->valid_peer_names);
+    ts->verify_peer_name = parent_ts->verify_peer_name;
+
+    if (parent_ts->valid_peer_names)
+	ts->valid_peer_names = slist_clone(parent_ts->valid_peer_names);
 }
 
 static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct tls_socket *ts = TOTLS(s);
+
+    ts->tls_auth = true;
 
     switch (s->type) {
     case xcm_socket_type_server:
@@ -441,6 +442,12 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
 static int enable_hostname_validation(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
+
+    if (!ts->tls_auth) {
+	LOG_TLS_INCONSISTENT_AUTH_CONFIG(s);
+	errno = EINVAL;
+	return -1;
+    }
 
     if (ts->valid_peer_names == NULL) {
 	LOG_TLS_VERIFY_MISSING_PEER_NAMES(s);
@@ -650,7 +657,8 @@ static void try_finish_tls_handshake(struct xcm_socket *s)
 	handle_ssl_error(s, rc, accept_errno);
     else {
 	TLS_SET_STATE(s, conn_state_ready);
-	verify_peer_cert(s);
+	if (ts->tls_auth)
+	    verify_peer_cert(s);
 	if (ts->conn.state == conn_state_ready)
 	    LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s));
     }
@@ -722,7 +730,7 @@ static char *get_tc_file(const char *ns, const char *cert_dir)
     return get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir);
 }
 
-static int get_cert_files(struct xcm_socket *s)
+static int finalize_cert_files(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
@@ -757,7 +765,7 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 
     LOG_CONN_REQ(remote_addr);
 
-    if (get_cert_files(s) < 0)
+    if (finalize_cert_files(s) < 0)
 	goto err_deinit;
 
     if (xcm_addr_parse_tls(remote_addr, &ts->conn.remote_host,
@@ -776,6 +784,11 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
     if (!ts->conn.ssl) {
 	errno = ENOMEM;
 	goto err_deinit;
+    }
+
+    if (!ts->tls_auth) {
+	LOG_TLS_AUTH_DISABLED(s);
+	SSL_set_verify(ts->conn.ssl, SSL_VERIFY_NONE, NULL);
     }
 
     if (ts->verify_peer_name)  {
@@ -834,7 +847,7 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
 	goto err_deinit;
     }
 
-    if (get_cert_files(s) < 0)
+    if (finalize_cert_files(s) < 0)
 	goto err_deinit;
     
     /*
@@ -952,7 +965,7 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (ut_set_blocking(conn_fd, false) < 0)
 	goto err_close;
 
-    if (get_cert_files(conn_s) < 0)
+    if (finalize_cert_files(conn_s) < 0)
 	goto err_close;
 
     conn_ts->ssl_ctx =
@@ -967,6 +980,11 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (!conn_ts->conn.ssl) {
 	errno = ENOMEM;
 	goto err_close;
+    }
+
+    if (!conn_ts->tls_auth) {
+	LOG_TLS_AUTH_DISABLED(conn_s);
+	SSL_set_verify(conn_ts->conn.ssl, SSL_VERIFY_NONE, NULL);
     }
 
     if (conn_ts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
@@ -1462,6 +1480,26 @@ static int get_client_attr(struct xcm_socket *s,
     return xcm_tp_get_bool_attr(TOTLS(s)->tls_client, value, capacity);
 }
 
+static int set_auth_attr(struct xcm_socket *s, const struct xcm_tp_attr *attr,
+			 const void *value, size_t len)
+{
+    struct tls_socket *ts = TOTLS(s);
+
+    if (s->type == xcm_socket_type_conn &&
+	ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    return xcm_tp_set_bool_attr(value, len, &(ts->tls_auth));
+}
+
+static int get_auth_attr(struct xcm_socket *s, const struct xcm_tp_attr *attr,
+			 void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOTLS(s)->tls_auth, value, capacity);
+}
+
 #define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
 					   const struct xcm_tp_attr *attr, \
@@ -1783,6 +1821,8 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
 #define COMMON_ATTRS							\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CLIENT, xcm_attr_type_bool,	\
 			set_client_attr, get_client_attr),		\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
+			set_auth_attr, get_auth_attr),			\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
 			set_verify_peer_name_attr, get_verify_peer_name_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_PEER_NAMES, xcm_attr_type_str, \

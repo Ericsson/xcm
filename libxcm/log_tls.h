@@ -21,11 +21,18 @@
     log_debug_sock(s, "Hostname verification enabled, but no peer names " \
 		   "are configured.")
 
+#define LOG_TLS_INCONSISTENT_AUTH_CONFIG(s)				\
+    log_debug_sock(s, "Authorization must be enabled if remote peer name " \
+		   "verification is enabled")
+
 #define LOG_TLS_VERIFY_MISSING_HOSTNAME(s)				\
     log_debug_sock(s, "Hostname verification enabled, but no peer names " \
 		   "are configured, and XCM address does not contain " \
 		   "any hostname.")
 
+#define LOG_TLS_AUTH_DISABLED(s)			\
+    log_debug_sock(s, "Authentication disabled.")
+    
 #define LOG_TLS_VALID_PEER_NAME(s, name)				\
     log_debug_sock(s, "Added \"%s\" as a valid remote peer name.", name)
 
