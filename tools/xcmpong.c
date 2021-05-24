@@ -108,8 +108,7 @@ static void socket_await(struct xcm_socket *s, int condition)
 	ut_die("Error changing target socket condition");
 }
 
-static void socket_wait(int epoll_fd, struct xcm_socket *conn_socket,
-			int tmo)
+static void socket_wait(int epoll_fd, int tmo)
 {
     struct epoll_event event;
 
@@ -126,23 +125,46 @@ static double ftime(void)
     return t.tv_sec+((double)t.tv_nsec)/1e9;
 }
 
-static void socket_sleep(struct xcm_socket *conn_socket, double t)
+static int epoll_wrap(struct xcm_socket *conn)
 {
-    bool was_blocking = xcm_is_blocking(conn_socket);
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd < 0)
+	ut_die("Error creating epoll instance");
 
-    if (xcm_set_blocking(conn_socket, false) < 0)
+    int conn_fd = xcm_fd(conn);
+    if (conn_fd < 0)
+	ut_die("Error retrieving XCM socket fd");
+
+    struct epoll_event nevent = {
+	.events = EPOLLIN
+    };
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &nevent) < 0)
+	ut_die("Error adding fd to epoll instance");
+
+    return epoll_fd;
+}
+
+static void socket_sleep(struct xcm_socket *conn, double t)
+{
+    if (xcm_set_blocking(conn, false) < 0)
 	ut_die("Unable to enable non-blocking mode");
+
+    int epoll_fd = epoll_wrap(conn);
+
+    socket_await(conn, 0);
 
     double deadline = ftime() + t;
     for (;;) {
 	int left_ms = (deadline - ftime()) * 1000;
 	if (left_ms < 0) {
-	    if (xcm_set_blocking(conn_socket, was_blocking) < 0)
+	    if (xcm_set_blocking(conn, true) < 0)
 		ut_die("Unable to configure blocking mode");
+	    close(epoll_fd);
 	    return;
 	}
-	socket_wait(xcm_fd(conn_socket), conn_socket, left_ms);
-	if (xcm_finish(conn_socket) < 0)
+	socket_wait(epoll_fd, left_ms);
+	if (xcm_finish(conn) < 0 && errno != EAGAIN)
 	    ut_die("Error while finishing background tasks on socket");
     }
 }
@@ -161,20 +183,7 @@ static void handle_client(struct xcm_socket *conn)
     if (xcm_set_blocking(conn, false) < 0)
 	ut_die("Failed to set non-blocking mode");
 
-    int epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0)
-	ut_die("Error creating epoll instance");
-
-    int conn_fd = xcm_fd(conn);
-    if (conn_fd < 0)
-	ut_die("Error retrieving XCM socket fd");
-
-    struct epoll_event nevent = {
-	.events = EPOLLIN
-    };
-
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &nevent) < 0)
-	ut_die("Error adding fd to epoll instance");
+    int epoll_fd = epoll_wrap(conn);
 
     socket_await(conn, XCM_SO_RECEIVABLE);
 
@@ -194,7 +203,7 @@ static void handle_client(struct xcm_socket *conn)
 	    else if (r_rc < 0 && errno == EAGAIN) {
 		if (num > 0)
 		    break;
-		socket_wait(epoll_fd, conn, -1);
+		socket_wait(epoll_fd, -1);
 	    } else if (r_rc < 0)
 		ut_die("Error while server receiving");
 	}
@@ -235,7 +244,7 @@ static void handle_client(struct xcm_socket *conn)
 		    break;
 		else if (s_rc < 0 && errno == EAGAIN) {
 		    socket_await(conn, XCM_SO_SENDABLE);
-		    socket_wait(epoll_fd, conn, -1);
+		    socket_wait(epoll_fd, -1);
 		    socket_await(conn, XCM_SO_RECEIVABLE);
 		} else
 		    ut_die("Error while server sending");
@@ -363,20 +372,20 @@ static void run_throughput_client(struct xcm_socket *conn,
 		i++;
 	    else if (rc < 0 && errno == EAGAIN) {
 		socket_await(conn, XCM_SO_SENDABLE);
-		socket_wait(epoll_fd, conn, -1);
+		socket_wait(epoll_fd, -1);
 		socket_await(conn, XCM_SO_RECEIVABLE);
 	    }
 	    else
 		ut_die("Error sending reflection message to server");
 	}
 
-	socket_wait(epoll_fd, conn, -1);
+	socket_wait(epoll_fd, -1);
 	for (i = 0; i < this_batch;) {
 	    int rc = xcm_receive(conn, msg, msg_size);
 	    if (rc == msg_size)
 		i++;
 	    else if (rc < 0 && errno == EAGAIN)
-		socket_wait(epoll_fd, conn, -1);
+		socket_wait(epoll_fd, -1);
 	    else if (rc < 0)
 		ut_die("Error receiving message from server");
 	    else if (rc == 0) {
@@ -458,6 +467,7 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 	}
 	socket_sleep(conn, interval);
     }
+
     printf("Max:     %.3f ms\n", (double)max_latency/1e6);
     printf("Min:     %.3f ms\n", (double)min_latency/1e6);
     printf("Average: %.3f ms\n", (double)total_latency/(rt*batch_size)/1e6);
