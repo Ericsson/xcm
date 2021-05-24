@@ -243,6 +243,9 @@ static int process_client(struct client *client, struct ctl *ctl)
 		return 0;
 	    LOG_CLIENT_ERROR(ctl->socket, client->fd, recv_errno);
 	    return -1;
+	} else if (rc == 0) {
+	    LOG_CLIENT_DISCONNECTED(ctl->socket);
+	    return -1;
 	} else if (rc != sizeof(req)) {
 	    LOG_CLIENT_MSG_MALFORMED(ctl->socket);
 	    return -1;

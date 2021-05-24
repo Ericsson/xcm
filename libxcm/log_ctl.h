@@ -42,9 +42,12 @@
 #define LOG_CLIENT_REMOVED(s)					\
     log_debug_sock(s, "Removing client.")
 
-#define LOG_CLIENT_ERROR(s, fd, reason_errno)					\
+#define LOG_CLIENT_ERROR(s, fd, reason_errno)				\
     log_debug_sock(s, "Error talking to control client on fd %d; errno " \
 		   "%d (%s).", fd, reason_errno, strerror(reason_errno))
+
+#define LOG_CLIENT_DISCONNECTED(s)		\
+    log_debug_sock(s, "Client disconnected.")
 
 #define LOG_CLIENT_MSG_MALFORMED(s) \
     log_debug_sock(s, "Received malformed control message from client.")
