@@ -93,6 +93,7 @@ struct xcm_socket {
     int condition;
 #ifdef XCM_CTL
     struct ctl *ctl;
+    uint64_t skipped_ctl_calls;
 #endif
     struct cnt_conn cnt;
 };

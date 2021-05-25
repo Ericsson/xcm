@@ -208,6 +208,20 @@ int ut_established(int fd)
     }
 }
 
+bool ut_is_readable(int fd)
+{
+    struct pollfd pfd = {
+	.fd = fd,
+	.events = POLLIN
+    };
+
+    UT_SAVE_ERRNO;
+    int rc = poll(&pfd, 1, 0);
+    UT_RESTORE_ERRNO_DC;
+
+    return rc == 1 && pfd.revents & POLLIN;
+}
+
 #define NETNSNAMEDIR "/run/netns"
 
 int ut_self_net_ns(char *name)

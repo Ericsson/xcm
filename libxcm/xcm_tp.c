@@ -76,6 +76,23 @@ static void do_ctl(struct xcm_socket *s)
 #endif
 }
 
+#define MAX_SKIPPED_CTL_CALLS (256)
+
+static void consider_ctl(struct xcm_socket *s, bool permanently_failed_op,
+			 bool temporarly_failed_op)
+{
+#ifdef XCM_CTL
+    if (permanently_failed_op)
+	return;
+
+    if (temporarly_failed_op || s->skipped_ctl_calls > MAX_SKIPPED_CTL_CALLS) {
+	do_ctl(s);
+	s->skipped_ctl_calls = 0;
+    } else
+	s->skipped_ctl_calls++;
+#endif
+}
+
 int xcm_tp_socket_connect(struct xcm_socket *s, const char *remote_addr)
 {
     do_ctl(s);
@@ -122,28 +139,38 @@ void xcm_tp_socket_cleanup(struct xcm_socket *s)
 int xcm_tp_socket_accept(struct xcm_socket *conn_s,
 			 struct xcm_socket *server_s)
 {
-    do_ctl(server_s);
     int rc = XCM_TP_CALL(accept, conn_s, server_s);
+
     if (rc == 0)
 	xcm_tp_socket_update(conn_s);
+
+    consider_ctl(server_s, rc < 0 && errno != EAGAIN,
+		 rc < 0 && errno == EAGAIN);
+
     xcm_tp_socket_update(server_s);
+
     return rc;
 }
+
 int xcm_tp_socket_send(struct xcm_socket *s, const void *buf, size_t len)
 {
-    do_ctl(s);
-
     int rc = XCM_TP_CALL(send, s, buf, len);
+
+    consider_ctl(s, rc < 0 && errno != EAGAIN, rc < 0 && errno == EAGAIN);
+
     xcm_tp_socket_update(s);
     return rc;
 }
 
 int xcm_tp_socket_receive(struct xcm_socket *s, void *buf, size_t capacity)
 {
-    do_ctl(s);
-
     int rc = XCM_TP_CALL(receive, s, buf, capacity);
+
+    consider_ctl(s, rc == 0 || (rc < 0 && errno != EAGAIN),
+		 rc < 0 && errno == EAGAIN);
+
     xcm_tp_socket_update(s);
+
     return rc;
 }
 
@@ -154,10 +181,12 @@ void xcm_tp_socket_update(struct xcm_socket *s)
     
 int xcm_tp_socket_finish(struct xcm_socket *s)
 {
-    do_ctl(s);
-
     int rc = XCM_TP_CALL(finish, s);
+
+    consider_ctl(s, rc, errno);
+
     xcm_tp_socket_update(s);
+
     return rc;
 }
 

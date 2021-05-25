@@ -46,6 +46,8 @@ bool ut_is_blocking(int fd);
 
 int ut_established(int fd);
 
+bool ut_is_readable(int fd);
+
 /* 'name' buffer needs to be NAME_MAX in size */
 int ut_self_net_ns(char *name);
 
