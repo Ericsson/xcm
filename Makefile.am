@@ -142,6 +142,7 @@ clean-local:
 	rm -f .doxygenerated
 	rm -rf test/cert
 	rm -rf test/ctl
+	rm -rf test/uxf
 
 distclean-local:
 	rm -rf autom4te.cache m4
