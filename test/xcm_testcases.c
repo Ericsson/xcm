@@ -1167,6 +1167,7 @@ TESTCASE(xcm, non_blocking_non_orderly_tls_close)
      * 3) TLS protocol violation detected (i.e. early close)
      */
     CHK(rc == 0 || (rc == -1 && errno == EPIPE) ||
+	(rc == -1 && errno == ECONNRESET) ||
 	(rc == -1 && errno == EPROTO));
 
     CHKNOERR(xcm_close(client_conn));
