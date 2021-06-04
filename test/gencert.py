@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import datetime
+import enum
 import os.path
 import sys
 import yaml
@@ -17,7 +18,6 @@ PUBLIC_EXPONENT = 65537
 KEY_SIZE = 2048
 VALIDITY = datetime.timedelta(days=365*10)
 
-
 def usage(name):
     print("%s [<cert.yaml>]" % name)
 
@@ -27,8 +27,13 @@ def gen_private_key():
                                     key_size=KEY_SIZE,
                                     backend=default_backend())
 
+class Usage(enum.Enum):
+    CLIENT = "client"
+    SERVER = "server"
 
-def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None):
+
+def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None,
+                usage=None):
     private_key = gen_private_key()
 
     public_key = private_key.public_key()
@@ -52,7 +57,7 @@ def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None):
         sign_key = private_key
         issuer = name
 
-    cert = (
+    builder = (
         x509.CertificateBuilder()
         .subject_name(name)
         .issuer_name(issuer)
@@ -63,9 +68,20 @@ def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None):
         .add_extension(constraints, critical=True)
         .add_extension(ski, critical=False)
         .add_extension(alt_name, critical=False)
-        .sign(private_key=sign_key, algorithm=hashes.SHA256(),
-              backend=default_backend())
     )
+
+    if usage is not None:
+        l = []
+        if Usage.CLIENT in usage:
+            l.append(x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH)
+        if Usage.SERVER in usage:
+            l.append(x509.oid.ExtendedKeyUsageOID.SERVER_AUTH)
+
+        builder = builder.add_extension(x509.ExtendedKeyUsage(l),
+                                        critical=True)
+
+    cert = builder.sign(private_key=sign_key, algorithm=hashes.SHA256(),
+                        backend=default_backend())
 
     return private_key, cert
 
@@ -75,6 +91,21 @@ def get_subject_names(conf):
     else:
         return conf['subject_names']
     
+
+def get_usage(conf):
+    server_auth = conf.get('server_auth')
+    client_auth = conf.get('client_auth')
+
+    if server_auth is None and client_auth is None:
+        return None
+
+    usage = []
+    if server_auth:
+        usage.append(Usage.SERVER)
+    if client_auth:
+        usage.append(Usage.CLIENT)
+
+    return usage
 
 def create_certs(conf_certs):
     keys = {}
@@ -91,8 +122,10 @@ def create_certs(conf_certs):
             issuer_key = None
             issuer_cert = None
 
+        usage = get_usage(params)
+
         keys[id], certs[id] = \
-            create_cert(subject_names, ca, issuer_key, issuer_cert)
+            create_cert(subject_names, ca, issuer_key, issuer_cert, usage)
 
     return keys, certs
 

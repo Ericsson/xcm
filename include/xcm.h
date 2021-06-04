@@ -825,6 +825,10 @@ extern "C" {
  * The TLS transport supports IPv4 and IPv6. It disables the Nagle
  * algorithm of TCP.
  *
+ * The TLS transport honors any limitations set by the X.509
+ * extended key usage extension, if present in the remote peer's
+ * certificate.
+ *
  * @subsubsection tls_certificates Certificate and Key Storage
  *
  * The TLS transport reads the leaf certificate and its private key

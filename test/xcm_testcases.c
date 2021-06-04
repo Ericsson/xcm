@@ -3888,6 +3888,86 @@ TESTCASE(xcm, tls_role_reversal)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, tls_extended_key_usage)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "    server_auth: true\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "    client_auth: true\n"
+	    "  c:\n"
+	    "    subject_name: c\n"
+	    "    issuer: root\n"
+	    "    client_auth: true\n"
+	    "    server_auth: true\n"
+	    "  d:\n"
+	    "    subject_name: d\n"
+	    "    issuer: root\n"
+	    "    client_auth: false\n"
+	    "    server_auth: false\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-server/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-server/key.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-client/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-client/key.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: c\n"
+	    "    path: ep-both/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: c\n"
+	    "    path: ep-both/key.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: d\n"
+	    "    path: ep-neither/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: d\n"
+	    "    path: ep-neither/key.pem\n"
+	    "\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    paths:\n"
+	    "      - ep-server/tc.pem\n"
+	    "      - ep-client/tc.pem\n"
+	    "      - ep-both/tc.pem\n"
+	    "      - ep-neither/tc.pem\n"
+	    )
+	);
+
+    CHKNOERR(run_tls_handshake("ep-server", "ep-client", true));
+    CHKNOERR(run_tls_handshake("ep-server", "ep-both", true));
+    CHKNOERR(run_tls_handshake("ep-both", "ep-client", true));
+
+    CHKNOERR(run_tls_handshake("ep-client", "ep-client", false));
+    CHKNOERR(run_tls_handshake("ep-server", "ep-server", false));
+    CHKNOERR(run_tls_handshake("ep-both", "ep-neither", false));
+    CHKNOERR(run_tls_handshake("ep-neither", "ep-both", false));
+
+    return UTEST_SUCCESS;
+}
+
 #define TEST_NS0 "testns0"
 #define TEST_NS1 "testns1"
 
