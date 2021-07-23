@@ -546,11 +546,13 @@ extern "C" {
  * The attribute sets are represented by the @c xcm_attr_map type in
  * xcm_attr_map.h.
  *
- * An example:
+ * A somewhat contrived example:
  * ~~~~~~~~~~~~~{.c}
  * struct xcm_attr_map *attrs = xcm_attr_map_create();
  * xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
  * xcm_attr_map_add_str(attrs, "xcm.local_addr", "tls:192.168.1.42:0");
+ * xcm_attr_map_add_bool(attrs, "tls.verify_peer_name", true);
+ * xcm_attr_map_add_str(attrs, "tls.peer_names", "myservice");
  * xcm_attr_map_add_int64(attrs, "tcp.keepalive_interval", 10);
  *
  * int rc = xcm_connect_a("tls:192.168.1.99:4711", attrs);
@@ -570,7 +572,7 @@ extern "C" {
  * ---------------|-------------|------------|------|------------
  * xcm.type       | All         | String     | R    | The socket type: "server" or "connection".
  * xcm.transport  | All         | String     | R    | The transport type.
- * xcm.local_addr | All         | String     | RW   | The local address of a socket. Writable only if supplied to xcm_connect_a().
+ * xcm.local_addr | All         | String     | RW   | The local address of a socket. Writable only if supplied to xcm_connect_a() together with a TLS, UTLS or TCP type address. Usually only needs to be written on multihomed hosts, in cases where the application needs to specify the source IP address to be used. Also see xcm_local_addr().
  * xcm.blocking   | All         | Boolean    | RW    | See xcm_set_blocking() and xcm_is_blocking().
  * xcm.remote_addr | Connection | String     | R    | See xcm_remote_addr().
  * xcm.max_msg_size | Connection | Integer   | R    | The maximum size of any message transported by this connection.
