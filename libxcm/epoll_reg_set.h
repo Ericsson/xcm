@@ -3,7 +3,7 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#ifndef EPOLL_SET_H
+#ifndef EPOLL_REG_SET_H
 #define EPOLL_REG_SET_H
 
 #include <sys/epoll.h>
