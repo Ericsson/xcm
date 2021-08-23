@@ -393,12 +393,12 @@ extern "C" {
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libc: select(88, [...], [99, ...], [...], NULL);
+ * client -> libc: select(88, [99, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libc: select(88, [...], [99, ...], [...], NULL);
+ * client -> libc: select(88, [99, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
