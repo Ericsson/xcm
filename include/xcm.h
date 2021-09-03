@@ -116,6 +116,8 @@ extern "C" {
  * interfaces).  '[*]' is the IPv6 equivalent, creating a server
  * socket accepting connections on all IPv4 and IPv6 addresses.
  *
+ * IPv6 link local addresses are not supported.
+ *
  * Some examples addresses:
  * @code
  * tcp:*:4711
