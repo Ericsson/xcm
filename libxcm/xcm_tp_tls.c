@@ -309,8 +309,9 @@ static int conn_deinit(struct xcm_socket *s, bool owner)
 	ts->conn.ssl = NULL;
     }
 
+    int active_fd = ts->conn.active_fd_reg.fd;
     epoll_reg_reset(&ts->conn.active_fd_reg);
-    active_fd_put();
+    active_fd_put(active_fd);
     xcm_dns_query_free(ts->conn.query);
     mbuf_deinit(&ts->conn.send_mbuf);
     mbuf_deinit(&ts->conn.receive_mbuf);

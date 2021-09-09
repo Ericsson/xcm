@@ -2,6 +2,6 @@
 #define ACTIVE_FD
 
 int active_fd_get(void);
-void active_fd_put(void);
+void active_fd_put(int fd);
 
 #endif

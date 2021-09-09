@@ -198,8 +198,9 @@ static void deinit(struct xcm_socket *s)
 {
     if (s->type == xcm_socket_type_conn) {
 	struct sctp_socket *ss = TOSCTP(s);
+	int active_fd = ss->conn.active_fd_reg.fd;
 	epoll_reg_reset(&ss->conn.active_fd_reg);
-	active_fd_put();
+	active_fd_put(active_fd);
 	xcm_dns_query_free(TOSCTP(s)->conn.query);
     }
 }

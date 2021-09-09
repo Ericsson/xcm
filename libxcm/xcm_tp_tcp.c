@@ -218,8 +218,9 @@ static void deinit(struct xcm_socket *s)
 {
     if (s->type == xcm_socket_type_conn) {
 	struct tcp_socket *ts = TOTCP(s);
+	int active_fd = ts->conn.active_fd_reg.fd;
 	epoll_reg_reset(&ts->conn.active_fd_reg);
-	active_fd_put();
+	active_fd_put(active_fd);
 	xcm_dns_query_free(ts->conn.query);
 	mbuf_deinit(&ts->conn.send_mbuf);
 	mbuf_deinit(&ts->conn.receive_mbuf);
