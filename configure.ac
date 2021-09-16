@@ -2,7 +2,7 @@
 
 m4_define([xcm_major_version], [1])
 m4_define([xcm_minor_version], [3])
-m4_define([xcm_patch_version], [1])
+m4_define([xcm_patch_version], [2])
 m4_define([xcm_version],[xcm_major_version.xcm_minor_version.xcm_patch_version])
 
 # XCM never had a non-backward-compatible API/ABI change for any
