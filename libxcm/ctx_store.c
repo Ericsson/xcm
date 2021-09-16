@@ -70,7 +70,7 @@ static struct cache_entry *cache_entry_create(const char *cert_file,
 
 static void cache_entry_destroy(struct cache_entry *entry)
 {
-    if (entry) {
+    if (entry != NULL) {
 	ut_assert(entry->use_cnt == 0);
 	ut_free(entry->cert_file);
 	ut_free(entry->key_file);
@@ -150,11 +150,11 @@ static struct cache_entry *cache_find_entry(struct cache *cache,
     struct cache_entry *entry;
 
     entry = list_find_entry(&cache->cur_entries, ssl_ctx);
-    if (entry)
+    if (entry != NULL)
 	return entry;
 
     entry = list_find_entry(&cache->old_entries, ssl_ctx);
-    if (entry)
+    if (entry != NULL)
 	return entry;
 
     return NULL;
@@ -256,7 +256,7 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
     struct cache_entry *entry =
 	cache_get(cache, cert_file, key_file, tc_file);
 
-    if (entry) {
+    if (entry != NULL) {
 	uint8_t hash[SHA256_DIGEST_LENGTH];
 
 	if (get_cert_files_hash(cert_file, key_file, tc_file, hash) < 0)
@@ -272,7 +272,7 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
 	}
     }
 
-    if (entry)
+    if (entry != NULL)
 	LOG_TLS_CTX_REUSE(cert_file, key_file, tc_file);
     else {
 	uint8_t hash[SHA256_DIGEST_LENGTH];
@@ -284,7 +284,7 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
 
     cache_unlock(cache);
 
-    return entry ? entry->ssl_ctx : NULL;
+    return entry != NULL ? entry->ssl_ctx : NULL;
 }
 
 static bool cert_files_changed(const uint8_t *hash,
@@ -311,13 +311,13 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
 					uint8_t *hash)
 {
     const SSL_METHOD* method = SSLv23_method();
-    if (!method) {
+    if (method == NULL) {
 	errno = EPROTO;
 	return NULL;
     }
 
     SSL_CTX *ssl_ctx = SSL_CTX_new(method);
-    if (!ssl_ctx) {
+    if (ssl_ctx == NULL) {
 	errno = ENOMEM;
 	return NULL;
     }
@@ -402,7 +402,7 @@ static SSL_CTX *load_client_ssl_ctx(const char *cert_file,
 
     SSL_CTX *ssl_ctx =
 	load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
-    if (!ssl_ctx) {
+    if (ssl_ctx == NULL) {
 	errno = EPROTO;
 	return NULL;
     }
@@ -428,7 +428,7 @@ static SSL_CTX *load_server_ssl_ctx(const char *cert_file,
 		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
 
     STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
-    if (!cert_names) {
+    if (cert_names == NULL) {
 	LOG_TLS_ERR_LOADING_TC(tc_file);
 	goto err_free_ctx;
     }

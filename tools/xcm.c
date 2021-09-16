@@ -34,7 +34,7 @@ static void usage(const char *name)
 static void parse_str_attr(const char *s, char *name, char *value)
 {
     const char *name_end = strchr(s, '=');
-    if (!name_end) {
+    if (name_end == NULL) {
 	fprintf(stderr, "Invalid attribute format. '=' is missing.\n");
 	exit(EXIT_FAILURE);
     }
@@ -132,7 +132,7 @@ static void run_client(const char *addr, const struct xcm_attr_map *attrs,
 		       struct event_base *event_base)
 {
     struct xcm_socket *conn = xcm_connect_a(addr, attrs);
-    if (!conn)
+    if (conn == NULL)
 	ut_die("Unable to connect");
     handle_conn(conn, event_base, term, NULL);
 }
@@ -209,7 +209,7 @@ static void run_server(const char *addr, const struct xcm_attr_map *conn_attrs,
 {
     struct xcm_socket *server_socket = xcm_server(addr);
 
-    if (!server_socket)
+    if (server_socket == NULL)
 	ut_die("Unable to bind server socket");
 
     if (xcm_set_blocking(server_socket, false) < 0)

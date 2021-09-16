@@ -137,7 +137,7 @@ err:
 
 void socket_destroy(struct xcm_socket *s)
 {
-    if (s) {
+    if (s != NULL) {
 	int epoll_fd = s->epoll_fd;
 	xcm_tp_socket_destroy(s);
 	UT_PROTECT_ERRNO(close(epoll_fd));
@@ -153,7 +153,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
 
     struct xcm_socket *s =
 	socket_create(proto, xcm_socket_type_conn, true);
-    if (!s)
+    if (s == NULL)
 	goto err;
 
     if (xcm_tp_socket_init(s, NULL) < 0)
@@ -196,7 +196,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
 
     struct xcm_socket *s =
 	socket_create(proto, xcm_socket_type_server, true);
-    if (!s)
+    if (s == NULL)
 	goto err;
 
     if (xcm_tp_socket_init(s, NULL) < 0)
@@ -222,7 +222,7 @@ err:
 
 int xcm_close(struct xcm_socket *s)
 {
-    if (s) {
+    if (s != NULL) {
 	int rc = xcm_tp_socket_close(s);
 	socket_destroy(s);
 	return rc;
@@ -232,7 +232,7 @@ int xcm_close(struct xcm_socket *s)
 
 void xcm_cleanup(struct xcm_socket *s)
 {
-    if (s) {
+    if (s != NULL) {
 	xcm_tp_socket_cleanup(s);
 	socket_destroy(s);
     }
@@ -254,7 +254,7 @@ struct xcm_socket *xcm_accept_a(struct xcm_socket *server_s,
 restart:
     conn_s = socket_create(server_s->proto, xcm_socket_type_conn,
 			   server_s->is_blocking);
-    if (!conn_s)
+    if (conn_s == NULL)
 	goto err;
 
     if (is_blocking && socket_wait(server_s, XCM_SO_ACCEPTABLE) < 0)
@@ -263,7 +263,7 @@ restart:
     if (xcm_tp_socket_init(conn_s, server_s) < 0)
 	goto err_destroy;
 
-    if (attrs && set_attrs(conn_s, attrs) < 0)
+    if (attrs != NULL && set_attrs(conn_s, attrs) < 0)
 	goto err_close;
 
     if (xcm_tp_socket_accept(conn_s, server_s) < 0) {
@@ -403,7 +403,7 @@ static const struct xcm_tp_attr *attr_lookup(const char *name,
 					     size_t attrs_len)
 {
     size_t i;
-    for (i=0; i<attrs_len; i++)
+    for (i = 0; i < attrs_len; i++)
 	if (strcmp(attrs[i].name, name) == 0)
 	    return &attrs[i];
     return NULL;
@@ -458,13 +458,13 @@ int xcm_attr_set(struct xcm_socket *s, const char *name,
     LOG_ATTR_SET_REQ(s, name, type, value, len);
 
     const struct xcm_tp_attr *attr = socket_attr_lookup(s, name);
-    if (!attr) {
+    if (attr == NULL) {
 	LOG_ATTR_SET_NON_EXISTENT(s);
 	errno = ENOENT;
 	goto err;
     }
 
-    if (!attr->set_fun) {
+    if (attr->set_fun == NULL) {
 	LOG_ATTR_SET_RO(s);
 	errno = EACCES;
 	goto err;
@@ -519,12 +519,12 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
 	goto err;
     }
 
-    if (!attr->get_fun) {
+    if (attr->get_fun == NULL) {
 	errno = EACCES;
 	goto err;
     }
 
-    if (type)
+    if (type != NULL)
 	*type = attr->type;
 
     int rc = attr->get_fun(s, attr, value, capacity);

@@ -135,7 +135,7 @@ static struct xcm_socket *create_sub_socket(struct xcm_tp_proto *proto,
     struct xcm_socket *s =
 	xcm_tp_socket_create(proto, type, epoll_fd, false);
 
-    if (!s)
+    if (s == NULL)
 	goto err;
 
     if (xcm_tp_socket_init(s, parent) < 0)
@@ -156,7 +156,7 @@ static int utls_init(struct xcm_socket *s, struct xcm_socket *parent)
     struct xcm_socket *ux_parent = NULL;
     struct xcm_socket *tls_parent = NULL;
 
-    if (parent) {
+    if (parent != NULL) {
 	ux_parent = TOUTLS(parent)->ux_socket;
 	tls_parent = TOUTLS(parent)->tls_socket;
     }
@@ -166,7 +166,7 @@ static int utls_init(struct xcm_socket *s, struct xcm_socket *parent)
     us->tls_socket =
 	create_sub_socket(tls_proto(), s->type, s->epoll_fd, tls_parent);
 
-    if (!us->ux_socket || !us->tls_socket) {
+    if (us->ux_socket == NULL || us->tls_socket == NULL) {
 	xcm_tp_socket_destroy(us->ux_socket);
 	return -1;
     }
@@ -176,7 +176,7 @@ static int utls_init(struct xcm_socket *s, struct xcm_socket *parent)
 
 static void deinit(struct xcm_socket *s)
 {
-    if (s) {
+    if (s != NULL) {
 	struct utls_socket *us = TOUTLS(s);
 	xcm_tp_socket_destroy(us->ux_socket);
 	xcm_tp_socket_destroy(us->tls_socket);
@@ -356,7 +356,7 @@ static void utls_cleanup(struct xcm_socket *s)
 {
     LOG_CLEANING_UP(s);
 
-    if (s)  {
+    if (s != NULL)  {
 	struct utls_socket *us = TOUTLS(s);
 
 	xcm_tp_socket_cleanup(us->ux_socket);
@@ -393,7 +393,7 @@ static struct xcm_socket *active_sub_conn(struct xcm_socket *s)
 {
     struct utls_socket *us = TOUTLS(s);
 
-    return us->ux_socket ? us->ux_socket : us->tls_socket;
+    return us->ux_socket != NULL ? us->ux_socket : us->tls_socket;
 }
 
 static int utls_send(struct xcm_socket *s, const void *buf, size_t len)
@@ -459,7 +459,7 @@ static int utls_set_local_addr(struct xcm_socket *s, const char *local_addr)
 {
     struct utls_socket *us = TOUTLS(s);
 
-    if (!us->tls_socket) {
+    if (us->tls_socket == NULL) {
 	errno = EACCES;
 	return -1;
     }
@@ -484,7 +484,7 @@ static const char *get_conn_local_addr(struct xcm_socket *s,
 {
     struct xcm_socket *active = active_sub_conn(s);
 
-    if (!active)
+    if (active == NULL)
 	return NULL;
 
     return xcm_tp_socket_get_local_addr(active, suppress_tracing);
@@ -501,7 +501,7 @@ static const char *get_server_local_addr(struct xcm_socket *s,
     const char *tls_addr =
 	xcm_tp_socket_get_local_addr(us->tls_socket, suppress_tracing);
 
-    if (!tls_addr)
+    if (tls_addr == NULL)
 	return NULL;
 
     struct xcm_addr_ip ip;
@@ -591,9 +591,9 @@ static void add_attr(struct utls_socket *us,
     size_t idx = us->attrs_len;
 
     us->utls_attrs[idx] = *real_attr;
-    if (real_attr->get_fun)
+    if (real_attr->get_fun != NULL)
 	us->utls_attrs[idx].get_fun = get_attr_proxy;
-    if (real_attr->set_fun)
+    if (real_attr->set_fun != NULL )
 	us->utls_attrs[idx].set_fun = set_attr_proxy;
 
     us->real_attrs[idx] = real_attr;
@@ -609,12 +609,12 @@ static void update_attrs(struct xcm_socket *s)
 
     const struct xcm_tp_attr *ux_attrs;
     size_t ux_attrs_len = 0;
-    if (us->ux_socket)
+    if (us->ux_socket != NULL)
 	xcm_tp_socket_get_attrs(us->ux_socket, &ux_attrs, &ux_attrs_len);
 
     const struct xcm_tp_attr *tls_attrs;
     size_t tls_attrs_len = 0;
-    if (us->tls_socket)
+    if (us->tls_socket != NULL)
 	xcm_tp_socket_get_attrs(us->tls_socket, &tls_attrs, &tls_attrs_len);
 
     size_t attrs_len = ux_attrs_len + tls_attrs_len;

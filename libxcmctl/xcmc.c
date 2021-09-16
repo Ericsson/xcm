@@ -29,12 +29,12 @@ int xcmc_list(xcmc_list_cb cb, void *cb_data)
 
     DIR *d = opendir(ctl_dir);
 
-    if (!d)
+    if (d == NULL)
 	return -1;
 
     for (;;) {
 	struct dirent *ent = readdir(d);
-	if (!ent)
+	if (ent == NULL)
 	    break;
 
 	pid_t creator_pid;
@@ -103,7 +103,7 @@ struct xcmc_session *xcmc_open(pid_t creator_pid, int64_t sock_ref)
 
 int xcmc_close(struct xcmc_session *session)
 {
-    if (session) {
+    if (session != NULL) {
 	int fd = session->fd;
 	free(session);
 	return close(fd);
@@ -174,7 +174,7 @@ int xcmc_attr_get_all(struct xcmc_session *session, xcmc_attr_cb cb,
     struct ctl_proto_get_all_attr_cfm *cfm = &res.get_all_attr_cfm;
 
     size_t i;
-    for (i=0; i<cfm->attrs_len; i++) {
+    for (i = 0; i < cfm->attrs_len; i++) {
 	struct ctl_proto_attr *attr = &cfm->attrs[i];
 	cb(attr->name, attr->value_type, attr->any_value, attr->value_len,
 	   cb_data);

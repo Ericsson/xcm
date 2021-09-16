@@ -71,7 +71,7 @@ int xcm_tp_socket_init(struct xcm_socket *s, struct xcm_socket *parent)
 static void do_ctl(struct xcm_socket *s)
 {
 #ifdef XCM_CTL
-    if (s->ctl)
+    if (s->ctl != NULL)
 	ctl_process(s->ctl);
 #endif
 }
@@ -117,7 +117,7 @@ int xcm_tp_socket_close(struct xcm_socket *s)
 {
     int rc = 0;
 
-    if (s) {
+    if (s != NULL) {
 #ifdef XCM_CTL
 	ctl_destroy(s->ctl, true);
 #endif
@@ -128,7 +128,7 @@ int xcm_tp_socket_close(struct xcm_socket *s)
 
 void xcm_tp_socket_cleanup(struct xcm_socket *s)
 {
-    if (s) {
+    if (s != NULL) {
 #ifdef XCM_CTL
 	ctl_destroy(s->ctl, false);
 #endif
@@ -209,7 +209,7 @@ const char *xcm_tp_socket_get_remote_addr(struct xcm_socket *conn_s,
 
 int xcm_tp_socket_set_local_addr(struct xcm_socket *s, const char *local_addr)
 {
-    if (XCM_TP_GETOPS(s)->set_local_addr)
+    if (XCM_TP_SUPPORTS_OP(s, set_local_addr))
 	return XCM_TP_CALL(set_local_addr, s, local_addr);
     else {
 	errno = EACCES;
@@ -230,7 +230,7 @@ size_t xcm_tp_socket_max_msg(struct xcm_socket *conn_s)
 
 const struct cnt_conn *xcm_tp_socket_get_cnt(struct xcm_socket *conn_s)
 {
-    if (XCM_TP_GETOPS(conn_s)->get_cnt)
+    if (XCM_TP_SUPPORTS_OP(conn_s, get_cnt))
 	return XCM_TP_CALL(get_cnt, conn_s);
     else
 	return &conn_s->cnt;
@@ -239,7 +239,7 @@ const struct cnt_conn *xcm_tp_socket_get_cnt(struct xcm_socket *conn_s)
 void xcm_tp_socket_enable_ctl(struct xcm_socket *s)
 {
 #ifdef XCM_CTL
-    if (XCM_TP_GETOPS(s)->enable_ctl)
+    if (XCM_TP_SUPPORTS_OP(s, enable_ctl))
 	XCM_TP_CALL(enable_ctl, s);
     else
 	s->ctl = ctl_create(s);
@@ -464,7 +464,7 @@ static size_t num_protos = 0;
 struct xcm_tp_proto *xcm_tp_proto_by_name(const char *proto_name)
 {
     int i;
-    for (i=0; i<num_protos; i++)
+    for (i = 0; i < num_protos; i++)
 	if (strcmp(protos[i].name, proto_name) == 0)
 	    return &(protos[i]);
     return NULL;

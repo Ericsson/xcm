@@ -40,22 +40,23 @@
 		 basename(bname), line);				\
 	vsnprintf(msg+strlen(msg), sizeof(msg)-strlen(msg), format, ap); \
 									\
-	const char *laddr =						\
-	    sock ? XCM_TP_CALL(get_local_addr, sock, true) : NULL;	\
-	const char *raddr =						\
-	    sock ? XCM_TP_CALL(get_remote_addr, sock, true) : NULL;	\
+	const char *laddr = sock != NULL ?				\
+	    XCM_TP_CALL(get_local_addr, sock, true) : NULL;		\
+	const char *raddr = sock != NULL ?				\
+	    XCM_TP_CALL(get_remote_addr, sock, true) : NULL;		\
 									\
 	char sock_ref[64];						\
 	format_sock_ref(sock, sock_ref, sizeof(sock_ref));              \
 									\
 	tracepoint(com_ericsson_xcm, xcm_ ## type, sock_ref,            \
-		   laddr ? laddr : "", raddr ? raddr : "", msg);	\
+		   laddr != NULL ? laddr : "",				\
+		   raddr != NULL ? raddr : "", msg);			\
 	errno = oerrno;                                                 \
     } while (0)
 
 static void format_sock_ref(struct xcm_socket *s, char *buf, size_t capacity)
 {
-    if (s)
+    if (s != NULL)
 	snprintf(buf, capacity, "%d:%" PRId64, getpid(), s->sock_id);
     else
 	buf[0] = '\0';
@@ -68,7 +69,7 @@ static void format_msg(char *buf, size_t capacity, const char *file, int line,
 		       const char *format, va_list ap)
 {
     char sref[32];
-    if (s)
+    if (s != NULL)
 	snprintf(sref, sizeof(sref), " <%" PRId64 ">", s->sock_id);
     else
 	sref[0] = '\0';

@@ -50,7 +50,7 @@ struct attr *attr_create(const char *name, enum xcm_attr_type type,
 
 void attr_destroy(struct attr *attr)
 {
-    if (attr) {
+    if (attr != NULL) {
 	ut_free(attr->name);
 	ut_free(attr->value);
 	ut_free(attr);
@@ -170,10 +170,10 @@ const void *xcm_attr_map_get(const struct xcm_attr_map *attr_map,
     if (!attr)
 	return NULL;
 
-    if (attr_type)
+    if (attr_type != NULL)
 	*attr_type = attr->type;
 
-    if (attr_value_len)
+    if (attr_value_len != NULL)
 	*attr_value_len = attr->value_len;
 
     return attr->value;
@@ -207,7 +207,7 @@ void xcm_attr_map_del(struct xcm_attr_map *attr_map, const char *attr_name)
 {
     struct attr *attr = lookup_attr(attr_map, attr_name);
 
-    if (attr) {
+    if (attr != NULL) {
 	LIST_REMOVE(attr, entry);
 	attr_destroy(attr);
     }
@@ -243,7 +243,7 @@ bool xcm_attr_map_equal(const struct xcm_attr_map *attr_map_a,
     LIST_FOREACH(attr_a, &attr_map_a->attrs, entry) {
 	const struct attr *attr_b =
 	    lookup_attr_with_type(attr_map_b, attr_a->name, attr_a->type);
-	if (!attr_b)
+	if (attr_b == NULL)
 	    return false;
 	if (attr_a->value_len != attr_b->value_len)
 	    return false;
@@ -256,7 +256,7 @@ bool xcm_attr_map_equal(const struct xcm_attr_map *attr_map_a,
 
 void xcm_attr_map_destroy(struct xcm_attr_map *attr_map)
 {
-    if (attr_map) {
+    if (attr_map != NULL) {
 	struct attr *attr;
 	while ((attr = LIST_FIRST(&attr_map->attrs)) != NULL) {
 	    LIST_REMOVE(attr, entry);

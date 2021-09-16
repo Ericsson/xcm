@@ -47,7 +47,7 @@ static int proto_addr_parse(const char *addr_s,
 
     const char *proto_sep = strchr(addr_s, PROTO_SEP);
 
-    if (!proto_sep)
+    if (proto_sep == NULL)
 	goto err_inval;
 
     const size_t proto_len = proto_sep-addr_s;

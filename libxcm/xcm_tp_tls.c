@@ -248,7 +248,7 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
 
     ts->verify_peer_name = parent_ts->verify_peer_name;
 
-    if (parent_ts->valid_peer_names)
+    if (parent_ts->valid_peer_names != NULL)
 	ts->valid_peer_names = slist_clone(parent_ts->valid_peer_names);
 }
 
@@ -299,7 +299,7 @@ static int conn_deinit(struct xcm_socket *s, bool owner)
     if (ts->conn.state == conn_state_ready && owner)
 	SSL_shutdown(ts->conn.ssl);
 
-    if (ts->conn.ssl) {
+    if (ts->conn.ssl != NULL) {
 	int fd = SSL_get_fd(ts->conn.ssl);
 	if (fd >= 0)
 	    rc = close(fd);
@@ -332,7 +332,7 @@ static int server_deinit(struct xcm_socket *s, bool owner)
 static int deinit(struct xcm_socket *s, bool owner)
 {
     int rc = 0;
-    if (s) {
+    if (s != NULL) {
 	struct tls_socket *ts = TOTLS(s);
 
 	if (s->type == xcm_socket_type_conn)
@@ -704,7 +704,7 @@ static void try_finish_connect(struct xcm_socket *s)
 static const char *get_cert_dir(void)
 {
     const char *cert_dir = getenv(TLS_CERT_ENV);
-    return cert_dir ? cert_dir : DEFAULT_CERT_DIR;
+    return cert_dir != NULL ? cert_dir : DEFAULT_CERT_DIR;
 }
 
 static char *get_file(const char *default_tmpl, const char *ns_tmpl,
@@ -735,7 +735,7 @@ static int finalize_cert_files(struct xcm_socket *s)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (ts->cert_file && ts->key_file && ts->tc_file)
+    if (ts->cert_file != NULL && ts->key_file != NULL && ts->tc_file != NULL)
 	return 0;
 
     char ns[NAME_MAX];
@@ -750,11 +750,11 @@ static int finalize_cert_files(struct xcm_socket *s)
 
     const char *cert_dir = get_cert_dir();
 
-    if (!ts->cert_file)
+    if (ts->cert_file == NULL)
 	ts->cert_file = get_cert_file(ns, cert_dir);
-    if (!ts->key_file)
+    if (ts->key_file == NULL)
 	ts->key_file = get_key_file(ns, cert_dir);
-    if (!ts->tc_file)
+    if (ts->tc_file == NULL)
 	ts->tc_file = get_tc_file(ns, cert_dir);
 
     return 0;
@@ -782,7 +782,7 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err_deinit;
 
     ts->conn.ssl = SSL_new(ts->ssl_ctx);
-    if (!ts->conn.ssl) {
+    if (ts->conn.ssl == NULL) {
 	errno = ENOMEM;
 	goto err_deinit;
     }
@@ -1667,7 +1667,7 @@ static int set_peer_names_attr(struct xcm_socket *s,
 	return -1;
     }
 
-    if (ts->valid_peer_names) {
+    if (ts->valid_peer_names != NULL) {
 	slist_destroy(ts->valid_peer_names);
 	ts->valid_peer_names = NULL;
     }
@@ -1701,7 +1701,7 @@ static int get_valid_peer_names_attr(struct xcm_socket *s,
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (!ts->valid_peer_names) {
+    if (ts->valid_peer_names == NULL) {
 	errno = ENOENT;
 	return -1;
     }

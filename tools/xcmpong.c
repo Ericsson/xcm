@@ -285,7 +285,7 @@ static pid_t run_server(const char *server_addr)
     sigaction(SIGTERM, &action, NULL);
 
     struct xcm_socket *server_sock = xcm_server(server_addr);
-    if (!server_sock)
+    if (server_sock == NULL)
 	ut_die("Unable to create server socket");
 
     while (!server_should_exit) {
@@ -434,13 +434,13 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 	uint64_t latency[batch_size];
 
 	int i;
-	for (i=0; i<batch_size; i++) {
+	for (i = 0; i < batch_size; i++) {
 	    start_times[i] = get_time_ns();
 	    if (xcm_send(conn, msg, msg_size) < 0)
 		ut_die("Error sending reflection message to server");
 	}
 
-	for (i=0; i<batch_size; i++) {
+	for (i = 0; i < batch_size; i++) {
 	    int rc = xcm_receive(conn, msg, msg_size);
 
 	    if (rc < 0)
@@ -455,7 +455,7 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 	    latency[i] = get_time_ns() - start_times[i];
 	}
 
-	for (i=0; i<batch_size; i++) {
+	for (i = 0; i < batch_size; i++) {
 	    printf("%3d  %8.3f ms\n", rt*batch_size+i,
 		   (double)latency[i] / 1e6);
 	    fflush(stdout);
@@ -496,7 +496,7 @@ static pid_t run_client(const char *server_addr, enum client_mode mode,
 	    else
 		usleep(10*1000);
 	}
-    } while (!conn);
+    } while (conn == NULL);
 
     if (mode == client_mode_throughput)
 	run_throughput_client(conn, num_rt, msg_size, batch_size);

@@ -17,8 +17,10 @@
    file descriptor and put them on a XCM connection socket, and the
    other way around */
 
-enum relay_state { relay_state_waiting_for_input,
-		   relay_state_waiting_to_output };
+enum relay_state {
+    relay_state_waiting_for_input,
+    relay_state_waiting_to_output
+};
 
 struct relay
 {

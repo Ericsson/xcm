@@ -490,7 +490,7 @@ static int do_close(struct xcm_socket *s)
 {
     int rc = 0;
 
-    if (s) {
+    if (s != NULL) {
 	assert_socket(s);
 
 	struct tcp_socket *ts = TOTCP(s);

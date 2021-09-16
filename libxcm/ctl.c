@@ -312,7 +312,7 @@ void ctl_process(struct ctl *ctl)
     UT_SAVE_ERRNO;
 
     int i;
-    for (i=0; i<ctl->num_clients; i++) {
+    for (i = 0; i < ctl->num_clients; i++) {
 	if (process_client(&ctl->clients[i], ctl) < 0) {
 	    remove_client(ctl, i);
 	    /* restart the process for simplicity */

@@ -38,7 +38,7 @@ static void print_sock_cb(pid_t creator_pid, int64_t sock_ref, void *data)
 {
     struct xcmc_session *session = xcmc_open(creator_pid, sock_ref);
 
-    if (session) {
+    if (session != NULL) {
 	char type[64];
 	attr_get_str(session, XCM_ATTR_XCM_TYPE, type, sizeof(type));
 
@@ -54,8 +54,8 @@ static void print_sock_cb(pid_t creator_pid, int64_t sock_ref, void *data)
 
 	xcmc_close(session);
 
-	printf("%10d   %6" PRId64 "  %-10s %-25s %s\n", creator_pid, sock_ref, type,
-	       laddr, raddr);
+	printf("%10d   %6" PRId64 "  %-10s %-25s %s\n", creator_pid,
+	       sock_ref, type, laddr, raddr);
     } else {
        /* a socket disappearing (=being closed) is fine, and also
 	  control interface sockets belonging to crashed processes and
@@ -127,7 +127,7 @@ static int cmd_get(pid_t creator_pid, int64_t sock_ref,
 	    return -1;
     } else {
 	size_t i;
-	for (i=0; i<len; i++) {
+	for (i = 0; i < len; i++) {
 	    enum xcm_attr_type type;
 	    char attr_value[512];
 	    int rc;
