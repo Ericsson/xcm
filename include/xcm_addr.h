@@ -23,18 +23,23 @@ extern "C" {
 
 /** Protocol string for the combined TLS+UX transport. */
 #define XCM_UTLS_PROTO "utls"
-/** Protocol string for the Transport Layer Security (TLS) transport. */
+/** Protocol string for the Transport Layer Security (TLS)
+ * message-oriented transport. */
 #define XCM_TLS_PROTO "tls"
-/** Protocol string for the TCP transport. */
+/** Protocol string for the TCP messaging transport. */
 #define XCM_TCP_PROTO "tcp"
-/** Protocol string for the SCTP transport. */
+/** Protocol string for the SCTP messaging transport. */
 #define XCM_SCTP_PROTO "sctp"
 /** Protocol string for the UNIX Domain socket (AF_UNIX SEQPACKET)
-    transport (using the abstract namespace). */
+    messaging transport (using the abstract namespace). */
 #define XCM_UX_PROTO "ux"
 /** Protocol string for the UNIX Domain socket (AF_UNIX SEQPACKET)
-    transport (using file system-based naming). */
+    messaging transport (using file system-based naming). */
 #define XCM_UXF_PROTO "uxf"
+
+/** Protocol string for the Transport Layer Security (TLS) byte-stream
+ * transport. */
+#define XCM_BTLS_PROTO "btls"
 
 enum xcm_addr_type {
     xcm_addr_type_name,
@@ -184,6 +189,22 @@ int xcm_addr_parse_ux(const char *ux_addr_s, char *ux_path, size_t capacity);
 int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_path,
 		       size_t capacity);
 
+/** Parses a BTLS XCM address.
+ *
+ * @param[in] btls_addr_s The string to sparse.
+ * @param[out] host The host (either DNS domain name or IPv4/v6 adress).
+ * @param[out] port The TCP port in network byte order.
+ *
+ * @return Returns 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EINVAL       | Malformed address.
+ */
+int xcm_addr_parse_btls(const char *btls_addr_s, struct xcm_addr_host *host,
+			uint16_t *port);
+
 /** Builds a UTLS XCM address string from the supplied host and port.
  *
  * @param[in] host The host (either DNS domain name or IPv4/v6 adress).
@@ -287,6 +308,24 @@ int xcm_addr_make_ux(const char *ux_name, char *ux_addr_s, size_t capacity);
  * EINVAL       | Invalid format of or too long UNIX Domain Socket address.
  */
 int xcm_addr_make_uxf(const char *uxf_name, char *uxf_addr_s, size_t capacity);
+
+/** Builds a BTLS XCM address string from the supplied host and port.
+ *
+ * @param[in] host The host (either DNS domain name or IPv4/v6 adress).
+ * @param[in] port The port in network byte order.
+ * @param[out] btls_addr_s The user-supplied buffer where to store the result.
+ * @param[in] capacity The length of the buffer.
+ *
+ * @return Returns 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENAMETOOLONG | The user-supplied buffer is too small to fit the address.
+ * EINVAL       | Invalid IP address.
+ */
+int xcm_addr_make_btls(const struct xcm_addr_host *host, unsigned short port,
+		       char *btls_addr_s, size_t capacity);
 
 #include <xcm_addr_compat.h>
 

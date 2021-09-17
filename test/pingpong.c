@@ -28,7 +28,7 @@
  * event-loop library like libev, libevent or the eventloop from glib.
  */
 
-enum client_state { client_state_unused, client_state_accepting,
+enum client_state { client_state_unused, client_state_finish,
 		    client_state_wants_input, client_state_wants_output,
 		    client_state_disconnected };
 
@@ -53,13 +53,11 @@ struct client
 
 static void init_clients(struct client *clients) {
     int i;
-    for (i=0; i<MAX_CLIENTS; i++) {
-	clients[i].state = client_state_unused;
-	clients[i].conn = NULL;
-	clients[i].msg_len = -1;
-	clients[i].pings_pending = 0;
-	clients[i].num_pings = 0;
-    }
+    for (i=0; i<MAX_CLIENTS; i++)
+	clients[i] = (struct client) {
+	    .state = client_state_unused,
+	    .msg_len = -1
+	};
 }
 
 static bool is_active_state(enum client_state state)
@@ -67,7 +65,7 @@ static bool is_active_state(enum client_state state)
     switch (state) {
     case client_state_wants_input:
     case client_state_wants_output:
-    case client_state_accepting:
+    case client_state_finish:
 	return true;
     default:
 	return false;
@@ -164,19 +162,27 @@ static struct client *find_empty(struct client *clients)
     return NULL;
 }
 
-static void client_finish_accept(struct client *client);
+static void client_finish(struct client *client);
 static void client_receive(struct client *client);
 static void client_send(struct client *client);
 static int client_disconnect(struct client *client);
 
-static void client_finish_accept(struct client *client)
+static void client_finish(struct client *client)
 {
+    ut_assert(client->state == client_state_finish);
+
     int rc = xcm_finish(client->conn);
 
     if (rc == 0) {
+	client->num_pings += client->pings_pending;
+	client->pings_pending = 0;
+
 	client->state = client_state_wants_input;
 	client_receive(client);
-    }
+    } else if (errno == EPIPE)
+	client_disconnect(client);
+    else if (errno != EAGAIN)
+	ut_die("Error flushing output buffers");
 }
 
 static void client_receive(struct client *client)
@@ -201,20 +207,12 @@ static void client_send(struct client *client)
 
     if (rc == 0) {
 	client->pings_pending++;
-	client->state = client_state_wants_input;
-	client_receive(client);
+	client->state = client_state_finish;
+	client_finish(client);
     } else if (rc == 0)
 	client_disconnect(client);
     else if (errno != EAGAIN)
 	ut_die("Error sending message to client");
-}
-
-static void client_check_finished(struct client *client)
-{
-    if (client->pings_pending > 0 && xcm_finish(client->conn) == 0) {
-	client->num_pings += client->pings_pending;
-	client->pings_pending = 0;
-    }
 }
 
 static int client_disconnect(struct client *client)
@@ -243,16 +241,14 @@ static void client_process(struct client *client)
 {
     switch (client->state)
     {
-    case client_state_accepting:
-	client_finish_accept(client);
+    case client_state_finish:
+	client_finish(client);
 	break;
     case client_state_wants_input:
 	client_receive(client);
-	client_check_finished(client);
 	break;
     case client_state_wants_output:
 	client_send(client);
-	client_check_finished(client);
 	break;
     case client_state_unused:
     case client_state_disconnected:
@@ -291,8 +287,8 @@ static void accept_clients(struct xcm_socket *server_sock,
 	    new_client->state = client_state_wants_input;
 	    client_receive(new_client);
 	} else {
-	    new_client->state = client_state_accepting;
-	    client_finish_accept(new_client);
+	    new_client->state = client_state_finish;
+	    client_finish(new_client);
 	}
     }
 }

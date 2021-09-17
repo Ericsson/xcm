@@ -64,7 +64,7 @@ static int utls_set_local_addr(struct xcm_socket *s, const char *local_addr);
 static const char *utls_get_local_addr(struct xcm_socket *socket,
 				       bool suppress_tracing);
 static size_t utls_max_msg(struct xcm_socket *conn_s);
-const struct cnt_conn *utls_get_cnt(struct xcm_socket *conn_s);
+static int64_t utls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static void utls_enable_ctl(struct xcm_socket *s);
 static void utls_get_attrs(struct xcm_socket* s,
 			   const struct xcm_tp_attr **attr_list,
@@ -208,16 +208,12 @@ static int utls_connect(struct xcm_socket *s, const char *remote_addr)
 
     struct utls_socket *us = TOUTLS(s);
 
-    struct xcm_addr_host host;
-    uint16_t port;
-    if (xcm_addr_parse_utls(remote_addr, &host, &port) < 0) {
+    char tls_addr[XCM_ADDR_MAX+1];
+
+    if (utls_to_tls(remote_addr, tls_addr, sizeof(tls_addr)) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
 	goto err_close_both;
     }
-
-    char tls_addr[XCM_ADDR_MAX+1];
-    int rc = xcm_addr_make_tls(&host, port, tls_addr, XCM_ADDR_MAX);
-    ut_assert(rc == 0);
 
     char ux_addr[XCM_ADDR_MAX+1];
     map_tls_to_ux(tls_addr, ux_addr, sizeof(ux_addr));
@@ -460,17 +456,9 @@ static int utls_set_local_addr(struct xcm_socket *s, const char *local_addr)
 	return -1;
     }
 
-    struct xcm_addr_host host;
-    uint16_t port;
-    if (xcm_addr_parse_utls(local_addr, &host, &port) < 0) {
-	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	errno = EINVAL;
+    char tls_local_addr[XCM_ADDR_MAX + 1];
+    if (utls_to_tls(local_addr, tls_local_addr, sizeof(tls_local_addr)) < 0)
 	return -1;
-    }
-
-    char tls_local_addr[XCM_ADDR_MAX+1];
-    int rc = xcm_addr_make_tls(&host, port, tls_local_addr, XCM_ADDR_MAX);
-    ut_assert(rc == 0);
 
     return xcm_tp_socket_set_local_addr(us->tls_socket, tls_local_addr);
 }
@@ -494,20 +482,16 @@ static const char *get_server_local_addr(struct xcm_socket *s,
     if (us->tls_socket == NULL)
 	return NULL;
 
-    const char *tls_addr =
-	xcm_tp_socket_get_local_addr(us->tls_socket, suppress_tracing);
+    if (strlen(us->laddr) == 0) {
+	const char *tls_addr =
+	    xcm_tp_socket_get_local_addr(us->tls_socket, suppress_tracing);
 
-    if (tls_addr == NULL)
-	return NULL;
+	if (tls_addr == NULL)
+	    return NULL;
 
-    struct xcm_addr_ip ip;
-    uint16_t port;
-
-    int rc = xcm_addr_tls6_parse(tls_addr, &ip, &port);
-    ut_assert(rc == 0);
-
-    rc = xcm_addr_utls6_make(&ip, port, us->laddr, sizeof(us->laddr));
-    ut_assert(rc == 0);
+	if (tls_to_utls(tls_addr, us->laddr, sizeof(us->laddr)) < 0)
+	    return NULL;
+    }
 
     return us->laddr;
 }
@@ -530,9 +514,9 @@ static size_t utls_max_msg(struct xcm_socket *conn_s)
     return xcm_tp_socket_max_msg(active_sub_conn(conn_s));
 }
 
-const struct cnt_conn *utls_get_cnt(struct xcm_socket *conn_s)
+static int64_t utls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
 {
-    return xcm_tp_socket_get_cnt(active_sub_conn(conn_s));
+    return xcm_tp_socket_get_cnt(active_sub_conn(conn_s), cnt);
 }
 
 static void utls_enable_ctl(struct xcm_socket *s)
@@ -626,9 +610,12 @@ static void add_attr(struct utls_socket *us, bool is_ux,
     us->attrs_len++;
 }
 
-static void update_attrs(struct xcm_socket *s)
+static void assure_attrs(struct xcm_socket *s)
 {
     struct utls_socket *us = TOUTLS(s);
+
+    if (us->attrs != NULL)
+	return;
 
     const struct xcm_tp_attr *ux_attrs;
     size_t ux_attrs_len = 0;
@@ -645,7 +632,7 @@ static void update_attrs(struct xcm_socket *s)
     if (attrs_len == 0)
 	return;
 
-    us->attrs =	ut_realloc(us->attrs, sizeof(struct xcm_tp_attr) * attrs_len);
+    us->attrs =	ut_malloc(sizeof(struct xcm_tp_attr) * attrs_len);
     us->attrs_len = 0;
 
     size_t i;
@@ -660,7 +647,7 @@ static void utls_get_attrs(struct xcm_socket *s,
 			   const struct xcm_tp_attr **attr_list,
 			   size_t *attr_list_len)
 {
-    update_attrs(s);
+    assure_attrs(s);
 
     struct utls_socket *us = TOUTLS(s);
 

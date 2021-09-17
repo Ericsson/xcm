@@ -37,6 +37,8 @@ struct ux_socket
     char laddr[UX_NAME_MAX+16];
 
     char path[UX_NAME_MAX+1];
+
+    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
 };
 
 #define TOUX(s) XCM_TP_GETPRIV(s, struct ux_socket)
@@ -60,6 +62,7 @@ static const char *ux_get_local_addr(struct xcm_socket *conn_s,
 static const char *uxf_get_local_addr(struct xcm_socket *conn_s,
 				      bool suppress_tracing);
 static size_t ux_max_msg(struct xcm_socket *conn_s);
+static int64_t ux_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static void ux_get_attrs(struct xcm_socket *s,
 			 const struct xcm_tp_attr **attr_list,
 			 size_t *attr_list_len);
@@ -79,6 +82,7 @@ static struct xcm_tp_ops ux_ops = {
     .get_remote_addr = ux_get_remote_addr,
     .get_local_addr = ux_get_local_addr,
     .max_msg = ux_max_msg,
+    .get_cnt = ux_get_cnt,
     .get_attrs = ux_get_attrs,
     .priv_size = ux_priv_size
 };
@@ -97,6 +101,7 @@ static struct xcm_tp_ops uxf_ops = {
     .get_remote_addr = uxf_get_remote_addr,
     .get_local_addr = uxf_get_local_addr,
     .max_msg = ux_max_msg,
+    .get_cnt = ux_get_cnt,
     .get_attrs = ux_get_attrs,
     .priv_size = ux_priv_size
 };
@@ -383,9 +388,9 @@ static int ux_send(struct xcm_socket *s, const void *buf, size_t len)
 	goto err;
 
     LOG_SEND_ACCEPTED(s, buf, len);
-    CNT_MSG_INC(&s->cnt, from_app, len);
-    LOG_LOWER_DELIVERED_COMPL(s, buf, len);
-    CNT_MSG_INC(&s->cnt, to_lower, len);
+    XCM_TP_CNT_MSG_INC(us->cnts, from_app, len);
+    LOG_LOWER_DELIVERED_COMPL(s, len);
+    XCM_TP_CNT_MSG_INC(us->cnts, to_lower, len);
 
     return 0;
 
@@ -404,9 +409,9 @@ static int ux_receive(struct xcm_socket *s, void *buf, size_t capacity)
 
     if (rc > 0) {
 	LOG_RCV_MSG(s, buf, rc);
-	CNT_MSG_INC(&s->cnt, from_lower, rc);
+	XCM_TP_CNT_MSG_INC(us->cnts, from_lower, rc);
 	LOG_APP_DELIVERED(s, buf, rc);
-	CNT_MSG_INC(&s->cnt, to_app, rc);
+	XCM_TP_CNT_MSG_INC(us->cnts, to_app, rc);
 	return UT_MIN(rc, capacity);
     } else if (rc == 0) {
 	LOG_RCV_EOF(s);
@@ -527,13 +532,13 @@ static const char *uxf_get_remote_addr(struct xcm_socket *conn_s,
     return get_remote_addr(conn_s, xcm_addr_make_uxf, 0, suppress_tracing);
 }
 
-static const char *get_local_addr(struct xcm_socket *socket,
+static const char *get_local_addr(struct xcm_socket *s,
 				  int (*makefn)(const char *name, char *addr_s,
 						size_t capacity),
 				  size_t addr_offset,
 				  bool suppress_tracing)
 {
-    struct ux_socket *us = TOUX(socket);
+    struct ux_socket *us = TOUX(s);
 
     if (us->fd < 0)
 	return NULL;
@@ -541,7 +546,7 @@ static const char *get_local_addr(struct xcm_socket *socket,
     if (retrieve_addr(us->fd, getsockname, makefn, addr_offset,
 		      us->laddr, sizeof(us->laddr)) < 0) {
 	if (!suppress_tracing)
-	    LOG_LOCAL_SOCKET_NAME_FAILED(socket, errno);
+	    LOG_LOCAL_SOCKET_NAME_FAILED(s, errno);
 	return NULL;
     }
     return us->laddr;
@@ -562,6 +567,15 @@ static const char *uxf_get_local_addr(struct xcm_socket *conn_s,
 static size_t ux_max_msg(struct xcm_socket *conn_s)
 {
     return UX_MAX_MSG;
+}
+
+static int64_t ux_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
+{
+    struct ux_socket *us = TOUX(conn_s);
+
+    ut_assert(cnt < XCM_TP_NUM_MESSAGING_CNTS);
+
+    return us->cnts[cnt];
 }
 
 static void ux_get_attrs(struct xcm_socket *s,

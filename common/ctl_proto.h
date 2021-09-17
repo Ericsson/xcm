@@ -54,7 +54,7 @@ struct ctl_proto_get_attr_cfm
     struct ctl_proto_attr attr;
 };
 
-#define CTL_PROTO_MAX_ATTRS (32)
+#define CTL_PROTO_MAX_ATTRS (64)
 
 struct ctl_proto_get_all_attr_cfm
 {

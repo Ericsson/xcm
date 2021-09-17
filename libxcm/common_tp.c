@@ -53,9 +53,9 @@ int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr)
     return proto_addr_to_sockaddr(tcp_addr, xcm_addr_parse_tcp, sockaddr);
 }
 
-int tp_tls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr)
+int tp_btls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr)
 {
-    return proto_addr_to_sockaddr(tls_addr, xcm_addr_parse_tls, sockaddr);
+    return proto_addr_to_sockaddr(tls_addr, xcm_addr_parse_btls, sockaddr);
 }
 
 static void sockaddr_to_ip(struct sockaddr_storage *sock_addr,
@@ -81,41 +81,69 @@ static void sockaddr_to_ip(struct sockaddr_storage *sock_addr,
     }
 }
 
+static void sockaddr_to_host(struct sockaddr_storage *sock_addr,
+			     struct xcm_addr_host *xcm_host, uint16_t *port)
+{
+    xcm_host->type = xcm_addr_type_ip;
+    sockaddr_to_ip(sock_addr, &(xcm_host->ip), port);
+}
+
 void tp_sockaddr_to_tcp_addr(struct sockaddr_storage *sock_addr,
 			     char *xcm_addr, size_t capacity)
 {
-    struct xcm_addr_ip xcm_ip;
+    struct xcm_addr_host xcm_host;
     uint16_t port;
 
-    sockaddr_to_ip(sock_addr, &xcm_ip, &port);
+    sockaddr_to_host(sock_addr, &xcm_host, &port);
 
-    int rc = xcm_addr_tcp6_make(&xcm_ip, port, xcm_addr, capacity);
+    int rc = xcm_addr_make_tcp(&xcm_host, port, xcm_addr, capacity);
     ut_assert(rc == 0);
 }
 
 void tp_sockaddr_to_sctp_addr(struct sockaddr_storage *sock_addr,
 			      char *xcm_addr, size_t capacity)
 {
-    struct xcm_addr_ip xcm_ip;
+    struct xcm_addr_host xcm_host;
     uint16_t port;
 
-    sockaddr_to_ip(sock_addr, &xcm_ip, &port);
+    sockaddr_to_host(sock_addr, &xcm_host, &port);
 
-    int rc = xcm_addr_sctp6_make(&xcm_ip, port, xcm_addr, capacity);
+    int rc = xcm_addr_make_sctp(&xcm_host, port, xcm_addr, capacity);
     ut_assert(rc == 0);
 }
 
-void tp_sockaddr_to_tls_addr(struct sockaddr_storage *sock_addr,
-			     char *xcm_addr, size_t capacity)
+void tp_sockaddr_to_btls_addr(struct sockaddr_storage *sock_addr,
+			      char *xcm_addr, size_t capacity)
 {
-    struct xcm_addr_ip xcm_ip;
+    struct xcm_addr_host xcm_host;
     uint16_t port;
 
-    sockaddr_to_ip(sock_addr, &xcm_ip, &port);
+    sockaddr_to_host(sock_addr, &xcm_host, &port);
 
-    int rc = xcm_addr_tls6_make(&xcm_ip, port, xcm_addr, capacity);
+    int rc = xcm_addr_make_btls(&xcm_host, port, xcm_addr, capacity);
     ut_assert(rc == 0);
 }
+
+#define GEN_ADDR_CONV(xtls, ytls)					\
+    int xtls ## _to_ ## ytls(const char *xtls_addr,			\
+			     char *ytls_addr, size_t capacity)		\
+    {									\
+	struct xcm_addr_host host;					\
+	uint16_t port;							\
+									\
+	if (xcm_addr_parse_ ## xtls(xtls_addr, &host, &port))		\
+	    return -1;							\
+	if (xcm_addr_make_ ## ytls(&host, port, ytls_addr,		\
+				   capacity) < 0)			\
+	    return -1;							\
+	return 0;							\
+    }
+
+
+GEN_ADDR_CONV(btls, tls)
+GEN_ADDR_CONV(tls, btls)
+GEN_ADDR_CONV(utls, tls)
+GEN_ADDR_CONV(tls, utls)
 
 const char *tp_fd_events_name(int events)
 {

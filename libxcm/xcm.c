@@ -78,6 +78,24 @@ struct xcm_socket *xcm_connect(const char *remote_addr, int flags)
     return conn;
 }
 
+static int set_default_attrs(struct xcm_socket *s, struct xcm_socket *parent_s,
+			     const struct xcm_attr_map *attrs)
+{
+    if (attrs == NULL || !xcm_attr_map_exists(attrs, XCM_ATTR_XCM_SERVICE)) {
+	bool bytestream = false;
+
+	if (parent_s != NULL)
+	    bytestream = xcm_tp_socket_is_bytestream(parent_s);
+
+	if (xcm_attr_set_str(s, XCM_ATTR_XCM_SERVICE,
+			     bytestream ? XCM_SERVICE_BYTESTREAM :
+			     XCM_SERVICE_MESSAGING) < 0)
+	    return -1;
+    }
+
+    return 0;
+}
+
 struct set_attr_state
 {
     struct xcm_socket *s;
@@ -97,8 +115,12 @@ static void set_attr_cb(const char *attr_name, enum xcm_attr_type attr_type,
 			     attr_value_len);
 }
 
-static int set_attrs(struct xcm_socket *s, const struct xcm_attr_map *attrs)
+static int set_user_attrs(struct xcm_socket *s,
+			  const struct xcm_attr_map *attrs)
 {
+    if (attrs == NULL)
+	return 0;
+
     struct set_attr_state state = {
 	.s = s
     };
@@ -106,6 +128,16 @@ static int set_attrs(struct xcm_socket *s, const struct xcm_attr_map *attrs)
     xcm_attr_map_foreach(attrs, set_attr_cb, &state);
 
     return state.rc;
+}
+
+static int set_attrs(struct xcm_socket *s, struct xcm_socket *parent_s,
+		     const struct xcm_attr_map *attrs)
+{
+    if (set_default_attrs(s, parent_s, attrs) < 0)
+	return -1;
+    if (set_user_attrs(s, attrs) < 0)
+	return -1;
+    return 0;
 }
 
 static struct xcm_socket *socket_create(const struct xcm_tp_proto *proto,
@@ -159,7 +191,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
     if (xcm_tp_socket_init(s, NULL) < 0)
 	goto err_destroy;
 
-    if (attrs && set_attrs(s, attrs) < 0)
+    if (set_attrs(s, NULL, attrs) < 0)
 	goto err_close;
 
     if (xcm_tp_socket_connect(s, remote_addr) < 0)
@@ -202,7 +234,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
     if (xcm_tp_socket_init(s, NULL) < 0)
 	goto err_destroy;
 
-    if (attrs && set_attrs(s, attrs) < 0)
+    if (set_attrs(s, NULL, attrs) < 0)
 	goto err_close;
 
     if (xcm_tp_socket_server(s, local_addr) < 0)
@@ -263,7 +295,7 @@ restart:
     if (xcm_tp_socket_init(conn_s, server_s) < 0)
 	goto err_destroy;
 
-    if (attrs != NULL && set_attrs(conn_s, attrs) < 0)
+    if (set_attrs(conn_s, server_s, attrs) < 0)
 	goto err_close;
 
     if (xcm_tp_socket_accept(conn_s, server_s) < 0) {
@@ -289,23 +321,56 @@ err:
     return NULL;
 }
 
+static int bytestream_bsend(struct xcm_socket *conn_s, const void *buf,
+			    size_t len)
+{
+    int sent = 0;
+    do {
+	int left = len - sent;
+	int rc = xcm_tp_socket_send(conn_s, buf + sent, left);
+
+	if (rc < 0) {
+	    if (errno != EAGAIN)
+		return -1;
+	    if (socket_wait(conn_s, XCM_SO_SENDABLE) < 0)
+		return -1;
+	} else
+	    sent += rc;
+    } while (sent < len);
+
+    return sent;
+}
+
+static int msg_bsend(struct xcm_socket *conn_s, const void *buf, size_t len)
+{
+    for (;;) {
+	int s_rc = xcm_tp_socket_send(conn_s, buf, len);
+
+	if (s_rc < 0) {
+	    if (errno != EAGAIN)
+		return -1;
+	    if (socket_wait(conn_s, XCM_SO_SENDABLE) < 0)
+		return -1;
+	} else
+	    return 0;
+    }
+}
+
 int xcm_send(struct xcm_socket *conn_s, const void *buf, size_t len)
 {
     TP_RET_ERR_UNLESS_TYPE(conn_s, xcm_socket_type_conn);
 
     if (conn_s->is_blocking) {
-	int s_rc;
-	do {
-	    s_rc = xcm_tp_socket_send(conn_s, buf, len);
-	    if (s_rc < 0) {
-		if (errno != EAGAIN)
-		    return s_rc;
-		if (socket_wait(conn_s, XCM_SO_SENDABLE) < 0)
-		    return -1;
-	    }
-	} while (s_rc < 0);
+	int rc;
+	if (xcm_tp_socket_is_bytestream(conn_s))
+	    rc = bytestream_bsend(conn_s, buf, len);
+	else
+	    rc = msg_bsend(conn_s, buf, len);
 
-	return socket_finish(conn_s);
+	if (rc >= 0 && socket_finish(conn_s) < 0)
+	    return -1;
+
+	return rc;
     } else
 	return xcm_tp_socket_send(conn_s, buf, len);
 }
@@ -320,7 +385,7 @@ int xcm_receive(struct xcm_socket *conn_s, void *buf, size_t capacity)
 		return -1;
 	    int s_rc = xcm_tp_socket_receive(conn_s, buf, capacity);
 
-	    if (s_rc != -1 || errno != EAGAIN)
+	    if (s_rc >= 0 || errno != EAGAIN)
 		return s_rc;
 	}
     } else
@@ -415,7 +480,8 @@ static const struct xcm_tp_attr *socket_attr_lookup(struct xcm_socket *s,
     const struct xcm_tp_attr *attrs;
     size_t attrs_len;
 
-    xcm_tp_get_attrs(s->type, &attrs, &attrs_len);
+    xcm_tp_get_attrs(s->type, xcm_tp_socket_is_bytestream(s),
+		     &attrs, &attrs_len);
 
     const struct xcm_tp_attr *attr;
 
@@ -511,7 +577,8 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
 
     const struct xcm_tp_attr *attrs;
     size_t attrs_len;
-    xcm_tp_get_attrs(s->type, &attrs, &attrs_len);
+    xcm_tp_get_attrs(s->type, xcm_tp_socket_is_bytestream(s),
+		     &attrs, &attrs_len);
 
     const struct xcm_tp_attr *attr = socket_attr_lookup(s, name);
     if (!attr) {
@@ -614,7 +681,8 @@ void xcm_attr_get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data)
     const struct xcm_tp_attr *attrs;
     size_t attrs_len;
 
-    xcm_tp_get_attrs(s->type, &attrs, &attrs_len);
+    xcm_tp_get_attrs(s->type, xcm_tp_socket_is_bytestream(s),
+		     &attrs, &attrs_len);
     get_all(s, cb, cb_data, attrs, attrs_len);
 
     xcm_tp_socket_get_attrs(s, &attrs, &attrs_len);

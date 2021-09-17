@@ -111,6 +111,20 @@ static char *gen_tls_addr(void)
 {
     return gen_ip4_port_addr("tls");
 }
+
+static char *gen_btls_addr(void)
+{
+    return gen_ip4_port_addr("btls");
+}
+
+static char *gen_tls_or_btls_addr(void)
+{
+    if (tu_randbool())
+	return gen_tls_addr();
+    else
+	return gen_btls_addr();
+}
+
 #endif
 
 static bool has_domain_name(const char *addr)
@@ -284,14 +298,9 @@ static pid_t simple_server(const char *ns, const char *addr,
 	close(old_fd);
     }
 
-    struct xcm_socket *server_sock;
+    struct xcm_socket *server_sock = tu_server_a(addr, attrs);
 
-    if (attrs != NULL)
-	server_sock = xcm_server_a(addr, attrs);
-    else
-	server_sock = xcm_server(addr);
-
-    if (!server_sock)
+    if (server_sock == NULL)
 	exit(ERRNO_TO_STATUS(errno));
 
     if (is_tls_or_utls(addr) &&
@@ -341,6 +350,18 @@ static pid_t simple_server(const char *ns, const char *addr,
     if (is_tls_or_utls(conn_tp) && check_keepalive_conf(conn) < 0)
 	exit(EXIT_FAILURE);
 
+    char service[64];
+    if (xcm_attr_get_str(conn, "xcm.service", service, sizeof(service)) < 0)
+	exit(EXIT_FAILURE);
+
+    bool bytestream;
+    if (strcmp(service, "bytestream") == 0)
+	bytestream = true;
+    else if (strcmp(service, "messaging") == 0)
+	bytestream = false;
+    else
+	exit(EXIT_FAILURE);
+
     char buf[1024];
     int rc = xcm_receive(conn, buf, sizeof(buf));
 
@@ -354,7 +375,7 @@ static pid_t simple_server(const char *ns, const char *addr,
 
     rc = xcm_send(conn, out_msg, strlen(out_msg));
 
-    if (rc != 0)
+    if (bytestream ? rc != strlen(out_msg) : rc != 0)
 	exit(ERRNO_TO_STATUS(errno));
 
     if (xcm_close(conn) < 0 || xcm_close(server_sock) < 0)
@@ -363,6 +384,15 @@ static pid_t simple_server(const char *ns, const char *addr,
     exit(EXIT_SUCCESS);
 }
 
+static char **test_all_addrs = NULL;
+static int test_all_addrs_len = 0;
+
+static char **test_m_addrs = NULL;
+static int test_m_addrs_len = 0;
+
+static char **test_b_addrs = NULL;
+static int test_b_addrs_len = 0;
+
 /* behold, the simplicity of dynamic arrays in C */
 static void add_addr(char ***l, int *len, char *addr) {
     *l = realloc(*l, sizeof(char *) * ((*len)+1));
@@ -370,23 +400,39 @@ static void add_addr(char ***l, int *len, char *addr) {
     (*len)++;
 }
 
-static int gen_test_addrs(char ***addrs) {
-    int len = 0;
-    add_addr(addrs, &len, gen_ux_addr());
-    add_addr(addrs, &len, gen_uxf_addr());
-    add_addr(addrs, &len, gen_ip4_port_addr("tcp"));
-    add_addr(addrs, &len, gen_ip6_port_addr("tcp"));
+static void add_m_test_addrs(char ***addrs, int *len) {
+    add_addr(addrs, len, gen_ux_addr());
+    add_addr(addrs, len, gen_uxf_addr());
+    add_addr(addrs, len, gen_ip4_port_addr("tcp"));
+    add_addr(addrs, len, gen_ip6_port_addr("tcp"));
 #ifdef XCM_SCTP
-    add_addr(addrs, &len, gen_ip4_port_addr("sctp"));
-    add_addr(addrs, &len, gen_ip6_port_addr("sctp"));
+    add_addr(addrs, len, gen_ip4_port_addr("sctp"));
+    add_addr(addrs, len, gen_ip6_port_addr("sctp"));
 #endif
 #ifdef XCM_TLS
-    add_addr(addrs, &len, gen_ip4_port_addr("tls"));
-    add_addr(addrs, &len, gen_ip6_port_addr("tls"));
-    add_addr(addrs, &len, gen_ip4_port_addr("utls"));
-    add_addr(addrs, &len, gen_ip6_port_addr("utls"));
+    add_addr(addrs, len, gen_ip4_port_addr("tls"));
+    add_addr(addrs, len, gen_ip6_port_addr("tls"));
+    add_addr(addrs, len, gen_ip4_port_addr("utls"));
+    add_addr(addrs, len, gen_ip6_port_addr("utls"));
 #endif
-    return len;
+}
+
+static void add_b_test_addrs(char ***addrs, int *len) {
+#ifdef XCM_TLS
+    add_addr(addrs, len, gen_ip4_port_addr("btls"));
+#endif
+}
+
+static void add_all_test_addrs(char ***addrs, int *len) {
+    add_m_test_addrs(addrs, len);
+    add_b_test_addrs(addrs, len);
+}
+
+static void setup_test_addrs(void)
+{
+    add_m_test_addrs(&test_m_addrs, &test_m_addrs_len);
+    add_b_test_addrs(&test_b_addrs, &test_b_addrs_len);
+    add_all_test_addrs(&test_all_addrs, &test_all_addrs_len);
 }
 
 static void free_test_addrs(char **addrs, int len) {
@@ -398,8 +444,20 @@ static void free_test_addrs(char **addrs, int len) {
     }
 }
 
-static char **test_addrs = NULL;
-static int test_addrs_len = 0;
+static void teardown_test_addrs(void)
+{
+    free_test_addrs(test_m_addrs, test_m_addrs_len);
+    test_m_addrs = NULL;
+    test_m_addrs_len = 0;
+
+    free_test_addrs(test_b_addrs, test_b_addrs_len);
+    test_b_addrs = NULL;
+    test_b_addrs_len = 0;
+
+    free_test_addrs(test_all_addrs, test_all_addrs_len);
+    test_all_addrs = NULL;
+    test_all_addrs_len = 0;
+}
 
 static int pre_test_fd_count = -1;
 
@@ -609,7 +667,7 @@ static int setup_xcm(void)
 	return UTEST_FAIL;
 #endif
 
-    test_addrs_len = gen_test_addrs(&test_addrs);
+    setup_test_addrs();
 
     if (is_root()) {
 	/* Run tests in a private namespace to allow parallel
@@ -627,9 +685,7 @@ static int setup_xcm(void)
 
 static int teardown_xcm(void)
 {
-    free_test_addrs(test_addrs, test_addrs_len);
-    test_addrs = NULL;
-    test_addrs_len = 0;
+    teardown_test_addrs();
 
     CHKINTEQ(pre_test_fd_count, count_fd());
 
@@ -694,20 +750,22 @@ static int check_blocking(struct xcm_socket *s, bool expected)
 
     return UTEST_SUCCESS;
 }
-    
+
 TESTCASE(xcm, basic)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_all_addrs_len; i++) {
+	const char *test_addr = test_all_addrs[i];
+
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
 
-	pid_t server_pid = simple_server(NULL, test_addrs[i], client_msg,
+	pid_t server_pid = simple_server(NULL, test_addr, client_msg,
 					 server_msg, NULL, NULL, false);
 
 	char test_proto[64] = { 0 };
 
-	CHKNOERR(xcm_addr_parse_proto(test_addrs[i], test_proto,
+	CHKNOERR(xcm_addr_parse_proto(test_addr, test_proto,
 				      sizeof(test_proto)));
 
 	const bool is_utls = (strcmp(test_proto, "utls") == 0);
@@ -717,7 +775,8 @@ TESTCASE(xcm, basic)
 	       are created before we start connecting */
 	    tu_msleep(300);
 
-	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *client_conn = tu_connect_retry(test_addr, 0);
+
 	CHK(client_conn != NULL);
 
 	CHKNOERR(check_blocking(client_conn, true));
@@ -727,8 +786,22 @@ TESTCASE(xcm, basic)
 	bool v;
 	CHKERRNO(xcm_attr_get_bool(client_conn, "xcm.type", &v), ENOENT);
 
-	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.max_msg_size",
-				      cmp_type_equal, MAX_MSG_SIZE));
+	char service[64];
+	CHKNOERR(xcm_attr_get_str(client_conn, "xcm.service", service,
+				  sizeof(service)));
+	bool bytestream;
+	if (strcmp(service, "bytestream") == 0)
+	    bytestream = true;
+	else if (strcmp(service, "messaging") == 0)
+	    bytestream = false;
+	else
+	    CHK(0);
+
+	CHK(bytestream == tu_is_bytestream_addr(test_addr));
+
+	if (!bytestream)
+	    CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.max_msg_size",
+					  cmp_type_equal, MAX_MSG_SIZE));
 	if (is_utls)
 	    CHKNOERR(tu_assure_str_attr(client_conn, "xcm.transport", "ux"));
 	else
@@ -753,12 +826,13 @@ TESTCASE(xcm, basic)
 					  sizeof(actual_proto)));
 	    CHKSTREQ(actual_proto, "ux");
 	} else
-	    CHKSTREQ(test_addrs[i], raddr);
+	    CHKSTREQ(test_addr, raddr);
 
 	CHKNOERR(xcm_send(client_conn, client_msg, strlen(client_msg)));
 
-	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.from_app_msgs",
-				      cmp_type_equal, 1));
+	if (!bytestream)
+	    CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.from_app_msgs",
+					  cmp_type_equal, 1));
 	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.from_app_bytes",
 				      cmp_type_equal, strlen(client_msg)));
 
@@ -771,12 +845,14 @@ TESTCASE(xcm, basic)
 	CHKINTEQ(xcm_receive(client_conn, buf, strlen(server_msg)),
 		 strlen(server_msg));
 
-	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.from_lower_msgs",
-				      cmp_type_equal, 1));
+	if (!bytestream)
+	    CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.from_lower_msgs",
+					  cmp_type_equal, 1));
 	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.from_lower_bytes",
 				      cmp_type_equal, strlen(server_msg)));
-	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.to_app_msgs",
-				      cmp_type_equal, 1));
+	if (!bytestream)
+	    CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.to_app_msgs",
+					  cmp_type_equal, 1));
 	CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.to_app_bytes",
 				      cmp_type_equal, strlen(server_msg)));
 
@@ -804,8 +880,97 @@ TESTCASE(xcm, basic)
 
 	CHKNOERR(xcm_close(client_conn));
 
-	CHK(xcm_connect(test_addrs[i], 0) == NULL);
-	CHKINTEQ(errno, ECONNREFUSED);
+	CHK(tu_connect(test_addr, 0) == NULL);
+	CHKERRNOEQ(ECONNREFUSED);
+    }
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, bulk_transfer)
+{
+    int i;
+    for (i = 0; i < test_all_addrs_len; i++) {
+	const char *test_addr = test_all_addrs[i];
+	bool bytestream = tu_is_bytestream_addr(test_addr);
+
+	struct xcm_socket *server_sock = tu_server(test_addr);
+	CHK(server_sock != NULL);
+	CHKNOERR(set_blocking(server_sock, false));
+
+	struct xcm_socket *connect_sock = NULL;
+	struct xcm_socket *accepted_sock = NULL;
+
+	size_t data_size = is_in_valgrind() ?
+	    tu_randint(1000000, 5*1000000) :
+	    tu_randint(10*1000000, 100*1000000);
+	char *data = ut_malloc(data_size);
+	tu_randblk(data, data_size);
+
+	size_t sent_data = 0;
+	size_t received_data = 0;
+
+	while (received_data < data_size) {
+	    if (connect_sock == NULL) {
+		connect_sock = tu_connect(test_addr, XCM_NONBLOCK);
+		if (connect_sock == NULL &&
+		    (errno != EAGAIN && errno != ECONNREFUSED))
+		    break;
+	    } else {
+		size_t left = data_size - sent_data;
+		if (left > 0) {
+		    size_t chunk_size =
+			UT_MIN(tu_randint(1, bytestream ?
+					  1000000 : MAX_MSG_SIZE),
+			       left);
+		    int rc = xcm_send(connect_sock, data + sent_data,
+				      chunk_size);
+		    if (rc == 0)
+			sent_data += chunk_size;
+		    else if (rc > 0)
+			sent_data += rc;
+		    else if (errno == ECONNREFUSED) {
+			xcm_close(connect_sock);
+			connect_sock = NULL;
+		    } else if (errno != EAGAIN)
+			break;
+		} else if (xcm_finish(connect_sock) < 0 && errno != EAGAIN)
+		    break;
+	    }
+	    /* make sender faster than receiver, to force some
+	       buffering, and with this some potentially intersting
+	       behavior */
+	    if (tu_randbool())
+		continue;
+
+	    if (accepted_sock == NULL) {
+		accepted_sock = xcm_accept(server_sock);
+		if (accepted_sock == NULL && errno != EAGAIN)
+		    break;
+	    } else {
+		size_t chunk_size =
+		    bytestream ? tu_randint(1, 1000000) : MAX_MSG_SIZE;
+		char chunk[chunk_size];
+		int rc = xcm_receive(accepted_sock, chunk, chunk_size);
+
+		if (rc > 0) {
+		    if (memcmp(chunk, data + received_data, rc) != 0)
+			break;
+
+		    received_data += rc;
+		} else if (rc == 0 || (rc < 0 && errno != EAGAIN))
+		    break;
+	    }
+	}
+
+	CHKINTEQ(data_size, received_data);
+	CHKINTEQ(data_size, sent_data);
+
+	CHKNOERR(xcm_close(server_sock));
+	CHKNOERR(xcm_close(accepted_sock));
+	CHKNOERR(xcm_close(connect_sock));
+
+	ut_free(data);
     }
 
     return UTEST_SUCCESS;
@@ -872,8 +1037,8 @@ static int async_ping_pong_proto(const char *server_addr)
 TESTCASE_TIMEOUT(xcm, async_server, 160.0)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++)
-	if (async_ping_pong_proto(test_addrs[i]) < 0)
+    for (i = 0; i < test_m_addrs_len; i++)
+	if (async_ping_pong_proto(test_m_addrs[i]) < 0)
 	    return UTEST_FAIL;
 
     return UTEST_SUCCESS;
@@ -882,11 +1047,11 @@ TESTCASE_TIMEOUT(xcm, async_server, 160.0)
 TESTCASE_TIMEOUT(xcm, forking_server, 80.0)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
 	int rc;
 	const int num_msgs = is_in_valgrind() ? 50 : 200;
 	const int num_clients = is_in_valgrind() ? 3 : 10;
-	if ((rc = ping_pong(test_addrs[i], num_clients, num_msgs, 2,
+	if ((rc = ping_pong(test_m_addrs[i], num_clients, num_msgs, 2,
 			    forking_server, true)) != UTEST_SUCCESS)
 	    return rc;
     }
@@ -994,13 +1159,13 @@ TESTCASE(xcm, dns)
 TESTCASE(xcm, nonexistent_attr)
 {
     int i;
-    for (i=0; i<test_addrs_len; i++) {
+    for (i=0; i<test_m_addrs_len; i++) {
 	struct xcm_attr_map *attrs = xcm_attr_map_create();
 	xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
 	xcm_attr_map_add_str(attrs, "xcm.nonexistent", "foo");
 
-	CHKNULLERRNO(xcm_server_a(test_addrs[i], attrs), ENOENT);
-	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), ENOENT);
+	CHKNULLERRNO(xcm_server_a(test_m_addrs[i], attrs), ENOENT);
+	CHKNULLERRNO(xcm_connect_a(test_m_addrs[i], attrs), ENOENT);
 
 	xcm_attr_map_destroy(attrs);
     }
@@ -1011,12 +1176,12 @@ TESTCASE(xcm, nonexistent_attr)
 TESTCASE(xcm, invalid_generic_attr_type)
 {
     int i;
-    for (i=0; i<test_addrs_len; i++) {
+    for (i=0; i<test_m_addrs_len; i++) {
 	struct xcm_attr_map *attrs = xcm_attr_map_create();
 	xcm_attr_map_add_str(attrs, "xcm.blocking", "foo");
 
-	CHKNULLERRNO(xcm_server_a(test_addrs[i], attrs), EINVAL);
-	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), EINVAL);
+	CHKNULLERRNO(xcm_server_a(test_m_addrs[i], attrs), EINVAL);
+	CHKNULLERRNO(xcm_connect_a(test_m_addrs[i], attrs), EINVAL);
 
 	xcm_attr_map_destroy(attrs);
     }
@@ -1027,13 +1192,13 @@ TESTCASE(xcm, invalid_generic_attr_type)
 TESTCASE(xcm, invalid_tp_attr_type)
 {
     int i;
-    for (i=0; i<test_addrs_len; i++) {
-	if (strstr(test_addrs[i], "tls") == NULL)
+    for (i=0; i<test_m_addrs_len; i++) {
+	if (strstr(test_m_addrs[i], "tls") == NULL)
 	    continue;
 	struct xcm_attr_map *attrs = xcm_attr_map_create();
 	xcm_attr_map_add_str(attrs, "xcm.local_addr", "foo");
 
-	CHKNULLERRNO(xcm_connect_a(test_addrs[i], attrs), EINVAL);
+	CHKNULLERRNO(xcm_connect_a(test_m_addrs[i], attrs), EINVAL);
 
 	xcm_attr_map_destroy(attrs);
     }
@@ -1051,13 +1216,13 @@ TESTCASE_SERIALIZED_TIMEOUT(xcm, backpressure_with_slow_server, 80.0)
     int expected_msgs = (int)(BACKPRESSURE_TEST_DURATION/response_delay);
 
     int i;
-    for (i=0; i<test_addrs_len; i++) {
+    for (i=0; i<test_m_addrs_len; i++) {
 	pid_t server_pid =
-	    pingpong_run_forking_server(test_addrs[i], expected_msgs,
+	    pingpong_run_forking_server(test_m_addrs[i], expected_msgs,
 					(useconds_t)(response_delay*1e6), 1);
 	CHKNOERR(server_pid);
 
-	struct xcm_socket *conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *conn = tu_connect_retry(test_m_addrs[i], 0);
 	CHK(conn != NULL);
 
 	CHKNOERR(check_blocking(conn, true));
@@ -1338,17 +1503,17 @@ static int verify_condition_immediately_met(struct xcm_socket *conn,
 static int run_ops_on_closed_connections(bool blocking)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
 	struct server_info info = {
 	    .ns = NULL,
-	    .addr = test_addrs[i]
+	    .addr = test_m_addrs[i]
 	};
 
 	pthread_t server_thread;
 	CHK(pthread_create(&server_thread, NULL, accepting_server_thread, &info)
 	    == 0);
 
-	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *client_conn = tu_connect_retry(test_m_addrs[i], 0);
 	CHK(client_conn != NULL);
 
 	CHK(pthread_join(server_thread, NULL) == 0);
@@ -1461,11 +1626,11 @@ TESTCASE(xcm, relay)
 TESTCASE(xcm, server_socket_address_immediate_reuse)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
 	const int reuse_times = 3;
 	int j;
 	for (j = 0; j < reuse_times; j++) {
-	    struct xcm_socket *server_socket = xcm_server(test_addrs[i]);
+	    struct xcm_socket *server_socket = xcm_server(test_m_addrs[i]);
 	    CHK(server_socket != NULL);
 	    CHKNOERR(xcm_close(server_socket));
 	}
@@ -1477,11 +1642,11 @@ TESTCASE(xcm, server_socket_address_immediate_reuse)
 TESTCASE(xcm, multiple_server_sockets_on_the_same_address)
 {
     int i;
-    for (i=0; i<test_addrs_len; i++) {
-	struct xcm_socket *s = xcm_server(test_addrs[i]);
+    for (i=0; i<test_m_addrs_len; i++) {
+	struct xcm_socket *s = xcm_server(test_m_addrs[i]);
 	CHK(s);
 
-	CHKNULLERRNO(xcm_server(test_addrs[i]), EADDRINUSE);
+	CHKNULLERRNO(xcm_server(test_m_addrs[i]), EADDRINUSE);
 
 	CHKNOERR(xcm_close(s));
     }
@@ -1494,17 +1659,17 @@ TESTCASE(xcm, multiple_server_sockets_on_the_same_address)
 TESTCASE(xcm, non_blocking_connect_with_finish)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
 	pid_t server_pid;
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
-	CHKNOERR((server_pid = simple_server(NULL, test_addrs[i], client_msg,
+	CHKNOERR((server_pid = simple_server(NULL, test_m_addrs[i], client_msg,
 					     server_msg, NULL, NULL, false)));
 
 	sleep(1);
 
 	struct xcm_socket *conn_socket;
-	CHK((conn_socket = xcm_connect(test_addrs[i], XCM_NONBLOCK)) != NULL);
+	CHK((conn_socket = xcm_connect(test_m_addrs[i], XCM_NONBLOCK)) != NULL);
 
 	CHKNOERR(check_blocking(conn_socket, false));
 
@@ -1526,8 +1691,8 @@ TESTCASE(xcm, non_blocking_connect_with_finish)
 TESTCASE(xcm, unresponsive_server_doesnt_block_nonblocking_connect)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
-	struct xcm_socket *server_socket = xcm_server(test_addrs[i]);
+    for (i = 0; i < test_m_addrs_len; i++) {
+	struct xcm_socket *server_socket = xcm_server(test_m_addrs[i]);
 	CHK(server_socket != NULL);
 
 	/* much larger than the socket backlog */
@@ -1537,7 +1702,7 @@ TESTCASE(xcm, unresponsive_server_doesnt_block_nonblocking_connect)
 
 	int j;
 	for (j = 0; j < num_clients; j++) {
-	    conn_sockets[j] = xcm_connect(test_addrs[i], XCM_NONBLOCK);
+	    conn_sockets[j] = xcm_connect(test_m_addrs[i], XCM_NONBLOCK);
 	    /* either a socket, or connection refused is fine too */
 	    CHK(conn_sockets[j] != NULL ||
 		(errno == ECONNREFUSED || errno == EAGAIN));
@@ -1555,18 +1720,18 @@ TESTCASE(xcm, unresponsive_server_doesnt_block_nonblocking_connect)
 TESTCASE(xcm, non_blocking_connect_lazy)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
 	pid_t server_pid;
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
 
-	CHKNOERR((server_pid = simple_server(NULL, test_addrs[i], client_msg,
+	CHKNOERR((server_pid = simple_server(NULL, test_m_addrs[i], client_msg,
 					     server_msg, NULL, NULL, false)));
 
 	sleep(1);
 
 	struct xcm_socket *conn_socket;
-	CHK((conn_socket = xcm_connect(test_addrs[i], XCM_NONBLOCK)) != NULL);
+	CHK((conn_socket = xcm_connect(test_m_addrs[i], XCM_NONBLOCK)) != NULL);
 
 	CHKNOERR(check_blocking(conn_socket, false));
 
@@ -1601,6 +1766,32 @@ TESTCASE(xcm, non_blocking_connect_lazy)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, invalid_service)
+{
+    struct xcm_attr_map *attrs;
+
+#ifdef XCM_TLS
+    CHKNULLERRNO(xcm_server("btls:127.0.0.1:4711"), EINVAL);
+
+    attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "xcm.service", "messaging");
+
+    CHKNULLERRNO(xcm_server_a("btls:127.0.0.1:4711", attrs), EINVAL);
+
+    xcm_attr_map_destroy(attrs);
+#endif
+
+    attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "xcm.service", "bytestream");
+
+    CHKNULLERRNO(xcm_server_a("tcp:127.0.0.1:4711", attrs), EINVAL);
+
+    xcm_attr_map_destroy(attrs);
+    
+    return UTEST_SUCCESS;
+}
+
+
 TESTCASE(xcm, unknown_proto)
 {
     CHKNULLERRNO(xcm_server("foo:bar"), ENOPROTOOPT);
@@ -1613,8 +1804,8 @@ TESTCASE(xcm, unknown_proto)
 TESTCASE(xcm, invalid_await_and_fd_argument)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
-	struct xcm_socket *server = xcm_server(test_addrs[i]);
+    for (i = 0; i < test_m_addrs_len; i++) {
+	struct xcm_socket *server = xcm_server(test_m_addrs[i]);
 
 	CHKERRNO(xcm_fd(server), EINVAL);
 
@@ -1629,7 +1820,7 @@ TESTCASE(xcm, invalid_await_and_fd_argument)
 
 	CHKNOERR(xcm_await(server, XCM_SO_ACCEPTABLE));
 
-	struct xcm_socket *conn = xcm_connect(test_addrs[i], XCM_NONBLOCK);
+	struct xcm_socket *conn = xcm_connect(test_m_addrs[i], XCM_NONBLOCK);
 
 	CHKERRNO(xcm_await(conn, XCM_SO_ACCEPTABLE), EINVAL);
 	CHKERRNO(xcm_await(conn, 0xff), EINVAL);
@@ -1717,14 +1908,14 @@ TESTCASE(xcm, connection_refused)
 TESTCASE(xcm, undersized_receive_buffer)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
 	const char *client_msg = "greetings";
 	const char *server_msg = "hello";
 
-	pid_t server_pid = simple_server(NULL, test_addrs[i], client_msg,
+	pid_t server_pid = simple_server(NULL, test_m_addrs[i], client_msg,
 					 server_msg, NULL, NULL, false);
 
-	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *client_conn = tu_connect_retry(test_m_addrs[i], 0);
 	CHK(client_conn != NULL);
 
 	CHKNOERR(xcm_send(client_conn, client_msg, strlen(client_msg)));
@@ -1753,8 +1944,8 @@ TESTCASE(xcm, oversized_send)
     /* change this when some transport support even-larger messages */
     size_t too_large_len = 32*1024*1024;
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
-	pid_t server_pid = simple_server(NULL, test_addrs[i], "none", "none",
+    for (i = 0; i < test_m_addrs_len; i++) {
+	pid_t server_pid = simple_server(NULL, test_m_addrs[i], "none", "none",
 					 NULL, NULL, false);
 
 	char *msg = malloc(too_large_len);
@@ -1762,7 +1953,7 @@ TESTCASE(xcm, oversized_send)
 
 	memset(msg, 'a', too_large_len);
 
-	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *client_conn = tu_connect_retry(test_m_addrs[i], 0);
 	CHK(client_conn);
 
 	CHKERRNO(xcm_send(client_conn, msg, too_large_len), EMSGSIZE);
@@ -1786,15 +1977,24 @@ TESTCASE(xcm, oversized_send)
 TESTCASE(xcm, zerosized_send)
 {
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
-	pid_t server_pid = simple_server(NULL, test_addrs[i], "none", "none",
+    for (i = 0; i < test_all_addrs_len; i++) {
+	const char *test_addr = test_all_addrs[i];
+	bool bytestream = tu_is_bytestream_addr(test_addr);
+
+	pid_t server_pid = simple_server(NULL, test_addr, "none", "none",
 					 NULL, NULL, false);
 
-	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *client_conn = tu_connect_retry(test_addr, 0);
 	CHK(client_conn);
 
 	char msg;
-	CHKERRNO(xcm_send(client_conn, &msg, 0), EINVAL);
+	int rc = xcm_send(client_conn, &msg, 0);
+	if (bytestream)
+	    CHKINTEQ(rc, 0);
+	else {
+	    CHK(rc < 0);
+	    CHKERRNOEQ(EINVAL);
+	}
 
 	CHKNOERR(xcm_close(client_conn));
 
@@ -2500,7 +2700,7 @@ static int run_bind_addr(sa_family_t ip_version, const char *client_proto,
 	     EACCES);
     CHKERRNO(xcm_attr_set(accept_sock, "xcm.local_addr", xcm_attr_type_str,
 			  client_local_addr, strlen(client_local_addr) + 1),
-	     EACCES);
+	     strcmp(server_proto, client_proto) == 0 ? EACCES : EINVAL);
 
     CHKNOERR(xcm_close(server_sock));
     CHKNOERR(xcm_close(client_sock));
@@ -2737,7 +2937,7 @@ TESTCASE(xcm, tls_wrong_cert_directory)
 {
     setenv("XCM_TLS_CERT", "/tmp", 1);
 
-    char *tls_addr = gen_tls_addr();
+    char *tls_addr = gen_tls_or_btls_addr();
 
     pid_t server_pid =
 	simple_server(NULL, tls_addr, "", "", NULL, NULL, false);
@@ -3100,7 +3300,7 @@ static int establish(const char *server_addr,
     assure_non_blocking(accept_attrs);
     assure_non_blocking(connect_attrs);
 
-    struct xcm_socket *server_sock = xcm_server_a(server_addr, server_attrs);
+    struct xcm_socket *server_sock = tu_server_a(server_addr, server_attrs);
     struct xcm_socket *connect_sock = NULL;
     struct xcm_socket *accepted_sock = NULL;
 
@@ -3115,7 +3315,7 @@ static int establish(const char *server_addr,
 
     while (!connect_done || !accept_done) {
 	if (connect_sock == NULL) {
-	    connect_sock = xcm_connect_a(connect_addr, connect_attrs);
+	    connect_sock = tu_connect_a(connect_addr, connect_attrs);
 	    if (connect_sock == NULL &&
 		(errno != EAGAIN && errno != ECONNREFUSED))
 		goto out;
@@ -3197,6 +3397,13 @@ static int establish_2tls(const char *tls_addr,
 
     if (establish(utls_addr, server_attrs, accept_attrs,
 		  tls_addr, connect_attrs, success_expected) < 0)
+	return UTEST_FAIL;
+
+    char btls_addr[128];
+    CHKNOERR(xcm_addr_make_btls(&host, port, btls_addr, sizeof(btls_addr)));
+
+    if (establish(btls_addr, server_attrs, accept_attrs,
+		  btls_addr, connect_attrs, success_expected) < 0)
 	return UTEST_FAIL;
 
     return UTEST_SUCCESS;
@@ -4525,13 +4732,13 @@ TESTCASE(xcm, tls_get_peer_names)
 	    )
 	);
 
-    char *tls_addr = gen_tls_addr();
+    char *tls_addr = gen_tls_or_btls_addr();
 
     struct xcm_attr_map *server_attrs =
 	create_cert_attrs(get_cert_base(), "ep-a/cert.pem", "ep-a/key.pem",
 			  "ep-a/tc.pem");
     xcm_attr_map_add_bool(server_attrs, "xcm.blocking", false);
-    struct xcm_socket *server_sock = xcm_server_a(tls_addr, server_attrs);
+    struct xcm_socket *server_sock = tu_server_a(tls_addr, server_attrs);
     CHK(server_sock);
     struct xcm_socket *server_conn = NULL;
 
@@ -4539,7 +4746,7 @@ TESTCASE(xcm, tls_get_peer_names)
 	create_cert_attrs(get_cert_base(), "ep-b/cert.pem", "ep-b/key.pem",
 			  "ep-b/tc.pem");
     xcm_attr_map_add_bool(client_attrs, "xcm.blocking", false);
-    struct xcm_socket *client_conn = xcm_connect_a(tls_addr, client_attrs);
+    struct xcm_socket *client_conn = tu_connect_a(tls_addr, client_attrs);
     CHK(client_conn);
 
     bool server_done = false;
@@ -5106,18 +5313,19 @@ TESTCASE(xcm, ctl_iter)
     CHKINTEQ(data.num_ctls, 0);
 
     int i;
-    for (i = 0; i < test_addrs_len; i++) {
+    for (i = 0; i < test_m_addrs_len; i++) {
+	const char *test_addr = test_m_addrs[i];
 	pid_t server_pid =
-	    pingpong_run_async_server(test_addrs[i], 1, true);
+	    pingpong_run_async_server(test_addr, 1, true);
 
 	tu_msleep(500);
 
-	const int ctls_per_server_socket = is_utls(test_addrs[i]) ? 3 : 1;
+	const int ctls_per_server_socket = is_utls(test_addr) ? 3 : 1;
 
 	CHKNOERR(xcmc_list(log_ctl_cb, &data));
 	CHKINTEQ(data.num_ctls, ctls_per_server_socket);
 
-	struct xcm_socket *client_conn = tu_connect_retry(test_addrs[i], 0);
+	struct xcm_socket *client_conn = tu_connect_retry(test_addr, 0);
 	CHK(client_conn != NULL);
 
 	/* we should have at least two sockets at this point */
@@ -5175,7 +5383,7 @@ TESTCASE(xcm, ctl_open_nonexisting)
 
 static int ctl_concurrent_clients(bool active)
 {
-    const char *test_addr = test_addrs[0];
+    const char *test_addr = test_m_addrs[0];
 
     const char *client_msg = "greetings";
     const char *server_msg = "hello";

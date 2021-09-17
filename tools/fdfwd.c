@@ -29,7 +29,7 @@ struct relay
 	    char data[65535];
 	    int len;
 	} buf;
-};    
+};
 
 struct fdfwd
 {
@@ -115,6 +115,7 @@ static void receive_from_fd(struct fdfwd *ff)
     if (rc > 0) {
 	ff->to_xcm.state = relay_state_waiting_to_output;
 	ff->to_xcm.buf.len = rc;
+	update_xcm(ff);
 	send_to_xcm(ff);
     } else if (rc == 0)
 	handle_term(ff);
@@ -139,6 +140,14 @@ static void listen_fd_readable(struct fdfwd *ff)
     event_add(&ff->fd_readable_event, NULL);
 }
 
+static void remove_buf_data(struct relay *r, size_t n)
+{
+    r->buf.len -= n;
+
+    if (r->buf.len > 0)
+	memmove(r->buf.data, r->buf.data + n, r->buf.len);
+}
+
 static void send_to_fd(struct fdfwd *ff)
 {
     assert(ff->from_xcm.state == relay_state_waiting_to_output);
@@ -147,19 +156,17 @@ static void send_to_fd(struct fdfwd *ff)
 
     if (rc < 0) {
 	if (errno != EAGAIN)
-	    handle_err(ff, "Error sending to XCM");
+	    handle_err(ff, "Error sending to fd");
 	else
 	    listen_fd_writable(ff);
 	return;
     }
 
-    ff->from_xcm.buf.len -= rc;
+    remove_buf_data(&ff->from_xcm, rc);
 
-    if (ff->from_xcm.buf.len > 0) {
-	memmove(ff->from_xcm.buf.data, ff->from_xcm.buf.data+rc,
-		ff->from_xcm.buf.len);
+    if (ff->from_xcm.buf.len > 0)
 	listen_fd_writable(ff);
-    } else {
+    else {
 	ff->from_xcm.state = relay_state_waiting_for_input;
 	update_xcm(ff);
     }
@@ -194,11 +201,16 @@ static void send_to_xcm(struct fdfwd *ff)
 	return;
     }
 
-    ff->to_xcm.buf.len = 0;
+    if (rc == 0) /* message-oriented transport */
+	ff->to_xcm.buf.len = 0;
+    else /* byte-stream transport */
+	remove_buf_data(&ff->to_xcm, rc);
 
-    ff->to_xcm.state = relay_state_waiting_for_input;
-    listen_fd_readable(ff);
-    update_xcm(ff);
+    if (ff->to_xcm.buf.len == 0) {
+	ff->to_xcm.state = relay_state_waiting_for_input;
+	listen_fd_readable(ff);
+	update_xcm(ff);
+    }
 }
 
 static void receive_from_xcm(struct fdfwd *ff)
@@ -249,6 +261,7 @@ static void on_xcm_active(int fd, short ev, void *arg)
 static void update_xcm(struct fdfwd *ff)
 {
     int cond = 0;
+
     if (ff->to_xcm.state == relay_state_waiting_to_output)
 	cond |= XCM_SO_SENDABLE;
     if (ff->from_xcm.state == relay_state_waiting_for_input)

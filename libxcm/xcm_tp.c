@@ -13,9 +13,9 @@
 #include "ctl.h"
 #endif
 
-const char *xcm_tp_socket_type_name(struct xcm_socket *s)
+const char *xcm_tp_socket_type_name(enum xcm_socket_type socket_type)
 {
-    switch (s->type) {
+    switch (socket_type) {
     case xcm_socket_type_conn:
 	return "connection";
     case xcm_socket_type_server:
@@ -53,8 +53,6 @@ struct xcm_socket *xcm_tp_socket_create(const struct xcm_tp_proto *proto,
 #ifdef XCM_CTL
     s->ctl = NULL;
 #endif
-    memset(&s->cnt, 0, sizeof(struct cnt_conn));
-
     return s;
 }
 
@@ -201,6 +199,11 @@ const char *xcm_tp_socket_get_transport(struct xcm_socket *s)
 	return s->proto->name;
 }
 
+bool xcm_tp_socket_is_bytestream(struct xcm_socket *s)
+{
+    return !XCM_TP_SUPPORTS_OP(s, max_msg);
+}
+
 const char *xcm_tp_socket_get_remote_addr(struct xcm_socket *conn_s,
 					  bool suppress_tracing)
 {
@@ -228,12 +231,9 @@ size_t xcm_tp_socket_max_msg(struct xcm_socket *conn_s)
     return XCM_TP_CALL(max_msg, conn_s);
 }
 
-const struct cnt_conn *xcm_tp_socket_get_cnt(struct xcm_socket *conn_s)
+int64_t xcm_tp_socket_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
 {
-    if (XCM_TP_SUPPORTS_OP(conn_s, get_cnt))
-	return XCM_TP_CALL(get_cnt, conn_s);
-    else
-	return &conn_s->cnt;
+    return XCM_TP_CALL(get_cnt, conn_s, cnt);
 }
 
 void xcm_tp_socket_enable_ctl(struct xcm_socket *s)
@@ -293,15 +293,40 @@ int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity)
 static int get_type_attr(struct xcm_socket *s, void *context, 
 			 void *value, size_t capacity)
 {
-    return xcm_tp_get_str_attr(xcm_tp_socket_type_name(s), value, capacity);
+    return xcm_tp_get_str_attr(xcm_tp_socket_type_name(s->type),
+			       value, capacity);
 }
 
 static int get_transport_attr(struct xcm_socket *s, void *context,
 			      void *value, size_t capacity)
 {
-    int rc =
-	xcm_tp_get_str_attr(xcm_tp_socket_get_transport(s), value, capacity);
-    return rc;
+    return xcm_tp_get_str_attr(xcm_tp_socket_get_transport(s),
+			       value, capacity);
+}
+
+static int set_service_attr(struct xcm_socket *s, void *context,
+			    const void *value, size_t len)
+{
+    if (strcmp(value, XCM_SERVICE_ANY) == 0)
+	return 0;
+
+    const char *actual = xcm_tp_socket_is_bytestream(s) ?
+	XCM_SERVICE_BYTESTREAM : XCM_SERVICE_MESSAGING;
+
+    if (strcmp(actual, value) == 0)
+	return 0;
+
+    errno = EINVAL;
+    return -1;
+}
+
+static int get_service_attr(struct xcm_socket *s, void *context,
+			    void *value, size_t capacity)
+{
+    const char *service = xcm_tp_socket_is_bytestream(s) ?
+	XCM_SERVICE_BYTESTREAM : XCM_SERVICE_MESSAGING;
+
+    return xcm_tp_get_str_attr(service, value, capacity);
 }
 
 static int addr_to_attr(const char *addr, void *value, size_t capacity)
@@ -369,30 +394,31 @@ static int get_max_msg_attr(struct xcm_socket *s, void *context,
     return sizeof(int64_t);                     \
 }
 
-#define GEN_CNT_ATTR_GETTER(cnt_name, cnt_type)				\
-    static int get_ ## cnt_name ## _ ## cnt_type ## _attr(struct xcm_socket *s, \
-							  void *context, \
-							  void *value,	\
-							  size_t capacity) \
+#define GEN_CNT_ATTR_GETTER(cnt_name)					\
+    static int get_ ## cnt_name ## _attr(struct xcm_socket *s,		\
+					 void *context,			\
+					 void *value,			\
+					 size_t capacity)		\
     {									\
 	if (capacity < sizeof(int64_t)) {				\
 	    errno = EOVERFLOW;						\
 	    return -1;							\
 	}								\
-	const struct cnt_conn *cnt = xcm_tp_socket_get_cnt(s);		\
-	memcpy(value, &cnt->cnt_name.cnt_type, sizeof(int64_t));	\
+	int64_t cnt_value =						\
+	    xcm_tp_socket_get_cnt(s, xcm_tp_cnt_ ## cnt_name);		\
+	memcpy(value, &cnt_value, sizeof(int64_t));			\
 	return sizeof(int64_t);						\
     }
 
-GEN_CNT_ATTR_GETTER(to_app, msgs)
-GEN_CNT_ATTR_GETTER(to_app, bytes)
-GEN_CNT_ATTR_GETTER(from_app, msgs)
-GEN_CNT_ATTR_GETTER(from_app, bytes)
-GEN_CNT_ATTR_GETTER(to_lower, msgs)
-GEN_CNT_ATTR_GETTER(to_lower, bytes)
-GEN_CNT_ATTR_GETTER(from_lower, msgs)
-GEN_CNT_ATTR_GETTER(from_lower, bytes)
+GEN_CNT_ATTR_GETTER(to_app_bytes)
+GEN_CNT_ATTR_GETTER(from_app_bytes)
+GEN_CNT_ATTR_GETTER(to_lower_bytes)
+GEN_CNT_ATTR_GETTER(from_lower_bytes)
 
+GEN_CNT_ATTR_GETTER(to_app_msgs)
+GEN_CNT_ATTR_GETTER(from_app_msgs)
+GEN_CNT_ATTR_GETTER(to_lower_msgs)
+GEN_CNT_ATTR_GETTER(from_lower_msgs)
 
 #define COMMON_ATTRS							\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_XCM_BLOCKING, xcm_attr_type_bool,	\
@@ -401,45 +427,75 @@ GEN_CNT_ATTR_GETTER(from_lower, bytes)
 			get_type_attr),					\
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TRANSPORT, xcm_attr_type_str,	\
 			get_transport_attr),				\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_XCM_LOCAL_ADDR, xcm_attr_type_str,     \
-			set_local_attr, get_local_attr)
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_XCM_SERVICE, xcm_attr_type_str,	\
+			set_service_attr, get_service_attr)
 
-static struct xcm_tp_attr conn_attrs[] = {
-    COMMON_ATTRS,
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_REMOTE_ADDR, xcm_attr_type_str,
-			get_remote_attr),
+#define MSG_CNT_ATTRS						\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_APP_MSGS, xcm_attr_type_int64,  \
+			get_to_app_msgs_attr),				\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_APP_BYTES, xcm_attr_type_int64, \
+			get_to_app_bytes_attr),				\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_APP_MSGS, xcm_attr_type_int64, \
+	                get_from_app_msgs_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_APP_BYTES, xcm_attr_type_int64, \
+			get_from_app_bytes_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_LOWER_MSGS, xcm_attr_type_int64, \
+			get_to_lower_msgs_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_LOWER_BYTES, xcm_attr_type_int64, \
+			get_to_lower_bytes_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_LOWER_MSGS, xcm_attr_type_int64, \
+			get_from_lower_msgs_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_LOWER_BYTES, xcm_attr_type_int64, \
+			get_from_lower_bytes_attr)
+
+#define BYTESTREAM_CNT_ATTRS						\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_APP_BYTES, xcm_attr_type_int64, \
+			get_to_app_bytes_attr),				\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_APP_BYTES, xcm_attr_type_int64, \
+			get_from_app_bytes_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_LOWER_BYTES, xcm_attr_type_int64, \
+			get_to_lower_bytes_attr),			\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_LOWER_BYTES, xcm_attr_type_int64, \
+			get_from_lower_bytes_attr)
+
+#define COMMON_CONN_ATTRS						\
+    COMMON_ATTRS,							\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_XCM_LOCAL_ADDR, xcm_attr_type_str,     \
+			set_local_attr, get_local_attr),		\
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_REMOTE_ADDR, xcm_attr_type_str,    \
+			get_remote_attr)
+
+static struct xcm_tp_attr msg_conn_attrs[] = {
+    COMMON_CONN_ATTRS,
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_MAX_MSG_SIZE, xcm_attr_type_int64,
 			get_max_msg_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_APP_MSGS, xcm_attr_type_int64,
-			get_to_app_msgs_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_APP_BYTES, xcm_attr_type_int64,
-			get_to_app_bytes_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_APP_MSGS, xcm_attr_type_int64,
-			get_from_app_msgs_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_APP_BYTES, xcm_attr_type_int64,
-			get_from_app_bytes_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_LOWER_MSGS, xcm_attr_type_int64,
-			get_to_lower_msgs_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_TO_LOWER_BYTES, xcm_attr_type_int64,
-			get_to_lower_bytes_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_LOWER_MSGS, xcm_attr_type_int64,
-			get_from_lower_msgs_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_FROM_LOWER_BYTES, xcm_attr_type_int64,
-			get_from_lower_bytes_attr)
+    MSG_CNT_ATTRS
+};
+
+static struct xcm_tp_attr bytestream_conn_attrs[] = {
+    COMMON_CONN_ATTRS,
+    BYTESTREAM_CNT_ATTRS
 };
 
 static struct xcm_tp_attr server_attrs[] = {
-    COMMON_ATTRS
+    COMMON_ATTRS,
+    XCM_TP_DECL_RO_ATTR(XCM_ATTR_XCM_LOCAL_ADDR, xcm_attr_type_str,
+			get_local_attr)
 };
 
-void xcm_tp_get_attrs(enum xcm_socket_type type,
+void xcm_tp_get_attrs(enum xcm_socket_type type, bool bytestream,
 		      const struct xcm_tp_attr **attr_list,
 		      size_t *attr_list_len)
 {
     switch (type) {
     case xcm_socket_type_conn:
-	*attr_list = conn_attrs;
-	*attr_list_len = UT_ARRAY_LEN(conn_attrs);
+	if (bytestream) {
+	    *attr_list = bytestream_conn_attrs;
+	    *attr_list_len = UT_ARRAY_LEN(bytestream_conn_attrs);
+	} else {
+	    *attr_list = msg_conn_attrs;
+	    *attr_list_len = UT_ARRAY_LEN(msg_conn_attrs);
+	}
 	break;
     case xcm_socket_type_server:
 	*attr_list = server_attrs;

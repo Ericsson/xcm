@@ -103,7 +103,8 @@ static void mbuf_wire_ensure_capacity(struct mbuf *b, uint32_t capacity)
 }
 
 
-static void mbuf_wire_ensure_spare_capacity(struct mbuf *b, uint32_t spare_capacity)
+static void mbuf_wire_ensure_spare_capacity(struct mbuf *b,
+					    uint32_t spare_capacity)
 {
     mbuf_wire_ensure_capacity(b, b->wire_len + spare_capacity);
 }

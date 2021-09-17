@@ -254,7 +254,7 @@ class ConnectionSocket(Socket):
         rc = xcm_send_c(self.xcm_socket, msg, len(msg))
         if rc < 0:
             _raise_io_err()
-        return 0
+        return rc
 
     def receive(self):
         buf = create_string_buffer(MAX_MSG)

@@ -150,6 +150,11 @@ TESTCASE(addr, parse_utls)
     GEN_DNS_BASED_PARSE_TEST(utls, tcp);
 }
 
+TESTCASE(addr, parse_btls)
+{
+    GEN_DNS_BASED_PARSE_TEST(btls, tcp);
+}
+
 TESTCASE(addr, parse_ux)
 {
     char ux_name[128];
@@ -268,6 +273,11 @@ TESTCASE(addr, make_tls)
 }
 
 TESTCASE(addr, make_utls)
+{
+    GEN_DNS_BASED_MAKE_TEST(utls);
+}
+
+TESTCASE(addr, make_btls)
 {
     GEN_DNS_BASED_MAKE_TEST(utls);
 }

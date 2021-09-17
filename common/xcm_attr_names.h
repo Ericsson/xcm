@@ -8,13 +8,14 @@
 
 /* Generic XCM counters */
 
+#define XCM_ATTR_XCM_BLOCKING "xcm.blocking"
+
 #define XCM_ATTR_XCM_TYPE "xcm.type"
 #define XCM_ATTR_XCM_TRANSPORT "xcm.transport"
+#define XCM_ATTR_XCM_SERVICE "xcm.service"
 
 #define XCM_ATTR_XCM_LOCAL_ADDR "xcm.local_addr"
 #define XCM_ATTR_XCM_REMOTE_ADDR "xcm.remote_addr"
-
-#define XCM_ATTR_XCM_BLOCKING "xcm.blocking"
 
 #define XCM_ATTR_XCM_MAX_MSG_SIZE "xcm.max_msg_size"
 

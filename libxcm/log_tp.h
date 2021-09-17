@@ -146,11 +146,11 @@
 
 #define LOG_SEND_REQ(conn_sock, buf, len)				\
     log_debug_sock(conn_sock, "Application requesting to send a %zd byte " \
-		   "message.", len)
+		   "buffer.", len)
 
 #define LOG_SEND_ACCEPTED(conn_sock, buf, len)				\
     do {								\
-	log_debug_sock(conn_sock, "%zd byte message from the application " \
+	log_debug_sock(conn_sock, "%zd byte buffer from the application " \
 		       "accepted into the XCM layer.", len);		\
     } while (0)
 
@@ -164,16 +164,18 @@
 		   left, wire_len, len)
 
 #define LOG_LOWER_DELIVERED_PART(conn_sock, wire_len)			\
-    log_debug_sock(conn_sock, "Delivered %d byte of message data to lower " \
+    log_debug_sock(conn_sock, "Delivered %d byte of data to lower "	\
 		   "layer.", wire_len)
 
-#define LOG_LOWER_DELIVERED_COMPL(conn_sock, buf, len)			\
-    do {								\
-	log_debug_sock(conn_sock, "Complete message delivered to lower " \
-		       "layer.");					\
-    } while (0)
+#define LOG_LOWER_DELIVERED_COMPL(conn_sock, len)			\
+    log_debug_sock(conn_sock, "Complete message delivered to lower "	\
+		   "layer.")
 
-#define LOG_FILL_BUFFER_ATTEMPT(conn_sock, len) \
+#define LOG_SEND_BUF_LINGER(conn_sock, left)				\
+    log_debug_sock(conn_sock, "%zd bytes not yet delivered to lower "	\
+		   "layer.", left)
+
+#define LOG_FILL_BUFFER_ATTEMPT(conn_sock, len)				\
     log_debug_sock(conn_sock, "Attempting retrieve %d byte from lower layer " \
 		   "to the read buffer.", len)
 

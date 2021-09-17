@@ -169,7 +169,123 @@ static void socket_sleep(struct xcm_socket *conn, double t)
     }
 }
 
+static int bsend(struct xcm_socket *conn, const void *msg, size_t msg_size,
+		 int epoll_fd)
+{
+    uint32_t nlen = htobe32(msg_size);
+    char buf[sizeof(nlen) + msg_size];
+
+    memcpy(buf, &nlen, sizeof(nlen));
+    memcpy(buf + sizeof(nlen), msg, msg_size);
+
+    int sent = 0;
+    do {
+	int rc = xcm_send(conn, buf + sent, sizeof(buf) - sent);
+	if (rc > 0)
+	    sent += rc;
+	else if (rc < 0 && errno == EAGAIN) {
+	    socket_await(conn, XCM_SO_SENDABLE);
+	    socket_wait(epoll_fd, -1);
+	    socket_await(conn, XCM_SO_RECEIVABLE);
+	} else
+	    return -1;
+    } while (sent < sizeof(buf));
+
+    return 0;
+}
+
+static int receive_chunk(struct xcm_socket *conn, void *chunk,
+			 size_t chunk_size, int epoll_fd)
+{
+    int received = 0;
+    do {
+	size_t left = chunk_size - received;
+	int rc = xcm_receive(conn, chunk + received, left);
+
+	if (rc > 0)
+	    received += rc;
+	else if (rc == 0)
+	    return 0;
+	else if (rc < 0 && errno == EAGAIN) {
+	    socket_await(conn, XCM_SO_SENDABLE);
+	    socket_wait(epoll_fd, -1);
+	    socket_await(conn, XCM_SO_RECEIVABLE);
+	} else
+	    return -1;
+    } while (received < chunk_size);
+
+    return received;
+}
+
+static int breceive(struct xcm_socket *conn, void *msg, size_t capacity,
+		    int epoll_fd)
+{
+    uint32_t nlen;
+    int rc = xcm_receive(conn, &nlen, sizeof(nlen));
+
+    if (rc <= 0)
+	return rc;
+    else if (rc < sizeof(nlen)) {
+	int chunk_rc = receive_chunk(conn, (void *)&nlen + rc,
+				     sizeof(nlen) - rc, epoll_fd);
+	if (chunk_rc <= 0)
+	    return chunk_rc;
+    }
+
+    uint32_t len = be32toh(nlen);
+    if (len > capacity) {
+	errno = EMSGSIZE;
+	return -1;
+    }
+
+    rc = receive_chunk(conn, msg, len, epoll_fd);
+    if (rc <= 0)
+	return rc;
+
+    return len;
+}
+
+static int msend(struct xcm_socket *conn, const void *msg, size_t msg_size,
+		  int epoll_fd)
+{
+    return xcm_send(conn, msg, msg_size);
+}
+
+static int mreceive(struct xcm_socket *conn, void *msg, size_t capacity,
+		    int epoll_fd)
+{
+    return xcm_receive(conn, msg, capacity);
+}
+
+typedef int (*send_fun)(struct xcm_socket *conn, const void *msg,
+			size_t msg_size, int epoll_fd);
+typedef int (*receive_fun)(struct xcm_socket *conn, void *msg,
+			   size_t capacity, int epoll_fd);
+
+static void pick(struct xcm_socket *conn, send_fun *send_fun,
+		 receive_fun *receive_fun)
+{
+    char service[64];
+    bool bytestream = false;
+
+    if (xcm_attr_get_str(conn, "xcm.service", service, sizeof(service)) < 0) {
+	if (errno != ENOENT)
+	    ut_die("Error retrieving \"xcm.service\" attribute");
+    } else
+	bytestream = strcmp(service, "bytestream") == 0;
+
+    if (bytestream) {
+	*send_fun = bsend;
+	*receive_fun = breceive;
+    } else {
+	*send_fun = msend;
+	*receive_fun = mreceive;
+    }
+}
+
 #define MAX_SERVER_BATCH (64)
+
+#define BYTESTREAM_MAX_MSG (64*1024)
 
 static void handle_client(struct xcm_socket *conn)
 {
@@ -177,8 +293,12 @@ static void handle_client(struct xcm_socket *conn)
 
     int64_t max_msg;
     if (xcm_attr_get(conn, "xcm.max_msg_size", NULL, &max_msg,
-		     sizeof(max_msg)) < 0)
-	ut_die("Unable to retrieve connection max message size");
+		     sizeof(max_msg)) < 0) {
+	if (errno == ENOENT)
+	    max_msg = BYTESTREAM_MAX_MSG;
+	else
+	    ut_die("Unable to retrieve connection max message size");
+    }
 
     if (xcm_set_blocking(conn, false) < 0)
 	ut_die("Failed to set non-blocking mode");
@@ -194,12 +314,16 @@ static void handle_client(struct xcm_socket *conn)
     for (i = 0; i < MAX_SERVER_BATCH; i++)
 	requests[i] = ut_malloc(max_msg);
 
+    send_fun xsend;
+    receive_fun xreceive;
+    pick(conn, &xsend, &xreceive);
+
     for (;;) {
 	int num;
 	ssize_t r_rc;
 	for (num = 0; num < MAX_SERVER_BATCH;) {
 	    char *request = requests[num];
-	    r_rc = xcm_receive(conn, request, max_msg);
+	    r_rc = xreceive(conn, request, max_msg, epoll_fd);
 	    if (r_rc > 0) {
 		request_lens[num] = r_rc;
 		num++;
@@ -244,15 +368,16 @@ static void handle_client(struct xcm_socket *conn)
 	    }
 
 	    for (;;) {
-		ssize_t s_rc = xcm_send(conn, response, len);
-		if (s_rc == 0)
+		int rc = xsend(conn, response, len, epoll_fd);
+
+		if (rc == 0)
 		    break;
-		else if (s_rc < 0 && errno == EAGAIN) {
+		else if (rc < 0 && errno == EAGAIN) {
 		    socket_await(conn, XCM_SO_SENDABLE);
 		    socket_wait(epoll_fd, -1);
 		    socket_await(conn, XCM_SO_RECEIVABLE);
 		} else
-		    ut_die("Error while server sending");
+		    ut_die("Error sending response to client");
 	    }
 	}
     }
@@ -289,7 +414,13 @@ static pid_t run_server(const char *server_addr)
     sigaction(SIGHUP, &action, NULL);
     sigaction(SIGTERM, &action, NULL);
 
-    struct xcm_socket *server_sock = xcm_server(server_addr);
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "any");
+
+    struct xcm_socket *server_sock = xcm_server_a(server_addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
     if (server_sock == NULL)
 	ut_die("Unable to create server socket");
 
@@ -309,23 +440,25 @@ static pid_t run_server(const char *server_addr)
     exit(EXIT_SUCCESS);
 }
 
-static void send_term(struct xcm_socket *conn)
+static void send_term(struct xcm_socket *conn, send_fun xsend, int epoll_fd)
 {
     char term_req = TERM_REQ;
-    if (xcm_send(conn, &term_req, sizeof(term_req)) < 0)
-	ut_die("Error sending termination request to server");
+    xsend(conn, &term_req, sizeof(term_req), epoll_fd);
 }
 
-uint64_t query_cpu(struct xcm_socket *conn)
+
+uint64_t query_cpu(struct xcm_socket *conn, send_fun xsend,
+		   receive_fun xreceive, int epoll_fd)
 {
     if (xcm_set_blocking(conn, true) < 0)
 	ut_die("Failed to set blocking mode");
+
     char usage_req = CPU_USAGE_REQ;
-    if (xcm_send(conn, &usage_req, sizeof(usage_req)) < 0)
-	ut_die("Error sending CPU usage request to server");
+
+    xsend(conn, &usage_req, sizeof(usage_req), epoll_fd);
 
     uint64_t n_ns;
-    if (xcm_receive(conn, &n_ns, sizeof(n_ns)) < 0)
+    if (xreceive(conn, &n_ns, sizeof(n_ns), epoll_fd) < 0)
 	ut_die("Error receiving CPU usage response from server");
 
     return be64toh(n_ns);
@@ -366,27 +499,31 @@ static void run_throughput_client(struct xcm_socket *conn,
 
     socket_await(conn, XCM_SO_RECEIVABLE);
 
+    send_fun xsend;
+    receive_fun xreceive;
+    pick(conn, &xsend, &xreceive);
+
     int left;
     for (left = num_rt; left > 0;) {
 	int this_batch = UT_MIN(left, batch_size);
 
 	int i;
-	for (i = 0; i < this_batch;) {
-	    int rc = xcm_send(conn, msg, msg_size);
+	for (i = 0; i < this_batch;)  {
+	    int rc = xsend(conn, msg, msg_size, epoll_fd);
+
 	    if (rc == 0)
 		i++;
 	    else if (rc < 0 && errno == EAGAIN) {
 		socket_await(conn, XCM_SO_SENDABLE);
 		socket_wait(epoll_fd, -1);
 		socket_await(conn, XCM_SO_RECEIVABLE);
-	    }
-	    else
-		ut_die("Error sending reflection message to server");
+	    } else
+		ut_die("Error sending response to client");
 	}
 
 	socket_wait(epoll_fd, -1);
 	for (i = 0; i < this_batch;) {
-	    int rc = xcm_receive(conn, msg, msg_size);
+	    int rc = xreceive(conn, msg, msg_size, epoll_fd);
 	    if (rc == msg_size)
 		i++;
 	    else if (rc < 0 && errno == EAGAIN)
@@ -408,7 +545,7 @@ static void run_throughput_client(struct xcm_socket *conn,
     uint64_t wall_time = get_time_ns() - start_time;
 
     uint64_t client_used_cpu = get_cpu_ns() - start_cpu;
-    uint64_t server_used_cpu = query_cpu(conn);
+    uint64_t server_used_cpu = query_cpu(conn, xsend, xreceive, epoll_fd);
 
     print_cpu_report("Client", client_used_cpu, num_rt);
     print_cpu_report("Server", server_used_cpu, num_rt);
@@ -418,6 +555,8 @@ static void run_throughput_client(struct xcm_socket *conn,
     uint32_t wall_time_per_msg = wall_time / total_num_msgs;
 
     printf("Wall-time latency: %.2f us/msg\n", (double)wall_time_per_msg/1000);
+
+    send_term(conn, xsend, -1);
 }
 
 static void run_latency_client(struct xcm_socket *conn, int num_rt,
@@ -431,6 +570,10 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
     uint64_t max_latency = 0;
     uint64_t total_latency = 0;
 
+    send_fun xsend;
+    receive_fun xreceive;
+    pick(conn, &xsend, &xreceive);
+
     printf("Seq  Round-trip Latency\n");
     int rt;
     for (rt = 0; rt < num_rt; rt++) { 
@@ -441,12 +584,11 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
 	int i;
 	for (i = 0; i < batch_size; i++) {
 	    start_times[i] = get_time_ns();
-	    if (xcm_send(conn, msg, msg_size) < 0)
-		ut_die("Error sending reflection message to server");
+	    xsend(conn, msg, msg_size, -1);
 	}
 
 	for (i = 0; i < batch_size; i++) {
-	    int rc = xcm_receive(conn, msg, msg_size);
+	    int rc = xreceive(conn, msg, msg_size, -1);
 
 	    if (rc < 0)
 		ut_die("Error receiving message from server");
@@ -476,6 +618,8 @@ static void run_latency_client(struct xcm_socket *conn, int num_rt,
     printf("Max:     %.3f ms\n", (double)max_latency/1e6);
     printf("Min:     %.3f ms\n", (double)min_latency/1e6);
     printf("Average: %.3f ms\n", (double)total_latency/(rt*batch_size)/1e6);
+
+    send_term(conn, xsend, -1);
 }
 
 enum client_mode { client_mode_latency, client_mode_throughput };
@@ -494,7 +638,13 @@ static pid_t run_client(const char *server_addr, enum client_mode mode,
 
     struct xcm_socket *conn;
     do {
-	conn = xcm_connect(server_addr, 0);
+	struct xcm_attr_map *attrs = xcm_attr_map_create();
+	xcm_attr_map_add_str(attrs, "xcm.service", "any");
+
+	conn = xcm_connect_a(server_addr, attrs);
+
+	xcm_attr_map_destroy(attrs);
+
 	if (!conn) {
 	    if (errno != ECONNREFUSED)
 		ut_die("Error connecting to server");
@@ -507,8 +657,6 @@ static pid_t run_client(const char *server_addr, enum client_mode mode,
 	run_throughput_client(conn, num_rt, msg_size, batch_size);
     else
 	run_latency_client(conn, num_rt, msg_size, batch_size, interval);
-
-    send_term(conn);
 
     if (xcm_close(conn) < 0)
 	ut_die("Error closing connection");

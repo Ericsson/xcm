@@ -24,42 +24,135 @@
 
 #define RETRIES (300)
 
-#define CONNECT_RETRY(connect_fun, ...)					\
+bool tu_is_bytestream_addr(const char *addr)
+{
+    return strncmp(addr, "btls", 4) == 0;
+}
+
+static void add_service_attr(struct xcm_attr_map *attrs, bool bytestream)
+{
+    if (tu_randbool())
+	xcm_attr_map_add_str(attrs, "xcm.service", "any");
+    else if (bytestream)
+	xcm_attr_map_add_str(attrs, "xcm.service", "bytestream");
+    else if (tu_randbool()) /* messaging is default */
+	xcm_attr_map_add_str(attrs, "xcm.service", "messaging");
+}
+
+#define CONNECT_RETRY(connect_fun, ...)			\
     ({									\
 	struct xcm_socket *conn = NULL;					\
 	int i;								\
-	for (i=0; i<RETRIES; i++) {					\
-	    conn = connect_fun(__VA_ARGS__);		\
+	for (i = 0; i < (RETRIES + 1); i++) {				\
+	    conn = connect_fun(__VA_ARGS__);				\
 	    if (conn || (errno != ECONNREFUSED && errno != ETIMEDOUT &&	\
 			 errno != EAGAIN))				\
 		break;							\
 	    tu_msleep(10);						\
 	}								\
-	if (i == RETRIES)						\
+	if (i == (RETRIES + 1))						\
 	    errno = ETIMEDOUT;						\
 	conn;								\
     })
 
-struct xcm_socket *tu_connect_retry(const char *addr, int flags)
+static struct xcm_socket *connect_retry(const char *addr, int flags,
+					bool retry)
 {
-    int attr_version = tu_randint(0, 1);
+    bool bytestream = tu_is_bytestream_addr(addr);
+    bool attr_version = bytestream || tu_randbool();
 
-    if (attr_version)
-	return CONNECT_RETRY(xcm_connect, addr, flags);
-    else {
+    if (attr_version) {
 	struct xcm_attr_map *attrs = xcm_attr_map_create();
+
 	if (flags & XCM_NONBLOCK)
 	    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
-	struct xcm_socket *conn = CONNECT_RETRY(xcm_connect_a, addr, attrs);
+
+	add_service_attr(attrs, bytestream);
+
+	struct xcm_socket *conn = retry ?
+	    CONNECT_RETRY(xcm_connect_a, addr, attrs) :
+	    xcm_connect_a(addr, attrs);
+
 	xcm_attr_map_destroy(attrs);
+
 	return conn;
-    }
+    } else
+	return retry ? CONNECT_RETRY(xcm_connect, addr, flags) :
+	    xcm_connect(addr, flags);
+}
+
+struct xcm_socket *tu_connect_retry(const char *addr, int flags)
+{
+    return connect_retry(addr, flags, true);
+}
+
+static struct xcm_socket * connect_attr_retry(const char *addr,
+					      const struct xcm_attr_map
+					      *orig_attrs, bool retry)
+{
+    struct xcm_attr_map *attrs = orig_attrs == NULL ?
+	xcm_attr_map_create() : xcm_attr_map_clone(orig_attrs);
+
+    add_service_attr(attrs, tu_is_bytestream_addr(addr));
+
+    struct xcm_socket *conn = retry ?
+	CONNECT_RETRY(xcm_connect_a, addr, attrs) :
+	xcm_connect_a(addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
+    return conn;
 }
 
 struct xcm_socket *tu_connect_attr_retry(const char *addr,
-					 const struct xcm_attr_map *attrs)
+					 const struct xcm_attr_map *orig_attrs)
 {
-    return CONNECT_RETRY(xcm_connect_a, addr, attrs);
+    return connect_attr_retry(addr, orig_attrs, true);
+}
+
+struct xcm_socket *tu_connect(const char *addr, int flags)
+{
+    return connect_retry(addr, flags, false);
+}
+
+struct xcm_socket *tu_connect_a(const char *addr,
+				const struct xcm_attr_map *attrs)
+{
+    return connect_attr_retry(addr, attrs, false);
+}
+
+struct xcm_socket *tu_server(const char *addr)
+{
+    bool bytestream = tu_is_bytestream_addr(addr);
+    bool attr_version = bytestream || tu_randbool();
+
+    if (attr_version) {
+	struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+	add_service_attr(attrs, bytestream);
+
+	struct xcm_socket *sock = xcm_server_a(addr, attrs);
+
+	xcm_attr_map_destroy(attrs);
+
+	return sock;
+    } else
+	return xcm_server(addr);
+}
+
+struct xcm_socket *tu_server_a(const char *addr,
+			       const struct xcm_attr_map *orig_attrs)
+{
+    struct xcm_attr_map *attrs = orig_attrs == NULL ?
+	xcm_attr_map_create() : xcm_attr_map_clone(orig_attrs);
+
+    add_service_attr(attrs, tu_is_bytestream_addr(addr));
+
+    struct xcm_socket *sock = xcm_server_a(addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
+    return sock;
 }
 
 void tu_msleep(int ms)

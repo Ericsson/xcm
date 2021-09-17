@@ -11,9 +11,18 @@
 
 #include <inttypes.h>
 
+bool tu_is_bytestream_addr(const char *addr);
+
 struct xcm_socket *tu_connect_retry(const char *addr, int flags);
 struct xcm_socket *tu_connect_attr_retry(const char *addr,
 					 const struct xcm_attr_map *attrs);
+struct xcm_socket *tu_connect(const char *addr, int flags);
+struct xcm_socket *tu_connect_a(const char *addr,
+				const struct xcm_attr_map *attrs);
+
+struct xcm_socket *tu_server(const char *addr);
+struct xcm_socket *tu_server_a(const char *addr,
+			       const struct xcm_attr_map *attrs);
 
 void tu_msleep(int ms);
 

@@ -192,7 +192,7 @@ static void handle_client_term(int rc, const char *msg, void *data)
     struct server *server = data;
 
     if (rc < 0)
-	perror("Connection terminated abnormally");
+	perror(msg);
 
     struct xcm_socket *conn = fdfwd_get_conn(server->ff);
     fdfwd_close(server->ff);
@@ -207,7 +207,12 @@ static void handle_client_term(int rc, const char *msg, void *data)
 static void run_server(const char *addr, const struct xcm_attr_map *conn_attrs,
 		       struct event_base *event_base)
 {
-    struct xcm_socket *server_socket = xcm_server(addr);
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "any");
+
+    struct xcm_socket *server_socket = xcm_server_a(addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
 
     if (server_socket == NULL)
 	ut_die("Unable to bind server socket");
@@ -281,6 +286,8 @@ int main(int argc, char **argv)
     }
 
     const char *addr = argv[optind];
+
+    xcm_attr_map_add_str(conn_attrs, "xcm.service", "any");
 
     struct event_base *event_base = event_base_new();
 

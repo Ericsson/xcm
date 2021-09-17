@@ -67,6 +67,8 @@ struct tcp_socket
 	    struct mbuf receive_mbuf;
 
 	    char raddr[XCM_ADDR_MAX+1];
+
+	    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
 	} conn;
     };
 };
@@ -92,6 +94,7 @@ static int tcp_set_local_addr(struct xcm_socket *s, const char *local_addr);
 static const char *tcp_get_local_addr(struct xcm_socket *socket,
 				      bool suppress_tracing);
 static size_t tcp_max_msg(struct xcm_socket *conn_s);
+static int64_t tcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static void tcp_get_attrs(struct xcm_socket *s,
 			  const struct xcm_tp_attr **attr_list,
 			  size_t *attr_list_len);
@@ -114,6 +117,7 @@ static struct xcm_tp_ops tcp_ops = {
     .set_local_addr = tcp_set_local_addr,
     .get_local_addr = tcp_get_local_addr,
     .max_msg = tcp_max_msg,
+    .get_cnt = tcp_get_cnt,
     .get_attrs = tcp_get_attrs,
     .priv_size = tcp_priv_size
 };
@@ -603,9 +607,8 @@ static void try_send(struct xcm_socket *s)
 
 	    if (ts->conn.mbuf_sent == mbuf_wire_len(sbuf)) {
 		const size_t compl_len = mbuf_complete_payload_len(sbuf);
-		LOG_LOWER_DELIVERED_COMPL(s, mbuf_payload_start(sbuf),
-					  compl_len);
-		CNT_MSG_INC(&s->cnt, to_lower, compl_len);
+		LOG_LOWER_DELIVERED_COMPL(s, compl_len);
+		XCM_TP_CNT_MSG_INC(ts->conn.cnts, to_lower, compl_len);
 
 		mbuf_reset(sbuf);
 		ts->conn.mbuf_sent = 0;
@@ -640,7 +643,7 @@ static int tcp_send(struct xcm_socket *s, const void *buf, size_t len)
 
     mbuf_set(&ts->conn.send_mbuf, buf, len);
     LOG_SEND_ACCEPTED(s, buf, len);
-    CNT_MSG_INC(&s->cnt, from_app, len);
+    XCM_TP_CNT_MSG_INC(ts->conn.cnts, from_app, len);
 
     try_send(s);
 
@@ -712,7 +715,7 @@ static void buffer_payload(struct xcm_socket *s)
 		    const void *buf = mbuf_payload_start(rbuf);
 		    size_t compl_len = mbuf_complete_payload_len(rbuf);
 		    LOG_RCV_MSG(s, buf, compl_len);
-		    CNT_MSG_INC(&s->cnt, from_lower, compl_len);
+		    XCM_TP_CNT_MSG_INC(ts->conn.cnts, from_lower, compl_len);
 		}
 	    }
 	} else {
@@ -773,7 +776,7 @@ static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity)
     mbuf_reset(&ts->conn.receive_mbuf);
 
     LOG_APP_DELIVERED(s, buf, user_len);
-    CNT_MSG_INC(&s->cnt, to_app, user_len);
+    XCM_TP_CNT_MSG_INC(ts->conn.cnts, to_app, user_len);
 
     return user_len;
 }
@@ -955,6 +958,15 @@ static const char *tcp_get_local_addr(struct xcm_socket *s,
 static size_t tcp_max_msg(struct xcm_socket *conn_s)
 {
     return MBUF_MSG_MAX;
+}
+
+static int64_t tcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
+{
+    struct tcp_socket *ts = TOTCP(conn_s);
+
+    ut_assert(cnt < XCM_TP_NUM_MESSAGING_CNTS);
+
+    return ts->conn.cnts[cnt];
 }
 
 #define GEN_TCP_FIELD_GET(field_name)					\

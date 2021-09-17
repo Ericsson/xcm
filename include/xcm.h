@@ -24,47 +24,106 @@ extern "C" {
  * available in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.17 [API]
- * @version 1.3.2 [Implementation]
+ * @version 0.18 [API]
+ * @version 1.4.0 [Implementation]
  *
- * The low API/ABI version number is purely a result of all XCM
- * releases being backward compatible, and thus left the major version
- * at 0. It's not to be taken as a sign of immaturity. The API and its
- * implementation have been stable for years.
+ * The low API/ABI version number is a result of all XCM releases
+ * being backward compatible, and thus left the major version at 0.
  *
  * @section overview Overview
  *
- * XCM provides a connection-oriented, reliable messaging service with
- * in-order delivery. The design goal is to allow for a straight
- * forward mapping to TCP and TLS, but also supporting efficient
- * inter-process commmunication (IPC) mechanisms for local
- * communication.
+ * XCM is an inter-process communication API and an implementation of
+ * this API in the form a library. For certain transports, XCM may
+ * also be used to denote a tiny bit of wire protocol, providingx
+ * framing over byte-stream transport protocols.
  *
- * XCM reuses much of the terminology of the BSD Sockets API. Unlike
- * the BSD Socket API, XCM has uniform semantics across all underlying
- * transports.
+ * The XCM library includes a set of inter-process communication
+ * transports - all hosted under the same API. A XCM transport
+ * provides a connection-oriented, reliable service, with in-order
+ * delivery. There are two types of transports; one providing a
+ * messaging service and another providing a byte stream.
  *
- * @section semantics Overall Service Semantics
+ * The XCM API allows a straight-forward mapping to TCP and TLS for
+ * remote communcation, as well as more efficient inter-process
+ * commmunication (IPC) mechanisms for local communication.
  *
- * XCM has a client-server model. A server creates a server socket
- * (with xcm_server()) bound to a specific address (in case of TCP or
- * TLS, a TCP port on a particular IP interface), after which clients
- * may initiate connections to the server.  On a successful attempt,
+ * This document focuses on the API, but also contains information
+ * specific to the implementation.
+ *
+ * XCM reuses much of the terminology of the BSD Sockets API. Compared
+ * to thex BSD Socket API, XCM has more uniform semantics across all
+ * underlying transports.
+ *
+ * @section semantics Overall Semantics
+ *
+ * XCM implements a connection-oriented, client-server model. The
+ * server process creates one or more server sockets (e.g, with
+ * xcm_server()) bound to a specific address, after which clients may
+ * initiate connections to the server. Upon connection establishment,
  * two connection sockets will be created; one on the server side
- * (returned from xcm_accept()), and one of the client side (returned
- * from xcm_connect()). Thus, a server serving multiple clients will
- * have multiple sockets; one server socket and N connection sockets,
- * one each for every client. A client will typically have one
- * connection socket for each server it is connected to.
+ * (e.g., returned from xcm_accept()), and one of the client side
+ * (e.g., returned from xcm_connect()). Thus, a server serving
+ * multiple clients will have multiple sockets; one server socket and
+ * N connection sockets, one each for every client. A client will
+ * typically have one connection socket for each server it is
+ * connected to.
  *
- * Messages are always sent and received on a particular connection
+ * User application data (messages or bytes, depending on service
+ * type) are always sent and received on a particular connection
  * socket (and never on a server socket).
+ *
+ * @subsection service_types Messaging and Byte Streams
+ *
+ * A XCM transport either provides a messaging or a byte stream service.
+ *
+ * Messaging transports preserve message boundaries between the sender
+ * and the receiver. The buffer passed to xcm_send() constitutes one
+ * (and only one) message. What's received on the other end, as
+ * exactly one xcm_receive() call, is a buffer with the same length
+ * and contents.
+ *
+ * The @ref ux_transport, @ref tcp_transport, @ref tls_transport, @ref
+ * utls_transport, and @ref sctp_transport all provide a messaging type
+ * service.
+ *
+ * For byte streams, there's no such thing as message boundaries: the
+ * data transported on the connection is just a sequence of bytes. The
+ * fact that xcm_send() accepts an array of bytes of a particular
+ * length, as opposed to individual bytes one-by-one, is a mere
+ * performance optimization.
+ *
+ * For example, if two messages "abc" and "d" are passed to xcm_send()
+ * on to a messaging transport, they will arrive as "abc" and "d" in
+ * exactly two xcm_receive() call on the receiver. On a byte stream
+ * transport however, all the data "abcd" may arrive in a single
+ * xcm_receive(), or it may arrive in multiple calls, such as three
+ * calls, each producing "ab", "c", and "d", respectively, or any
+ * other combination.
+ *
+ * The @ref btls_transport transport provides a bytestream service.
+ *
+ * Applications that allow the user to configure an arbitrary XCM
+ * address, but is designed to handle only a certain service type, may
+ * limit what type of sockets may be instantiated to be of only the
+ * messaging service type, or only byte stream, by passing the
+ * "xcm.service" attribute with the appropriate value (see @ref
+ * xcm_attr for details) at the time of socket creation. Because of
+ * XCM's history as a messaging-only framework, "xcm.service" defaults
+ * to "messaging".
+ *
+ * Applications which are designed to handle both messaging and byte
+ * stream transports may use the value of "xcm.service" to
+ * differentiate the treatment where so is required (e.g., in
+ * xcm_send() return code handling).
+ *
+ * Connections spawned off a server socket (e.g., with xcm_accept())
+ * always have the same service type as their parent socket.
  *
  * @subsection ordering Ordering Guarantees
  *
- * In-order delivery - that messages arrive at the recipient in the
- * same order they were sent by the sender side - is guaranteed, but
- * only for messages sent on the same connection.
+ * In-order delivery - that data arrives at the recipient in the same
+ * order it was sent by the sender - is guaranteed, but only for data
+ * sent on the same connection.
  *
  * @subsection flow_control Flow Control
  *
@@ -74,21 +133,20 @@ extern "C" {
  * will eventually block (or return an error EAGAIN, if in
  * non-blocking mode). Unless XCM is used for bulk data transfer (as
  * oppose to signaling traffic), xcm_send() blocking because of slow
- * network or a slow receiver should be rare indeed in practice. TCP,
- * TLS, and UNIX domain socket transports all have large enough
- * windows and socket buffers to allow a large amount of outstanding
- * data.
+ * network or a slow receiver should be rare in practice. TCP, TLS,
+ * and UNIX domain socket transports all have large protocol windows
+ * and/or socket buffers to allow a large amount of outstanding data.
  *
  * @section addressing Addressing and Transport Selection
  *
  * In XCM, the application is in control of which transport will be
- * used, with the address supplied to xcm_connect() and xcm_server()
+ * used, using the address supplied to xcm_connect() and xcm_server()
  * including both the transport name and the transport address.
  *
  * However, there is nothing preventing a XCM transport to use a more
- * an abstract addressing format, and internally include multiple
- * "physical" IPC transport options. This model is used by the @ref
- * utls_transport.
+ * abstract addressing format, and internally include multiple
+ * underlying IPC transport mechanism. This model is implemented by
+ * the @ref utls_transport.
  *
  * @subsection address_syntax Address Syntax
  *
@@ -104,12 +162,13 @@ extern "C" {
  * have the following format: @n
  * @code uxf:<file system path> @endcode
  *
- * For the TCP, TLS, UTLS and SCTP transports the syntax is: @n
+ * For the TCP, TLS, UTLS, SCTP and BTLS transports the syntax is: @n
  * @code
  * tcp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * tls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * utls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * sctp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
+ * btls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * @endcode
  *
  * '*' is a shorthand for '0.0.0.0' (i.e. bind to all IPv4
@@ -126,11 +185,12 @@ extern "C" {
  * tcp:[*]:4711
  * tls:service:4711
  * sctp:service.company.com:42
+ * btls:*:42
  * @endcode
  *
- * For TCP, TLS, UTLS and SCTP server socket addresses, the port can
- * be set to 0, in which case XCM (or rather, the Linux kernel) will
- * allocate a free TCP port from the local port range.
+ * For TCP, TLS, UTLS, SCTP and BTLS server socket addresses, the port
+ * can be set to 0, in which case XCM (or rather, the Linux kernel)
+ * will allocate a free TCP port from the local port range.
  *
  * @subsubsection dns DNS Resolution
  *
@@ -300,20 +360,23 @@ extern "C" {
  * which is often a good idea for performance reasons.
  *
  * For send operations on non-blocking connection sockets, XCM may
- * buffer whole or part of the message before transmission to the
- * lower layer. This may be due to socket output buffer underrun, or
- * the need for some in-band signaling, like cryptographic key
- * exchange, to happen before the transmission of the complete message
- * may finish. The XCM layer will (re-)attempt to hand the message
- * over to the lower layer at a future call to xcm_finish(),
- * xcm_send(), or xcm_receive().
+ * buffer whole or part of the message (or data, for bytestream
+ * transports) before transmission to the lower layer. This may be due
+ * to socket output buffer underrun, or the need for some in-band
+ * signaling, like cryptographic key exchange, to happen before the
+ * transmission of the complete message may finish. The XCM layer will
+ * (re-)attempt to hand the message over to the lower layer at a
+ * future call to xcm_finish(), xcm_send(), or xcm_receive().
  *
- * For applications wishing to determine when all buffered messages
- * have successfully be deliver to the lower layer, they may use
- * xcm_finish() to do so. Normally, applications aren't expected to
- * require this kind of control. Please also note that the fact a
- * message has left the XCM layer doesn't necessarily mean it has
- * successfully been delivered to the recipient.
+ * For applications wishing to determine when all buffered data have
+ * successfully been deliver to the lower layer, may use xcm_finish()
+ * to do so. Normally, applications aren't expected to require this
+ * kind of control. Please also note that the fact a message has left
+ * the XCM layer doesn't necessarily mean it has successfully been
+ * delivered to the recipient. In particular, if for some reason the
+ * data can be dispatched immediately, it may be lingering in kernel
+ * buffers. Such buffers may be discarded in case the application
+ * close the connection.
  *
  * @subsubsection outstanding_tasks Finishing Outstanding Tasks
  *
@@ -507,7 +570,8 @@ extern "C" {
  * schema. For example, all generic XCM attributes, available in all
  * transports, have the prefix "xcm.". Transport-specific attributes
  * are prefixed with the transport or protocol name (e.g. "tcp." for
- * TCP-specific attributes applicable to the TLS and TCP transports).
+ * TCP-specific attributes applicable to the TLS, BTLS, and TCP
+ * transports).
  *
  * An attribute may be read-only, write-only or available both for
  * reading and writing. This is referred to as the attribute's mode.
@@ -574,16 +638,18 @@ extern "C" {
  * ---------------|-------------|------------|------|------------
  * xcm.type       | All         | String     | R    | The socket type: "server" or "connection".
  * xcm.transport  | All         | String     | R    | The transport type.
+ * xcm.service    | All         | String     | RW   | The service type: "messaging" or "bytestream". Writable only at the time of socket creation. If specified, it may be used by an application to limit the type of transports being used. The string "any" may be used to signify that any type of service is accepted. The default is "messaging".
  * xcm.local_addr | All         | String     | RW   | The local address of a socket. Writable only if supplied to xcm_connect_a() together with a TLS, UTLS or TCP type address. Usually only needs to be written on multihomed hosts, in cases where the application needs to specify the source IP address to be used. Also see xcm_local_addr().
  * xcm.blocking   | All         | Boolean    | RW    | See xcm_set_blocking() and xcm_is_blocking().
  * xcm.remote_addr | Connection | String     | R    | See xcm_remote_addr().
  * xcm.max_msg_size | Connection | Integer   | R    | The maximum size of any message transported by this connection.
  *
- * @subsubsection cnt_attr Generic Message Counter Attributes
+ * @subsubsection cnt_attr Generic Counter Attributes
  *
- * XCM has a set of generic message counters, which keeps track of the
- * number of messages crossing a certain boundary for a particular
- * connection, and a sum of their size.
+ * XCM connections sockets keeps track of the amount of data entering
+ * or leaving the XCM layer, both from the application and to the
+ * lower layer. Additionally, messaging transports also track the
+ * number of messages.
  *
  * Some of the message and byte counter attributes use the concept of
  * a "lower layer". What this means depends on the transport. For the
@@ -595,23 +661,35 @@ extern "C" {
  * local or remote socket buffer, on a NIC queue, or be in-transmit in
  * the network. For TLS, the lower layer is OpenSSL.
  *
- * All the "xcm.*_bytes" counters count the length of the XCM message
- * payload (as in the length field in xcm_send()), and thus does not
- * include any underlying headers.
+ * The counters only reflect data succesfully sent and/or received.
  *
- * The message counters only count messages succesfully sent and/or
- * received.
+ * @paragraph common_cnt_attr Byte Counter Attributes
+ * 
+ * These counters are available on both bytestream and messaging type
+ * connection sockets.
+ *
+ * The byte counters are incremented with the length of the XCM data
+ * (as in the length field in xcm_send()), and thus does not include
+ * any underlying headers or other lower layer overhead.
+ *
+ * Attribute Name       | Socket Type | Value Type | Mode | Description
+ * ---------------------|-------- ----|------------|------|------------
+ * xcm.from_app_bytes   | Connection  | Integer    | R    | Bytes sent from the application and accepted into XCM.
+ * xcm.to_app_bytes     | Connection  | Integer    | R    | Bytes delivered from XCM to the application.
+ * xcm.from_lower_bytes | Connection  | Integer    | R    | Bytes received by XCM from the lower layer.
+ * xcm.to_lower_bytes   | Connection  | Integer    | R    | Bytes successfully sent by XCM into the lower layer.
+ *
+ * @paragraph messaging_cnt_attr Message Counter Attributes
+ *
+ * These counters are available only on messaging type connection
+ * sockets.
  *
  * Attribute Name       | Socket Type | Value Type | Mode | Description
  * ---------------------|-------- ----|------------|------|------------
  * xcm.from_app_msgs    | Connection  | Integer    | R    | Messages sent from the application and accepted into XCM.
- * xcm.from_app_bytes   | Connection  | Integer    | R    | The sum of the size of all messages counted by xcm.from_app_msgs.
  * xcm.to_app_msgs      | Connection  | Integer    | R    | Messages delivered from XCM to the application.
- * xcm.to_app_bytes     | Connection  | Integer    | R    | The sum of the size of all messages counter by xcm.to_app_msgs.
  * xcm.from_lower_msgs  | Connection  | Integer    | R    | Messages received by XCM from the lower layer.
- * xcm.from_lower_bytes | Connection  | Integer    | R    | The sum of the size of all messages counted by xcm.from_lower_msgs.
  * xcm.to_lower_msgs    | Connection  | Integer    | R    | Messages successfully sent by XCM into the lower layer.
- * xcm.to_lower_bytes   | Connection  | Integer    | R    | The sum of the size of all messages counted by xcm.to_lower_msgs.
  *
  * @section ctl Control Interface
  *
@@ -632,8 +710,8 @@ extern "C" {
  * By default, the control interface's UNIX domain sockets are stored in
  * the @c /run/xcm/ctl directory.
  *
- * This directory needs to be created prior to running any XCM
- * applications (for the control interface to worker properly) and
+ * This directory should to be created prior to running any XCM
+ * applications for the control interface to worker properly and
  * should be writable for all XCM users.
  *
  * A particular process using XCM may be configured to use a
@@ -719,7 +797,7 @@ extern "C" {
  * @subsection ux_transport UX Transport
  *
  * The UX transport uses UNIX Domain (AF_UNIX, also known as AF_LOCAL)
- * Sockets.
+ * Sockets to providing a service of the messaging type.
  *
  * UX sockets may only be used with the same OS instance (or, more
  * specifically, between processes in the same Linux kernel network
@@ -1068,6 +1146,19 @@ extern "C" {
  * To minimize latency, the SCTP transport disables the Nagle
  * algorithm.
  *
+ * @subsection btls_transport BTLS Transport
+ *
+ * The BTLS transport uses the Transport Layer Security (TLS) protocol
+ * to provide a secure, private, two-way authenticated byte stream
+ * service over TCP.
+ *
+ * Unlike the @ref tls_transport, BTLS doesn't have a framing header
+ * nor anything else on the wire protocol level that is specific to
+ * XCM. It's a "raw" TLS connection.
+ *
+ * Other than providing a byte stream, it's identical to the @ref
+ * tls_transport.
+ *
  * @section namespaces Linux Network and IPC Namespaces
  *
  * Namespaces is a Linux kernel facility concept for creating multiple,
@@ -1153,6 +1244,10 @@ struct xcm_socket;
  * connection in non-blocking mode (see xcm_set_blocking() for
  * details).
  *
+ * Since the "xcm.service" attribute defaults to "messaging", this
+ * function cannot be used to create connectionx sockets with the byte
+ * stream service type.
+ *
  * @param[in] remote_addr The remote address which to connect.
  * @param[in] flags Either 0, or XCM_NONBLOCK for a non-blocking connect.
  *
@@ -1207,6 +1302,10 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
  * Sockets. In case remote_addr has a DNS domain name (as opposed to
  * an IP address), a xcm_server() call also includes a blocking name
  * resolution (e.g. gethostbyname()).
+ *
+ * Since the "xcm.service" attribute defaults to "messaging", this
+ * function cannot be used to create server sockets with the byte
+ * stream service type.
  *
  * @param[in] local_addr The local address to which this socket should be bound.
  *
@@ -1331,21 +1430,22 @@ struct xcm_socket *xcm_accept_a(struct xcm_socket *server_socket,
 
 /** Send message on a particular connection.
  *
- * The xcm_send() function is used to send a message out on a
- * connection socket. A XCM connection goes from a client to a server,
- * and this connection socket may represent either one of the two
- * endpoints.
+ * The xcm_send() function is used to send a message (or a sequence of
+ * bytes, for byte stream transports) out on a connection socket.
  *
- * @param[in] conn_socket The connection socket the message will be sent on.
- * @param[in] buf A pointer to the message data buffer.
- * @param[in] len The length of the message in bytes. Zero-length messages are not allowed.
+ * @param[in] conn_socket The connection socket the data will be sent on.
+ * @param[in] buf A pointer to the data buffer.
+ * @param[in] len The length of the buffer in bytes. Zero-length buffers are not allowed for messaging type transports.
  *
- * @return Returns 0 on success, or -1 if an error occured
- *         (in which case errno is set).
+ * @return For messaging transports, 0 is returned on success. For byte
+ *         stream transports, the number of bytes accepted into the XCM
+ *         layer is returned (which may be shorter than @ref len, but
+ *         which is always greater than zero). In case of an error, -1
+ *         is returned (and errno is set).
  *
  * errno        | Description
  * -------------|------------
- * EMSGSIZE     | Message is too large. See also @ref xcm_attr.
+ * EMSGSIZE     | Message is too large. See also the maximum size attribute in @ref xcm_attr. Only applicable to messaging transports.
  *
  * See xcm_finish() for more errno values.
  */
@@ -1354,33 +1454,34 @@ int xcm_send(struct xcm_socket *conn_socket, const void *buf, size_t len);
 
 /** Receive message on a particular connection.
  *
- * The xcm_receive() function is used to receive message on a
- * connection socket. A XCM connection goes from a client to a server,
- * and this connection socket may represent either one of the two
- * endpoints.
+ * The xcm_receive() function is used to receive data on a connection
+ * socket. For messaging type transport connections, xcm_receive()
+ * produces at most one message, in its entirety. For byte stream
+ * transports, xcm_receive() returns a sequence of bytes.
  *
- * If the capacity of the user-supplied buffer is smaller than the
- * actual message length, the message will be truncated and the part
- * that fits will be stored in the buffer. The return value will be
- * the length of the truncated message (i.e. the capacity).
+ * If the connection is of the messaging service type and the capacity
+ * of the user-supplied buffer is smaller than the actual message
+ * length, the message will be truncated and the part that fits will
+ * be stored in the buffer. The return value will be the length of the
+ * truncated message (i.e. the capacity).
  *
- * @param[in] conn_socket The connection socket the message will receive be on.
- * @param[out] buf The user-supplied buffer where the incoming message will be stored.
+ * @param[in] conn_socket The connection socket the data will receive be on.
+ * @param[out] buf The user-supplied buffer where the incoming data will be stored.
  * @param[in] capacity The capacity in bytes of the buffer.
  *
- * @return Returns the size (> 0 bytes) of the received message, 0 if
- *         the remote end has closed the connection, or -1 if an error
- *         occured (in which case errno is set).
+ * @return Returns the amount (> 0 bytes) of data stored in the
+ *         buffer, 0 if the remote end has closed the connection, or
+ *         -1 if an error occured (in which case errno is set).
  *
  * See xcm_finish() for possible errno values.
  */
 int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity);
 
 /** Flag bit denoting a socket where the application likely can
-    receive a message. */
+    receive data. */
 #define XCM_SO_RECEIVABLE (1<<0)
 /** Flag bit denoting a socket where the application likely can
-    send a message. */
+    send data. */
 #define XCM_SO_SENDABLE (1<<1)
 /** Flag bit denoting a socket with a pending incoming connection. */
 #define XCM_SO_ACCEPTABLE (1<<2)

@@ -8,7 +8,6 @@
 
 #include <sys/types.h>
 
-#include "cnt.h"
 #include "config.h"
 #include "xcm.h"
 #include "xcm_addr_limits.h"
@@ -20,7 +19,11 @@ enum xcm_socket_type {
     xcm_socket_type_server
 };
 
-const char *xcm_tp_socket_type_name(struct xcm_socket *s);
+const char *xcm_tp_socket_type_name(enum xcm_socket_type socket_type);
+
+#define XCM_SERVICE_MESSAGING "messaging"
+#define XCM_SERVICE_BYTESTREAM "bytestream"
+#define XCM_SERVICE_ANY "any"
 
 struct xcm_tp_attr
 {
@@ -32,6 +35,31 @@ struct xcm_tp_attr
     int (*get)(struct xcm_socket *s, void *context, void *value,
 	       size_t capacity);
 };
+
+enum xcm_tp_cnt
+{
+    xcm_tp_cnt_to_app_bytes,
+    xcm_tp_cnt_from_app_bytes,
+    xcm_tp_cnt_to_lower_bytes,
+    xcm_tp_cnt_from_lower_bytes,
+
+    xcm_tp_cnt_to_app_msgs,
+    xcm_tp_cnt_from_app_msgs,
+    xcm_tp_cnt_to_lower_msgs,
+    xcm_tp_cnt_from_lower_msgs
+};
+
+#define XCM_TP_NUM_BYTESTREAM_CNTS (4)
+#define XCM_TP_NUM_MESSAGING_CNTS (XCM_TP_NUM_BYTESTREAM_CNTS * 2)
+
+#define XCM_TP_CNT_MSG_INC(cnts, short_name, len)		\
+    do {							\
+	cnts[xcm_tp_cnt_ ## short_name ## _bytes] += (len);	\
+	cnts[xcm_tp_cnt_ ## short_name ## _msgs]++;		\
+    } while (0)
+
+#define XCM_TP_CNT_BYTES_INC(cnts, short_name, len)	\
+    cnts[xcm_tp_cnt_ ## short_name ## _bytes] += (len)
 
 #define XCM_TP_DECL_RW_ATTR(attr_name, attr_type, attr_set_fun, attr_get_fun) \
     { attr_name, attr_type, NULL, attr_set_fun, attr_get_fun }
@@ -48,7 +76,7 @@ struct xcm_tp_ops {
        'server', or 'accept' calls have been made.
 
        Upon failed 'connect', 'server' or 'accept' calls, the socket
-       will be left in in a cleaned-up state, and 'close' need not be
+       will be left in a cleaned-up state, and 'close' need not be
        called. In all other situations, 'close' must be called, to
        allow for resource cleanup. */
     int (*init)(struct xcm_socket *s, struct xcm_socket *parent);
@@ -67,7 +95,7 @@ struct xcm_tp_ops {
     const char *(*get_local_addr)(struct xcm_socket *s, bool suppress_tracing);
     int (*set_local_addr)(struct xcm_socket *s, const char *local_addr);
     size_t (*max_msg)(struct xcm_socket *s);
-    const struct cnt_conn *(*get_cnt)(struct xcm_socket *s);
+    int64_t (*get_cnt)(struct xcm_socket *s, enum xcm_tp_cnt cnt);
     void (*enable_ctl)(struct xcm_socket *s);
     void (*get_attrs)(struct xcm_socket *s,
 		      const struct xcm_tp_attr **attr_list,
@@ -96,7 +124,6 @@ struct xcm_socket {
     struct ctl *ctl;
     uint64_t skipped_ctl_calls;
 #endif
-    struct cnt_conn cnt;
 };
 
 #define XCM_TP_GETOPS(s) ((s)->proto->ops)
@@ -127,8 +154,9 @@ int xcm_tp_socket_receive(struct xcm_socket *s, void *buf, size_t capacity);
 void xcm_tp_socket_update(struct xcm_socket *s);
 int xcm_tp_socket_finish(struct xcm_socket *s);
 const char *xcm_tp_socket_get_transport(struct xcm_socket *s);
+bool xcm_tp_socket_is_bytestream(struct xcm_socket *conn_s);
 const char *xcm_tp_socket_get_remote_addr(struct xcm_socket *conn_s,
-			       bool suppress_tracing);
+					  bool suppress_tracing);
 int xcm_tp_socket_set_local_addr(struct xcm_socket *s, const char *local_addr);
 const char *xcm_tp_socket_get_local_addr(struct xcm_socket *s,
 					 bool suppress_tracing);
@@ -136,10 +164,10 @@ size_t xcm_tp_socket_max_msg(struct xcm_socket *conn_s);
 void xcm_tp_socket_get_attrs(struct xcm_socket *s,
 			     const struct xcm_tp_attr **attr_list,
 			     size_t *attr_list_len);
-const struct cnt_conn *xcm_tp_socket_get_cnt(struct xcm_socket *conn_s);
+int64_t xcm_tp_socket_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 void xcm_tp_socket_enable_ctl(struct xcm_socket *s);
 
-void xcm_tp_get_attrs(enum xcm_socket_type type,
+void xcm_tp_get_attrs(enum xcm_socket_type type, bool bytestream,
 		      const struct xcm_tp_attr **attr_list,
 		      size_t *attr_list_len);
 
