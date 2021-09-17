@@ -99,7 +99,7 @@ struct xcm_socket {
 };
 
 #define XCM_TP_GETOPS(s) ((s)->proto->ops)
-#define XCM_TP_SUPPORTS_OP(s, op) (XCM_TP_GETOPS(x)->op != NULL)
+#define XCM_TP_SUPPORTS_OP(s, op) (XCM_TP_GETOPS(s)->op != NULL)
 #define XCM_TP_CALL(fun, s, ...) XCM_TP_GETOPS(s)->fun(s, ##__VA_ARGS__)
 
 #define XCM_TP_GETPRIV(s, priv_type)					\
