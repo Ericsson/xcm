@@ -422,7 +422,7 @@ static void handle_ssl_error(struct xcm_socket *s, int ssl_rc, int ssl_errno)
 		LOG_TLS_SPURIOUS_EINPROGRESS(s);
 		/* we try again to see if we can finish TCP connect,
 		   even though we should have already */
-		ts->conn.ssl_events = XCM_FD_WRITABLE;
+		ts->conn.ssl_events = EPOLLOUT;
 	    } else if (ssl_errno == EPIPE || ssl_errno == 0) {
 		/* early close seems to yield errno == 0 */
 		LOG_TLS_REMOTE_CLOSED_CONN(s);
