@@ -187,9 +187,14 @@ static void handle_client(struct xcm_socket *conn)
 
     socket_await(conn, XCM_SO_RECEIVABLE);
 
+    char *requests[MAX_SERVER_BATCH];
+    ssize_t request_lens[MAX_SERVER_BATCH];
+
+    int i;
+    for (i = 0; i < MAX_SERVER_BATCH; i++)
+	requests[i] = ut_malloc(max_msg);
+
     for (;;) {
-	char requests[MAX_SERVER_BATCH][max_msg];
-	ssize_t request_lens[MAX_SERVER_BATCH];
 	int num;
 	ssize_t r_rc;
 	for (num = 0; num < MAX_SERVER_BATCH;) {
