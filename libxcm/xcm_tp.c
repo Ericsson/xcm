@@ -290,15 +290,13 @@ int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity)
     return sizeof(bool);
 }
 
-static int get_type_attr(struct xcm_socket *s,
-			 const struct xcm_tp_attr *attr,
+static int get_type_attr(struct xcm_socket *s, void *context, 
 			 void *value, size_t capacity)
 {
     return xcm_tp_get_str_attr(xcm_tp_socket_type_name(s), value, capacity);
 }
 
-static int get_transport_attr(struct xcm_socket *s,
-			      const struct xcm_tp_attr *attr,
+static int get_transport_attr(struct xcm_socket *s, void *context,
 			      void *value, size_t capacity)
 {
     int rc =
@@ -313,29 +311,25 @@ static int addr_to_attr(const char *addr, void *value, size_t capacity)
     return xcm_tp_get_str_attr(addr, value, capacity);
 }
 
-static int set_local_attr(struct xcm_socket *s,
-			  const struct xcm_tp_attr *attr,
+static int set_local_attr(struct xcm_socket *s, void *context,
 			  const void *value, size_t len)
 {
     return xcm_tp_socket_set_local_addr(s, value);
 }
 
-static int get_local_attr(struct xcm_socket *s,
-			  const struct xcm_tp_attr *attr,
+static int get_local_attr(struct xcm_socket *s, void *context,
 			  void *value, size_t capacity)
 {
     return addr_to_attr(xcm_local_addr(s), value, capacity);
 }
 
-static int get_remote_attr(struct xcm_socket *s,
-			   const struct xcm_tp_attr *attr,
+static int get_remote_attr(struct xcm_socket *s, void *context,
 			   void *value, size_t capacity)
 {
     return addr_to_attr(xcm_remote_addr(s), value, capacity);
 }
 
-static int set_blocking_attr(struct xcm_socket *s,
-			     const struct xcm_tp_attr *attr,
+static int set_blocking_attr(struct xcm_socket *s, void *context,
 			     const void *value, size_t len)
 {
     bool is_blocking;
@@ -349,15 +343,13 @@ static int set_blocking_attr(struct xcm_socket *s,
     return 0;
 }
 
-static int get_blocking_attr(struct xcm_socket *s,
-			     const struct xcm_tp_attr *attr,
+static int get_blocking_attr(struct xcm_socket *s, void *context,
 			     void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(s->is_blocking, value, capacity);
 }
 
-static int get_max_msg_attr(struct xcm_socket *s,
-			    const struct xcm_tp_attr *attr,
+static int get_max_msg_attr(struct xcm_socket *s, void *context,
 			    void *value, size_t capacity)
 {
     if (s->type != xcm_socket_type_conn) {
@@ -379,8 +371,9 @@ static int get_max_msg_attr(struct xcm_socket *s,
 
 #define GEN_CNT_ATTR_GETTER(cnt_name, cnt_type)				\
     static int get_ ## cnt_name ## _ ## cnt_type ## _attr(struct xcm_socket *s, \
-					 const struct xcm_tp_attr *attr, \
-					 void *value, size_t capacity)	\
+							  void *context, \
+							  void *value,	\
+							  size_t capacity) \
     {									\
 	if (capacity < sizeof(int64_t)) {				\
 	    errno = EOVERFLOW;						\

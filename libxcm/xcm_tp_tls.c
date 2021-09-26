@@ -1459,8 +1459,7 @@ static void try_finish_in_progress(struct xcm_socket *s)
     }
 }
 
-static int set_client_attr(struct xcm_socket *s,
-			   const struct xcm_tp_attr *attr,
+static int set_client_attr(struct xcm_socket *s, void *context,
 			   const void *value, size_t len)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1474,14 +1473,13 @@ static int set_client_attr(struct xcm_socket *s,
     return xcm_tp_set_bool_attr(value, len, &(ts->tls_client));
 }
 
-static int get_client_attr(struct xcm_socket *s,
-			   const struct xcm_tp_attr *attr,
+static int get_client_attr(struct xcm_socket *s, void *context,
 			   void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOTLS(s)->tls_client, value, capacity);
 }
 
-static int set_auth_attr(struct xcm_socket *s, const struct xcm_tp_attr *attr,
+static int set_auth_attr(struct xcm_socket *s, void *context,
 			 const void *value, size_t len)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1495,7 +1493,7 @@ static int set_auth_attr(struct xcm_socket *s, const struct xcm_tp_attr *attr,
     return xcm_tp_set_bool_attr(value, len, &(ts->tls_auth));
 }
 
-static int get_auth_attr(struct xcm_socket *s, const struct xcm_tp_attr *attr,
+static int get_auth_attr(struct xcm_socket *s, void *context,
 			 void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOTLS(s)->tls_auth, value, capacity);
@@ -1503,7 +1501,7 @@ static int get_auth_attr(struct xcm_socket *s, const struct xcm_tp_attr *attr,
 
 #define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   const struct xcm_tp_attr *attr, \
+					   void *context,		\
 					   void *value, size_t capacity) \
     {									\
 	return tcp_get_ ## field_name ##_attr(socket_fd(s), value);	\
@@ -1516,7 +1514,7 @@ GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_SET(attr_name, attr_type)				\
     static int set_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  const struct xcm_tp_attr *attr, \
+					  void *context,		\
 					  const void *value, size_t len) \
     {									\
 	struct tls_socket *ts = TOTLS(s);				\
@@ -1528,7 +1526,7 @@ GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_GET(attr_name, attr_type)				\
     static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  const struct xcm_tp_attr *attr, \
+					  void *context,		\
 					  void *value, size_t capacity)	\
     {									\
     struct tls_socket *ts = TOTLS(s);					\
@@ -1550,7 +1548,7 @@ GEN_TCP_ACCESS(user_timeout, int64_t)
 
 #define GEN_SET_FILE(file)						\
     static int set_ ## file ## _attr(struct xcm_socket *s,		\
-				     const struct xcm_tp_attr *attr,	\
+				     void *context,			\
 				     const void *value, size_t len)	\
     {									\
 	struct tls_socket *ts = TOTLS(s);				\
@@ -1566,8 +1564,7 @@ GEN_TCP_ACCESS(user_timeout, int64_t)
 
 GEN_SET_FILE(cert_file)
 
-static int get_cert_file_attr(struct xcm_socket *s,
-			      const struct xcm_tp_attr *attr,
+static int get_cert_file_attr(struct xcm_socket *s, void *context,
 			      void *value, size_t capacity)
 {
     return xcm_tp_get_str_attr(TOTLS(s)->cert_file, value, capacity);
@@ -1575,8 +1572,7 @@ static int get_cert_file_attr(struct xcm_socket *s,
 
 GEN_SET_FILE(key_file)
 
-static int get_key_file_attr(struct xcm_socket *s,
-			     const struct xcm_tp_attr *attr,
+static int get_key_file_attr(struct xcm_socket *s, void *context,
 			     void *value, size_t capacity)
 {
     return xcm_tp_get_str_attr(TOTLS(s)->key_file, value, capacity);
@@ -1584,15 +1580,13 @@ static int get_key_file_attr(struct xcm_socket *s,
 
 GEN_SET_FILE(tc_file)
 
-static int get_tc_file_attr(struct xcm_socket *s,
-			    const struct xcm_tp_attr *attr,
+static int get_tc_file_attr(struct xcm_socket *s, void *context,
 			    void *value, size_t capacity)
 {
     return xcm_tp_get_str_attr(TOTLS(s)->tc_file, value, capacity);
 }
 
-static int set_verify_peer_name_attr(struct xcm_socket *s,
-				     const struct xcm_tp_attr *attr,
+static int set_verify_peer_name_attr(struct xcm_socket *s, void *context,
 				     const void *value, size_t len)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1606,8 +1600,7 @@ static int set_verify_peer_name_attr(struct xcm_socket *s,
     return xcm_tp_set_bool_attr(value, len, &(ts->verify_peer_name));
 }
 
-static int get_verify_peer_name_attr(struct xcm_socket *s,
-				     const struct xcm_tp_attr *attr,
+static int get_verify_peer_name_attr(struct xcm_socket *s, void *context,
 				     void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOTLS(s)->verify_peer_name, value, capacity);
@@ -1655,8 +1648,7 @@ static void add_subject_alternative_names(X509 *cert,
 
 #define SAN_DELIMITER ':'
 
-static int set_peer_names_attr(struct xcm_socket *s,
-			       const struct xcm_tp_attr *attr,
+static int set_peer_names_attr(struct xcm_socket *s, void *context,
 			       const void *value, size_t len)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1695,8 +1687,7 @@ static int set_peer_names_attr(struct xcm_socket *s,
     return 0;
 }
 
-static int get_valid_peer_names_attr(struct xcm_socket *s,
-				     const struct xcm_tp_attr *attr,
+static int get_valid_peer_names_attr(struct xcm_socket *s, void *context,
 				     void *value, size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1722,8 +1713,7 @@ static int get_valid_peer_names_attr(struct xcm_socket *s,
     return result_len + 1;
 }
 
-static int get_actual_peer_names_attr(struct xcm_socket *s,
-				      const struct xcm_tp_attr *attr,
+static int get_actual_peer_names_attr(struct xcm_socket *s, void *context,
 				      void *value, size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1764,8 +1754,7 @@ static int get_actual_peer_names_attr(struct xcm_socket *s,
 }
 
 
-static int get_peer_names_attr(struct xcm_socket *s,
-			       const struct xcm_tp_attr *attr,
+static int get_peer_names_attr(struct xcm_socket *s, void *context,
 			       void *value, size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
@@ -1777,14 +1766,13 @@ static int get_peer_names_attr(struct xcm_socket *s,
 
     if (s->type == xcm_socket_type_conn &&
 	ts->conn.state == conn_state_ready)
-	return get_actual_peer_names_attr(s, attr, value, capacity);
+	return get_actual_peer_names_attr(s, context, value, capacity);
     else
-	return get_valid_peer_names_attr(s, attr, value, capacity);
+	return get_valid_peer_names_attr(s, context, value, capacity);
 }
 
-static int get_peer_subject_key_id(struct xcm_socket *s,
-				   const struct xcm_tp_attr *attr,
-				   void *value, size_t capacity)
+static int get_peer_subject_key_id_attr(struct xcm_socket *s, void *context,
+					void *value, size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
     if (s->type != xcm_socket_type_conn) {
@@ -1838,7 +1826,7 @@ static int get_peer_subject_key_id(struct xcm_socket *s,
 static struct xcm_tp_attr conn_attrs[] = {
     COMMON_ATTRS,
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
-			xcm_attr_type_bin, get_peer_subject_key_id),
+			xcm_attr_type_bin, get_peer_subject_key_id_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,

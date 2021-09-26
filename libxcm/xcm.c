@@ -464,7 +464,7 @@ int xcm_attr_set(struct xcm_socket *s, const char *name,
 	goto err;
     }
 
-    if (attr->set_fun == NULL) {
+    if (attr->set == NULL) {
 	LOG_ATTR_SET_RO(s);
 	errno = EACCES;
 	goto err;
@@ -476,7 +476,7 @@ int xcm_attr_set(struct xcm_socket *s, const char *name,
 	goto err;
     }
 
-    int rc = attr->set_fun(s, attr, value, len);
+    int rc = attr->set(s, attr->context, value, len);
     if (rc < 0)
 	goto err_log;
 
@@ -519,7 +519,7 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
 	goto err;
     }
 
-    if (attr->get_fun == NULL) {
+    if (attr->get == NULL) {
 	errno = EACCES;
 	goto err;
     }
@@ -527,7 +527,7 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
     if (type != NULL)
 	*type = attr->type;
 
-    int rc = attr->get_fun(s, attr, value, capacity);
+    int rc = attr->get(s, attr->context, value, capacity);
     if (rc < 0)
 	goto err;
 
@@ -602,7 +602,7 @@ static void get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data,
 	const struct xcm_tp_attr *attr = &attrs[i];
 	char value[XCM_ATTR_VALUE_MAX];
 
-	int rc = attr->get_fun(s, attr, value, sizeof(value));
+	int rc = attr->get(s, attr->context, value, sizeof(value));
 	if (rc >= 0)
 	    cb(attr->name, attr->type, value, rc, cb_data);
 	/* XXX: should we report errors back to the application? */

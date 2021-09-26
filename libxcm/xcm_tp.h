@@ -26,14 +26,15 @@ struct xcm_tp_attr
 {
     char name[XCM_ATTR_NAME_MAX];
     enum xcm_attr_type type;
-    int (*set_fun)(struct xcm_socket *s, const struct xcm_tp_attr *attr,
-		   const void *value, size_t len);
-    int (*get_fun)(struct xcm_socket *s, const struct xcm_tp_attr *attr,
-		   void *value, size_t capacity);
+    void *context;
+    int (*set)(struct xcm_socket *s, void *context, const void *value,
+	       size_t len);
+    int (*get)(struct xcm_socket *s, void *context, void *value,
+	       size_t capacity);
 };
 
 #define XCM_TP_DECL_RW_ATTR(attr_name, attr_type, attr_set_fun, attr_get_fun) \
-    { attr_name, attr_type, attr_set_fun, attr_get_fun }
+    { attr_name, attr_type, NULL, attr_set_fun, attr_get_fun }
 
 #define XCM_TP_DECL_RO_ATTR(attr_name, attr_type, attr_get_fun)		\
     XCM_TP_DECL_RW_ATTR(attr_name, attr_type, NULL, attr_get_fun)

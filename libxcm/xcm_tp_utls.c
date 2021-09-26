@@ -41,9 +41,7 @@ struct utls_socket
     struct xcm_socket *ux_socket;
     struct xcm_socket *tls_socket;
 
-    struct xcm_tp_attr *utls_attrs;
-    const struct xcm_tp_attr **real_attrs;
-    struct xcm_socket **real_sockets;
+    struct xcm_tp_attr *attrs;
     size_t attrs_len;
 };
 
@@ -180,9 +178,7 @@ static void deinit(struct xcm_socket *s)
 	struct utls_socket *us = TOUTLS(s);
 	xcm_tp_socket_destroy(us->ux_socket);
 	xcm_tp_socket_destroy(us->tls_socket);
-	ut_free(us->utls_attrs);
-	ut_free(us->real_attrs);
-	ut_free(us->real_sockets);
+	ut_free(us->attrs);
     }
 }
 
@@ -556,49 +552,76 @@ static void utls_enable_ctl(struct xcm_socket *s)
 #endif
 }
 
-static int set_attr_proxy(struct xcm_socket *s,
-			  const struct xcm_tp_attr *attr,
+union real_attr_info
+{
+    struct {
+	intptr_t is_ux:1;
+	intptr_t idx:20;
+    } field;
+    void *ptr;
+};
+
+static void proxy_lookup(struct xcm_socket *s, void *context,
+			 struct xcm_socket **real_socket,
+			 const struct xcm_tp_attr **real_attr)
+{
+    struct utls_socket *us = TOUTLS(s);
+
+    union real_attr_info info = { .ptr = context };
+
+    *real_socket = info.field.is_ux ? us->ux_socket : us->tls_socket;
+
+    const struct xcm_tp_attr *attrs;
+    size_t attrs_len = 0;
+    xcm_tp_socket_get_attrs(*real_socket, &attrs, &attrs_len);
+
+    ut_assert(info.field.idx < attrs_len);
+    *real_attr = &attrs[info.field.idx];
+}
+
+static int set_attr_proxy(struct xcm_socket *s, void *context,
 			  const void *value, size_t len)
 {
-    struct utls_socket *us = TOUTLS(s);
+    struct xcm_socket *real_socket;
+    const struct xcm_tp_attr *real_attr;
 
-    size_t idx = attr - us->utls_attrs;
+    proxy_lookup(s, context, &real_socket, &real_attr);
 
-    const struct xcm_tp_attr *real_attr = us->real_attrs[idx];
-    struct xcm_socket *real_socket = us->real_sockets[idx];
-
-    return real_attr->set_fun(real_socket, real_attr, value, len);
+    return real_attr->set(real_socket, real_attr->context, value, len);
 }
 
-static int get_attr_proxy(struct xcm_socket *s,
-			  const struct xcm_tp_attr *attr,
+static int get_attr_proxy(struct xcm_socket *s, void *context,
 			  void *value, size_t capacity)
 {
-    struct utls_socket *us = TOUTLS(s);
+    struct xcm_socket *real_socket;
+    const struct xcm_tp_attr *real_attr;
 
-    size_t idx = attr - us->utls_attrs;
+    proxy_lookup(s, context, &real_socket, &real_attr);
 
-    const struct xcm_tp_attr *real_attr = us->real_attrs[idx];
-    struct xcm_socket *real_socket = us->real_sockets[idx];
-
-    return real_attr->get_fun(real_socket, real_attr, value, capacity);
+    return real_attr->get(real_socket, real_attr->context, value, capacity);
 }
 
-static void add_attr(struct utls_socket *us,
-		     const struct xcm_tp_attr *real_attr,
-		     struct xcm_socket *real_socket)
+static void add_attr(struct utls_socket *us, bool is_ux,
+		     const struct xcm_tp_attr *real_attr, size_t real_attr_idx)
 {
     size_t idx = us->attrs_len;
 
-    us->utls_attrs[idx] = *real_attr;
-    if (real_attr->get_fun != NULL)
-	us->utls_attrs[idx].get_fun = get_attr_proxy;
-    if (real_attr->set_fun != NULL )
-	us->utls_attrs[idx].set_fun = set_attr_proxy;
+    struct xcm_tp_attr *utls_attr = &us->attrs[idx];
 
-    us->real_attrs[idx] = real_attr;
+    *utls_attr = (struct xcm_tp_attr) {
+	.type = real_attr->type,
+	.set = real_attr->set != NULL ? set_attr_proxy : NULL,
+	.get = real_attr->get != NULL ? get_attr_proxy : NULL
+    };
 
-    us->real_sockets[idx] = real_socket;
+    strcpy(utls_attr->name, real_attr->name);
+
+    union real_attr_info info;
+    info.field.is_ux = is_ux;
+    info.field.idx = real_attr_idx;
+
+    ut_assert(sizeof(info) == sizeof(intptr_t));
+    utls_attr->context = info.ptr;
 
     us->attrs_len++;
 }
@@ -622,20 +645,15 @@ static void update_attrs(struct xcm_socket *s)
     if (attrs_len == 0)
 	return;
 
-    us->utls_attrs =
-	ut_realloc(us->utls_attrs, sizeof(struct xcm_tp_attr) * attrs_len);
-    us->real_attrs =
-	ut_realloc(us->real_attrs, sizeof(struct xcm_tp_attr *) * attrs_len);
-    us->real_sockets =
-	ut_realloc(us->real_sockets, sizeof(struct xcm_socket *) * attrs_len);
+    us->attrs =	ut_realloc(us->attrs, sizeof(struct xcm_tp_attr) * attrs_len);
     us->attrs_len = 0;
 
     size_t i;
     for (i = 0; i < ux_attrs_len; i++)
-	add_attr(us, &ux_attrs[i], us->ux_socket);
+	add_attr(us, true, &ux_attrs[i], i);
 
     for (i = 0; i < tls_attrs_len; i++)
-	add_attr(us, &tls_attrs[i], us->tls_socket);
+	add_attr(us, false, &tls_attrs[i], i);
 }
 
 static void utls_get_attrs(struct xcm_socket *s,
@@ -646,6 +664,6 @@ static void utls_get_attrs(struct xcm_socket *s,
 
     struct utls_socket *us = TOUTLS(s);
 
-    *attr_list = us->utls_attrs;
+    *attr_list = us->attrs;
     *attr_list_len = us->attrs_len;
 }

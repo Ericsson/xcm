@@ -959,7 +959,7 @@ static size_t tcp_max_msg(struct xcm_socket *conn_s)
 
 #define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   const struct xcm_tp_attr *attr, \
+					   void *context,		\
 					   void *value, size_t capacity) \
     {									\
 	return tcp_get_ ## field_name ##_attr(TOTCP(s)->fd, value);	\
@@ -973,7 +973,7 @@ GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_SET(attr_name, attr_type)				\
     static int set_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  const struct xcm_tp_attr *attr, \
+					  void *context,		\
 					  const void *value, size_t len) \
     {									\
 	struct tcp_socket *ts = TOTCP(s);				\
@@ -985,7 +985,7 @@ GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_GET(attr_name, attr_type)				\
     static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  const struct xcm_tp_attr *attr, \
+					  void *context,		\
 					  void *value, size_t capacity)	\
     {									\
     struct tcp_socket *ts = TOTCP(s);					\
