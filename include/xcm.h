@@ -810,11 +810,11 @@ extern "C" {
  * tcp.total_retrans  | Connection | Integer  | R    | The total number of retransmitted TCP segments.
  * tcp.segs_in        | Connection  | Integer    | R    | The total number of segments received.
  * tcp.segs_out       | Connection  | Integer    | R    | The total number of segments sent.
- * tcp.keepalive      | Connection  | Boolean    | RW   | Controls if TCP keepalive is enabled.
- * tcp.keepalive_time | Connection  | Integer    | RW   | The time (in s) before the first keepalive probe is sent on an idle connection.
- * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes.
- * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped.
- * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data.
+ * tcp.keepalive      | Connection  | Boolean    | RW   | Controls if TCP keepalive is enabled. The default is true.
+ * tcp.keepalive_time | Connection  | Integer    | RW   | The time (in s) before the first keepalive probe is sent on an idle connection. The default is 1 s.
+ * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes. The default is 1 s.
+ * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default is 3.
+ * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default is 3 s.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.
