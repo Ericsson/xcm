@@ -191,13 +191,13 @@ def write_files(base_path, files_conf, keys, certs):
 
 if len(sys.argv) == 1:
     input = sys.stdin
-elif len(sys.argv) == 2:
+elif len(sys.argv) == 2 and sys.argv[1] != '-h':
     input = open(sys.argv[1])
 else:
     usage(sys.argv[0])
     sys.exit(1)
 
-conf = yaml.load(sys.stdin, Loader=yaml.Loader)
+conf = yaml.load(input, Loader=yaml.Loader)
 
 base_path = conf['base-path']
 
