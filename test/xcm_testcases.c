@@ -3208,18 +3208,18 @@ TESTCASE(xcm, tls_shared_root_ca)
 	    "\n"
 	    "  - type: cert\n"
 	    "    id: b\n"
-	    "    path: ep-x/cert.pem\n"
+	    "    path: ep-y/cert.pem\n"
 	    "  - type: key\n"
 	    "    id: b\n"
-	    "    path: ep-x/key.pem\n"
+	    "    path: ep-y/key.pem\n"
 	    "  - type: bundle\n"
 	    "    certs:\n"
 	    "      - root\n"
-	    "    path: ep-x/tc.pem\n"
+	    "    path: ep-y/tc.pem\n"
 	    )
 	);
 
-    CHKNOERR(run_tls_handshake("ep-x", "ep-x", true));
+    CHKNOERR(run_tls_handshake("ep-x", "ep-y", true));
 
     return UTEST_SUCCESS;
 }
