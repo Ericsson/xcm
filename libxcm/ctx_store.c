@@ -335,6 +335,8 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
     int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_CIPHER_LIST);
     ut_assert(rc == 1);
 
+    SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_OFF);
+
     LOG_TLS_CERT_FILES(cert_file, key_file, tc_file);
 
     bool cert_changed = false;
