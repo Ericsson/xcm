@@ -66,7 +66,7 @@ static struct cache_entry *cache_entry_create(const char *cert_file,
 
     entry->cert_file = ut_strdup(cert_file);
     entry->key_file = ut_strdup(key_file);
-    entry->tc_file = ut_strdup(tc_file);
+    entry->tc_file = tc_file != NULL ? ut_strdup(tc_file) : NULL;
     memcpy(entry->hash, hash, SHA256_DIGEST_LENGTH);
     entry->ssl_ctx = ssl_ctx;
     entry->use_cnt = 1;
@@ -124,19 +124,30 @@ static struct cache_entry *cache_install(struct cache *cache,
     return entry;
 }
 
+static bool is_same_filename(const char *file_a, const char *file_b)
+{
+    if (file_a == NULL && file_b == NULL)
+	return true;
+    if (file_a != NULL && file_b != NULL &&
+	strcmp(file_a, file_b) == 0)
+	return true;
+    return false;
+}
+
 static struct cache_entry *cache_get(struct cache *cache,
 				     const char *cert_file,
 				     const char *key_file,
 				     const char *tc_file)
 {
     struct cache_entry *entry;
-    LIST_FOREACH(entry, &cache->cur_entries, elem)
+    LIST_FOREACH(entry, &cache->cur_entries, elem) {
 	if (strcmp(entry->cert_file, cert_file) == 0 &&
 	    strcmp(entry->key_file, key_file) == 0 &&
-	    strcmp(entry->tc_file, tc_file) == 0) {
+	    is_same_filename(entry->tc_file, tc_file)) {
 	    entry->use_cnt++;
 	    return entry;
 	}
+    }
     return NULL;
 }
 
@@ -240,7 +251,7 @@ static int get_cert_files_hash(const char *cert_file, const char *key_file,
 	return -1;
     if (hash_file_meta(key_file, &ctx) < 0)
 	return -1;
-    if (hash_file_meta(tc_file, &ctx) < 0)
+    if (tc_file != NULL && hash_file_meta(tc_file, &ctx) < 0)
 	return -1;
 
     SHA256_Final(hash, &ctx);
@@ -272,7 +283,7 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
 			 hash, SHA256_DIGEST_LENGTH);
 
 	if (!hash_equal(hash, entry->hash)) {
-	    LOG_TLS_CTX_FILES_CHANGED(cert_file, key_file, tc_file);
+	    LOG_TLS_CTX_FILES_CHANGED;
 	    cache_invalidate(cache, entry);
 	    entry = NULL;
 	}
@@ -346,7 +357,8 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
 
     LOG_TLS_CTX_HASH(cert_file, key_file, tc_file, hash, SHA256_DIGEST_LENGTH);
 
-    if (!SSL_CTX_load_verify_locations(ssl_ctx, tc_file, NULL)) {
+    if (tc_file != NULL &&
+	!SSL_CTX_load_verify_locations(ssl_ctx, tc_file, NULL)) {
 	LOG_TLS_ERR_LOADING_TC(tc_file);
 	goto err_cert;
     }
@@ -415,7 +427,10 @@ static SSL_CTX *load_client_ssl_ctx(const char *cert_file,
 	return NULL;
     }
 
-    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+    if (tc_file != NULL)
+	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+    else
+	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
 
     return ssl_ctx;
 }
@@ -432,16 +447,20 @@ static SSL_CTX *load_server_ssl_ctx(const char *cert_file,
     if (!ssl_ctx)
 	goto err;
 
-    SSL_CTX_set_verify(ssl_ctx,
-		       SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+    if (tc_file != NULL) {
+	SSL_CTX_set_verify(ssl_ctx,
+			   SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+			   NULL);
 
-    STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
-    if (cert_names == NULL) {
-	LOG_TLS_ERR_LOADING_TC(tc_file);
-	goto err_free_ctx;
-    }
+	STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
+	if (cert_names == NULL) {
+	    LOG_TLS_ERR_LOADING_TC(tc_file);
+	    goto err_free_ctx;
+	}
 
-    SSL_CTX_set_client_CA_list(ssl_ctx, cert_names);
+	SSL_CTX_set_client_CA_list(ssl_ctx, cert_names);
+    } else
+	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
 
     return ssl_ctx;
 

@@ -213,13 +213,22 @@ static int check_cert_attrs(struct xcm_socket *s, const char *ns,
     determine_path(key_file, "key", ns, cert_dir, parent_attrs, attrs);
     determine_path(tc_file, "tc", ns, cert_dir, parent_attrs, attrs);
 
+    bool tls_auth;
+    CHKNOERR(xcm_attr_get_bool(s, "tls.auth", &tls_auth));
+
     if (tu_assure_str_attr(s, "tls.cert_file", cert_file) < 0)
 	return -1;
     if (tu_assure_str_attr(s, "tls.key_file", key_file) < 0)
 	return -1;
-    if (tu_assure_str_attr(s, "tls.tc_file", tc_file) < 0)
-	return -1;
 
+    int rc = tu_assure_str_attr(s, "tls.tc_file", tc_file);
+
+    if (tls_auth)
+	CHK(rc == 0);
+    else {
+	CHK(rc < 0);
+	CHKERRNOEQ(ENOENT);
+    }
     return 0;
 }
 
@@ -3636,6 +3645,12 @@ TESTCASE(xcm, tls_auth_conf)
 	    "  b:\n"
 	    "    subject_name: b\n"
 	    "    issuer: root-b\n"
+	    "  root-x:\n"
+	    "    subject_name: root-x\n"
+	    "    ca: True\n"
+	    "  x:\n"
+	    "    subject_name: x\n"
+	    "    issuer: root-x\n"
 	    "\n"
 	    "files:\n"
 	    "  - type: cert\n"
@@ -3654,11 +3669,16 @@ TESTCASE(xcm, tls_auth_conf)
 	    "  - type: key\n"
 	    "    id: b\n"
 	    "    path: trusted/key.pem\n"
-	    /* XXX: CA bundle should not be needed */
+	    "  - type: cert\n"
+	    "    id: x\n"
+	    "    path: unrelated/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: x\n"
+	    "    path: unrelated/key.pem\n"
 	    "  - type: bundle\n"
 	    "    certs:\n"
-	    "      - root-b\n"
-	    "    path: trusted/tc.pem\n"
+	    "      - root-x\n"
+	    "    path: unrelated/tc.pem\n"
 	    )
 	);
 
@@ -3670,24 +3690,30 @@ TESTCASE(xcm, tls_auth_conf)
 
     struct xcm_attr_map *trusted_attrs =
 	create_cert_attrs(get_cert_base(), "trusted/cert.pem",
-			  "trusted/key.pem", "trusted/tc.pem");
+			  "trusted/key.pem", NULL);
+
+    struct xcm_attr_map *unrelated_attrs =
+	create_cert_attrs(get_cert_base(), "unrelated/cert.pem",
+			  "unrelated/key.pem", "unrelated/tc.pem");
 
     char *tls_addr = gen_tls_addr();
-
-    CHKNOERR(establish_2tls(tls_addr, trusted_attrs, accept_attrs,
-			    truster_attrs, false));
 
     xcm_attr_map_add_bool(trusted_attrs, "tls.auth", false);
     CHKNOERR(establish_2tls(tls_addr, trusted_attrs, accept_attrs,
 			    truster_attrs, true));
-
     CHKNOERR(establish_2tls(tls_addr, truster_attrs, accept_attrs,
 			    trusted_attrs, true));
 
-    xcm_attr_map_add_bool(trusted_attrs, "tls.auth", true);
-    xcm_attr_map_add_bool(accept_attrs, "tls.auth", false);
+    CHKNOERR(establish_2tls(tls_addr, unrelated_attrs, truster_attrs,
+			    trusted_attrs, true));
+
+    xcm_attr_map_add_bool(accept_attrs, "tls.auth", true);
     CHKNOERR(establish_2tls(tls_addr, trusted_attrs, accept_attrs,
-			    truster_attrs, true));
+			    truster_attrs, false));
+
+    xcm_attr_map_add_bool(truster_attrs, "tls.auth", false);
+    /* Setting tls.tc_file should be disallowed when tls.auth is false */
+    CHKNULLERRNO(tu_server_a(tls_addr, truster_attrs), EINVAL);
 
     xcm_attr_map_destroy(accept_attrs);
     xcm_attr_map_destroy(truster_attrs);
@@ -4059,6 +4085,33 @@ TESTCASE(xcm, tls_name_verification)
     xcm_attr_map_destroy(client0_attrs);
     xcm_attr_map_destroy(client0_dns_attrs);
     xcm_attr_map_destroy(client1_attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_invalid_name_verification_conf)
+{
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "tls.peer_names", "foo");
+
+    char *xtls_addr = gen_tls_or_btls_addr();
+
+    CHKNULLERRNO(tu_server_a(xtls_addr, attrs), EINVAL);
+    CHKNULLERRNO(tu_connect_a(xtls_addr, attrs), EINVAL);
+
+    xcm_attr_map_add_bool(attrs, "tls.verify_peer_name", false);
+
+    CHKNULLERRNO(tu_server_a(xtls_addr, attrs), EINVAL);
+    CHKNULLERRNO(tu_connect_a(xtls_addr, attrs), EINVAL);
+
+    xcm_attr_map_add_bool(attrs, "tls.verify_peer_name", true);
+
+    struct xcm_socket *server_sock = tu_server_a(xtls_addr, attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(xcm_close(server_sock));
+
+    xcm_attr_map_destroy(attrs);
 
     return UTEST_SUCCESS;
 }

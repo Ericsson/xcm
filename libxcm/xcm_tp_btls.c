@@ -64,14 +64,20 @@ struct btls_socket
 {
     char laddr[XCM_ADDR_MAX+1];
 
-    char *cert_file;
-    char *key_file;
-    char *tc_file;
-
     bool tls_auth;
     bool tls_client;
     bool verify_peer_name;
+
+    /* Track if certain attributes are changed during socket creation,
+       to allow for proper TLS configuration consistency check */
+    bool valid_peer_names_set;
+    bool tc_file_set;
+
     struct slist *valid_peer_names;
+
+    char *cert_file;
+    char *key_file;
+    char *tc_file;
 
     struct epoll_reg fd_reg;
 
@@ -245,7 +251,8 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
 
     bts->cert_file = ut_strdup(parent_bts->cert_file);
     bts->key_file = ut_strdup(parent_bts->key_file);
-    bts->tc_file = ut_strdup(parent_bts->tc_file);
+    bts->tc_file =
+	parent_bts->tc_file != NULL ? ut_strdup(parent_bts->tc_file) : NULL;
 
     bts->tls_auth = parent_bts->tls_auth;
 
@@ -280,7 +287,7 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 
 	tcp_opts_init(&bts->conn.tcp_opts);
 
-	if (parent)
+	if (parent != NULL)
 	    inherit_tls_conf(s, parent);
 
 	break;
@@ -735,12 +742,37 @@ static char *get_tc_file(const char *ns, const char *cert_dir)
     return get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir);
 }
 
-static int finalize_cert_files(struct xcm_socket *s)
+static int finalize_tls_conf(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    if (bts->cert_file != NULL && bts->key_file != NULL && bts->tc_file != NULL)
+    if (!bts->tls_auth && bts->tc_file != NULL) {
+	if (bts->tc_file_set) {
+	    LOG_TLS_TRUSTED_CA_SET_BUT_NO_AUTH(s, bts->tc_file);
+	    goto err_inval;
+	}
+	/* trusted CAs inherited from parent socket, but not needed */
+	ut_free(bts->tc_file);
+	bts->tc_file = NULL;
+    }
+
+    if (!bts->verify_peer_name && bts->valid_peer_names != NULL) {
+	if (bts->valid_peer_names_set) {
+	    LOG_TLS_VALID_PEER_NAMES_SET_BUT_VERIFICATION_DISABLED(s);
+	    goto err_inval;
+	}
+	/* now-redundant valid peer names inherited from parent */
+	slist_destroy(bts->valid_peer_names);
+	bts->valid_peer_names = NULL;
+    }
+
+    if (bts->cert_file != NULL && bts->key_file != NULL &&
+	(!bts->tls_auth || bts->tc_file != NULL))
 	return 0;
+
+    /* The reason this is not done in the socket init function, is to
+       avoid unnessesariy syscalls in case the user has passed all
+       needed filenames as socket attributes */
 
     char ns[NAME_MAX];
 
@@ -758,10 +790,14 @@ static int finalize_cert_files(struct xcm_socket *s)
 	bts->cert_file = get_cert_file(ns, cert_dir);
     if (bts->key_file == NULL)
 	bts->key_file = get_key_file(ns, cert_dir);
-    if (bts->tc_file == NULL)
+    if (bts->tc_file == NULL && bts->tls_auth)
 	bts->tc_file = get_tc_file(ns, cert_dir);
 
     return 0;
+
+err_inval:
+    errno = EINVAL;
+    return -1;
 }
 
 static int btls_connect(struct xcm_socket *s, const char *remote_addr)
@@ -770,7 +806,7 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 
     LOG_CONN_REQ(remote_addr);
 
-    if (finalize_cert_files(s) < 0)
+    if (finalize_tls_conf(s) < 0)
 	goto err_deinit;
 
     if (xcm_addr_parse_btls(remote_addr, &bts->conn.remote_host,
@@ -779,8 +815,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err_deinit;
     }
 
+    ut_assert(bts->tls_auth == (bts->tc_file != NULL));
+    if (!bts->tls_auth)
+	LOG_TLS_AUTH_DISABLED(s);
+
     bts->ssl_ctx = ctx_store_get_ctx(bts->tls_client, bts->cert_file,
-				    bts->key_file, bts->tc_file);
+				     bts->key_file, bts->tc_file);
 
     if (!bts->ssl_ctx)
 	goto err_deinit;
@@ -793,11 +833,6 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-
-    if (!bts->tls_auth) {
-	LOG_TLS_AUTH_DISABLED(s);
-	SSL_set_verify(bts->conn.ssl, SSL_VERIFY_NONE, NULL);
-    }
 
     if (bts->verify_peer_name)  {
 	if (bts->conn.remote_host.type == xcm_addr_type_name &&
@@ -855,7 +890,7 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
 	goto err_deinit;
     }
 
-    if (finalize_cert_files(s) < 0)
+    if (finalize_tls_conf(s) < 0)
 	goto err_deinit;
     
     /*
@@ -875,6 +910,10 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
 				    bts->key_file, bts->tc_file);
     if (bts->ssl_ctx == NULL)
 	goto err_deinit;
+
+    ut_assert(bts->tls_auth == (bts->tc_file != NULL));
+    if (!bts->tls_auth)
+	LOG_TLS_AUTH_DISABLED(s);
 
     if (xcm_dns_resolve_sync(&host, s) < 0)
 	goto err_deinit;
@@ -973,7 +1012,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (ut_set_blocking(conn_fd, false) < 0)
 	goto err_close;
 
-    if (finalize_cert_files(conn_s) < 0)
+    if (finalize_tls_conf(conn_s) < 0)
 	goto err_close;
 
     conn_bts->ssl_ctx =
@@ -993,10 +1032,9 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     SSL_set_mode(conn_bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-    if (!conn_bts->tls_auth) {
+    ut_assert(conn_bts->tls_auth == (conn_bts->tc_file != NULL));
+    if (!conn_bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(conn_s);
-	SSL_set_verify(conn_bts->conn.ssl, SSL_VERIFY_NONE, NULL);
-    }
 
     if (conn_bts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
 	goto err_close;
@@ -1419,23 +1457,34 @@ GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
 
-#define GEN_SET_FILE(file)						\
-    static int set_ ## file ## _attr(struct xcm_socket *s,		\
-				     void *context,			\
-				     const void *value, size_t len)	\
-    {									\
-	struct btls_socket *bts = TOBTLS(s);				\
-	if (s->type == xcm_socket_type_conn &&				\
-	    bts->conn.state != conn_state_initialized) {		\
-	    errno = EACCES;						\
-	    return -1;							\
-	}								\
-	ut_free(bts->file);						\
-	bts->file = ut_strdup(value);					\
-	return 0;							\
-    }
+static int set_file_attr(struct xcm_socket *s, void *context,
+			 const void *value, size_t len,
+			 char **target, bool *mark)
+{
+    struct btls_socket *bts = TOBTLS(s);
 
-GEN_SET_FILE(cert_file)
+    if (s->type == xcm_socket_type_conn &&
+	    bts->conn.state != conn_state_initialized) {
+	    errno = EACCES;
+	    return -1;
+	}
+
+    ut_free(*target);
+
+    *target = ut_strdup(value);
+
+    if (mark != NULL)
+	*mark = true;
+
+    return 0;
+}
+
+static int set_cert_file_attr(struct xcm_socket *s, void *context,
+			      const void *value, size_t len)
+{
+    return set_file_attr(s, context, value, len,
+			 &(TOBTLS(s)->cert_file), NULL);
+}
 
 static int get_cert_file_attr(struct xcm_socket *s, void *context,
 			      void *value, size_t capacity)
@@ -1443,7 +1492,12 @@ static int get_cert_file_attr(struct xcm_socket *s, void *context,
     return xcm_tp_get_str_attr(TOBTLS(s)->cert_file, value, capacity);
 }
 
-GEN_SET_FILE(key_file)
+static int set_key_file_attr(struct xcm_socket *s, void *context,
+			      const void *value, size_t len)
+{
+    return set_file_attr(s, context, value, len,
+			 &(TOBTLS(s)->key_file), NULL);
+}
 
 static int get_key_file_attr(struct xcm_socket *s, void *context,
 			     void *value, size_t capacity)
@@ -1451,12 +1505,23 @@ static int get_key_file_attr(struct xcm_socket *s, void *context,
     return xcm_tp_get_str_attr(TOBTLS(s)->key_file, value, capacity);
 }
 
-GEN_SET_FILE(tc_file)
+static int set_tc_file_attr(struct xcm_socket *s, void *context,
+			    const void *value, size_t len)
+{
+    return set_file_attr(s, context, value, len,
+			 &(TOBTLS(s)->tc_file), &(TOBTLS(s)->tc_file_set));
+}
 
 static int get_tc_file_attr(struct xcm_socket *s, void *context,
 			    void *value, size_t capacity)
 {
-    return xcm_tp_get_str_attr(TOBTLS(s)->tc_file, value, capacity);
+    const char *tc_file = TOBTLS(s)->tc_file;
+    if (tc_file != NULL)
+	return xcm_tp_get_str_attr(tc_file, value, capacity);
+    else {
+	errno = ENOENT;
+	return -1;
+    }
 }
 
 static int set_verify_peer_name_attr(struct xcm_socket *s, void *context,
@@ -1537,8 +1602,6 @@ static int set_peer_names_attr(struct xcm_socket *s, void *context,
 	bts->valid_peer_names = NULL;
     }
 
-    /* XXX: check strings to be valid hostnames */
-
     struct slist *new_names = slist_split(value, SAN_DELIMITER);
 
     if (slist_len(new_names) > 0) {
@@ -1556,6 +1619,8 @@ static int set_peer_names_attr(struct xcm_socket *s, void *context,
 	bts->valid_peer_names = new_names;
     } else
 	slist_destroy(new_names);
+
+    bts->valid_peer_names_set = true;
 
     return 0;
 }
