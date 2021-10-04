@@ -911,6 +911,32 @@ extern "C" {
  * extended key usage extension, if present in the remote peer's
  * certificate.
  *
+ * @subsubsection tls_version TLS Protocol Version and Features
+ *
+ * The TLS transport uses only TLS 1.2 and, if the XCM library is
+ * built with OpenSSL 1.1.1 or later, TLS 1.3 as well.
+ *
+ * TLS 1.2 renegotiation is disabled, if the XCM library is built with
+ * OpenSSL 1.1.1c or later.
+ *
+ * The TLS transport disables both client and server-side TLS session
+ * caching, and thus does not allow for TLS session reuse across TCP
+ * connections.
+ *
+ * @subsubsection tls_ciphers Ciphers
+ *
+ * The TLS 1.2 cipher list is (in order of preference, using OpenSSL
+ * naming): ECDHE-ECDSA-AES128-GCM-SHA256,
+ * ECDHE-ECDSA-AES256-GCM-SHA384, ECDHE-ECDSA-CHACHA20-POLY1305,
+ * ECDHE-RSA-AES128-GCM-SHA256, ECDHE-RSA-AES256-GCM-SHA384,
+ * ECDHE-RSA-CHACHA20-POLY1305, DHE-RSA-AES128-GCM-SHA256,
+ * DHE-RSA-AES256-GCM-SHA384, and DHE-RSA-CHACHA20-POLY1305.
+ *
+ * The TLS 1.3 cipher suites used are: TLS_AES_256_GCM_SHA384,
+ * TLS_CHACHA20_POLY1305_SHA256 and TLS_AES_128_GCM_SHA256.
+ *
+ * The TLS cipher lists are neither build- nor run-time configurable.
+ *
  * @subsubsection tls_certificates Certificate and Key Storage
  *
  * The TLS transport reads the leaf certificate and its private key
@@ -1011,7 +1037,7 @@ extern "C" {
  * @subsubsection tls_auth Authentication
  *
  * By default, both the client and server side authenticate the other
- * peer, often known as _mutual TLS_ (mTLS).
+ * peer, often referred to as _mutual TLS_ (mTLS).
  *
  * TLS remote peer authentication may be disabled by setting the
  * "tls.auth" socket attribute to false.
@@ -1149,8 +1175,8 @@ extern "C" {
  * @subsection btls_transport BTLS Transport
  *
  * The BTLS transport uses the Transport Layer Security (TLS) protocol
- * to provide a secure, private, two-way authenticated byte stream
- * service over TCP.
+ * to provide a secure, private, two-way authenticated byte
+ * stream service over TCP.
  *
  * Unlike the @ref tls_transport, BTLS doesn't have a framing header
  * nor anything else on the wire protocol level that is specific to
