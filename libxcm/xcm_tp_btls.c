@@ -669,10 +669,13 @@ static void try_finish_tls_handshake(struct xcm_socket *s)
 	process_ssl_error(s, 0, rc, accept_errno);
     else {
 	BTLS_SET_STATE(s, conn_state_ready);
+
 	if (bts->tls_auth)
 	    verify_peer_cert(s);
 	if (bts->conn.state == conn_state_ready)
-	    LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s));
+	    LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s),
+				     SSL_get_version(bts->conn.ssl),
+				     SSL_get_cipher_name(bts->conn.ssl));
     }
 }
 

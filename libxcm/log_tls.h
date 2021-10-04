@@ -14,8 +14,12 @@
     log_debug_sock(s, "Attempting to finish TLS handshake, in TLS %s role.", \
 		   (client) ? "client" : "server")
 
-#define LOG_TLS_CONN_ESTABLISHED(s, fd)		\
-    LOG_CONN_ESTABLISHED("TLS", s, fd)
+#define LOG_TLS_CONN_ESTABLISHED(s, fd, proto_name, cipher_name)	\
+    do {								\
+	LOG_CONN_ESTABLISHED("TLS", s, fd);				\
+	log_debug_sock(s, "Protocol: %s Cipher: %s.", proto_name,	\
+		       cipher_name);					\
+    } while (0)
 
 #define LOG_TLS_VERIFY_MISSING_PEER_NAMES(s)				\
     log_debug_sock(s, "Hostname verification enabled, but no peer names " \
@@ -53,8 +57,12 @@
 #define LOG_TLS_PEER_CERT_NOT_OK(s, reason)				\
     log_debug_sock(s, "Peer certificate verification failed: %s.", reason)
 
-#define LOG_TLS_CIPHERS(cipher_list)			\
-    log_debug("Setting cipher list to \"%s\".", cipher_list)
+#define LOG_TLS_CIPHERS(proto_major, proto_minor, ciphers)		\
+    log_debug("Setting TLS %d.%d ciphers to \"%s\".", proto_major,	\
+	      proto_minor, ciphers)
+
+#define LOG_TLS_1_2_CIPHERS(ciphers)	\
+    LOG_TLS_CIPHERS(1, 2, ciphers)
 
 #define LOG_TLS_CERT_FILES(cert_file, key_file, tc_file)		\
     do {								\
