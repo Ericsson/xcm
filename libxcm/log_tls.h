@@ -64,6 +64,9 @@
 #define LOG_TLS_1_2_CIPHERS(ciphers)	\
     LOG_TLS_CIPHERS(1, 2, ciphers)
 
+#define LOG_TLS_1_3_CIPHERS(ciphers)	\
+    LOG_TLS_CIPHERS(1, 3, ciphers)
+
 #define LOG_TLS_CERT_FILES(cert_file, key_file, tc_file)		\
     do {								\
 	if (tc_file != NULL)						\
