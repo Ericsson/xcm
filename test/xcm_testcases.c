@@ -3718,6 +3718,7 @@ TESTCASE(xcm, tls_auth_conf)
     xcm_attr_map_destroy(accept_attrs);
     xcm_attr_map_destroy(truster_attrs);
     xcm_attr_map_destroy(trusted_attrs);
+    xcm_attr_map_destroy(unrelated_attrs);
 
     ut_free(tls_addr);
 
@@ -4112,6 +4113,8 @@ TESTCASE(xcm, tls_invalid_name_verification_conf)
     CHKNOERR(xcm_close(server_sock));
 
     xcm_attr_map_destroy(attrs);
+
+    ut_free(xtls_addr);
 
     return UTEST_SUCCESS;
 }
