@@ -2033,7 +2033,7 @@ static int run_non_established_connect(const char *proto)
     char addr[64];
     snprintf(addr, sizeof(addr), "%s:127.0.0.1:%d", proto, tcp_port);
 
-    struct xcm_socket *conn = xcm_connect(addr, XCM_NONBLOCK);
+    struct xcm_socket *conn = tu_connect(addr, XCM_NONBLOCK);
     int fin_rc;
     int fin_errno;
 
@@ -2090,6 +2090,8 @@ TESTCASE(xcm, non_established_non_blocking_connect)
 #ifdef XCM_TLS
     if (rc == UTEST_SUCCESS)
 	rc = run_non_established_connect("tls");
+    if (rc == UTEST_SUCCESS)
+	rc = run_non_established_connect("btls");
 #endif
 
     return rc;
@@ -2156,7 +2158,7 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
     if (mode == on_rx || mode == on_rx_pending_tx) {
 	if (mode == on_rx_pending_tx)
 	    other_rc = xcm_send(conn_socket, buf, sizeof(buf));
-	if (other_rc == 0)
+	if (other_rc >= 0)
 	    other_rc = wait_for_xcm(conn_socket, XCM_SO_RECEIVABLE);
 	errno = 0;
 	do {
@@ -2221,7 +2223,7 @@ TESTCASE_TIMEOUT(xcm, tcp_dead_peer_detection, 60.0)
 
 #ifdef XCM_TLS
 
-TESTCASE_TIMEOUT(xcm, tls_dead_peer_detection, 60.0)
+TESTCASE_TIMEOUT(xcm, tls_dead_peer_detection, 120.0)
 {
     REQUIRE_ROOT;
 
@@ -2229,6 +2231,12 @@ TESTCASE_TIMEOUT(xcm, tls_dead_peer_detection, 60.0)
 	return UTEST_FAIL;
     if (run_dead_peer_detection("tls", AF_INET6) < 0)
 	return UTEST_FAIL;
+
+    if (run_dead_peer_detection("btls", AF_INET) < 0)
+	return UTEST_FAIL;
+    if (run_dead_peer_detection("btls", AF_INET6) < 0)
+	return UTEST_FAIL;
+
     return UTEST_SUCCESS;
 }
 
@@ -2244,7 +2252,7 @@ static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
     char addr[64];
     snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
 
-    struct xcm_socket *server_sock = xcm_server(addr);
+    struct xcm_socket *server_sock = tu_server(addr);
     CHK(server_sock);
 
     CHKNOERR(set_blocking(server_sock, false));
@@ -2254,7 +2262,7 @@ static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
     xcm_attr_map_add_bool(attrs, "tcp.keepalive", false);
     xcm_attr_map_add_int64(attrs, "tcp.keepalive_count", 1);
 
-    struct xcm_socket *client_sock = xcm_connect_a(addr, attrs);
+    struct xcm_socket *client_sock = tu_connect_a(addr, attrs);
     CHK(client_sock != NULL);
 
     CHKNOERR(tu_assure_int64_attr(client_sock, "tcp.keepalive_count",
@@ -2344,6 +2352,12 @@ TESTCASE(xcm, tls_keepalive_attr)
 	return UTEST_FAIL;
 
     if (run_keepalive_attr("tls", AF_INET6) < 0)
+	return UTEST_FAIL;
+
+    if (run_keepalive_attr("btls", AF_INET) < 0)
+	return UTEST_FAIL;
+
+    if (run_keepalive_attr("btls", AF_INET6) < 0)
 	return UTEST_FAIL;
 
     return UTEST_SUCCESS;
