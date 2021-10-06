@@ -60,6 +60,8 @@ struct sctp_socket
 	    struct xcm_dns_query *query;
 
 	    char raddr[XCM_ADDR_MAX+1];
+
+	    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
 	} conn;
     };
 };
@@ -84,6 +86,7 @@ static const char *sctp_get_remote_addr(struct xcm_socket *conn_s,
 static const char *sctp_get_local_addr(struct xcm_socket *socket,
 				       bool suppress_tracing);
 static size_t sctp_max_msg(struct xcm_socket *conn_s);
+static int64_t sctp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static void sctp_get_attrs(struct xcm_socket *s,
 			   const struct xcm_tp_attr **attr_list,
 			   size_t *attr_list_len);
@@ -103,6 +106,7 @@ static struct xcm_tp_ops sctp_ops = {
     .get_remote_addr = sctp_get_remote_addr,
     .get_local_addr = sctp_get_local_addr,
     .max_msg = sctp_max_msg,
+    .get_cnt = sctp_get_cnt,
     .get_attrs = sctp_get_attrs,
     .priv_size = sctp_priv_size
 };
@@ -607,9 +611,9 @@ static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len)
 	goto err;
 
     LOG_SEND_ACCEPTED(s, buf, len);
-    CNT_MSG_INC(&s->cnt, from_app, len);
-    LOG_LOWER_DELIVERED_COMPL(s, buf, len);
-    CNT_MSG_INC(&s->cnt, to_lower, len);
+    XCM_TP_CNT_MSG_INC(ss->conn.cnts, from_app, len);
+    LOG_LOWER_DELIVERED_COMPL(s, len);
+    XCM_TP_CNT_MSG_INC(ss->conn.cnts, to_lower, len);
 
     return 0;
 
@@ -644,9 +648,9 @@ static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity)
 
     if (rc > 0) {
 	LOG_RCV_MSG(s, buf, rc);
-	CNT_MSG_INC(&s->cnt, from_lower, rc);
+	XCM_TP_CNT_MSG_INC(ss->conn.cnts, from_lower, rc);
 	LOG_APP_DELIVERED(s, buf, rc);
-	CNT_MSG_INC(&s->cnt, to_app, rc);
+	XCM_TP_CNT_MSG_INC(ss->conn.cnts, to_app, rc);
 	return UT_MIN(rc, capacity);
     } else if (rc == 0) {
 	LOG_RCV_EOF(s);
@@ -804,6 +808,15 @@ static const char *sctp_get_local_addr(struct xcm_socket *s,
 static size_t sctp_max_msg(struct xcm_socket *s)
 {
     return SCTP_MAX_MSG;
+}
+
+static int64_t sctp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
+{
+    struct sctp_socket *ss = TOSCTP(conn_s);
+
+    ut_assert(cnt < XCM_TP_NUM_MESSAGING_CNTS);
+
+    return ss->conn.cnts[cnt];
 }
 
 static void sctp_get_attrs(struct xcm_socket *s,
