@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: BSD-3-Clause
- * Copyright(c) 2020 Ericsson AB
+ * Copyright(c) 2020-2021 Ericsson AB
  */
 
 #ifndef XCM_H
@@ -33,25 +33,25 @@ extern "C" {
  * @section overview Overview
  *
  * XCM is an inter-process communication API and an implementation of
- * this API in the form a library. For certain transports, XCM may
- * also be used to denote a tiny bit of wire protocol, providingx
- * framing over byte-stream transport protocols.
+ * this C API in the form a shared library. For certain transports,
+ * XCM may also be used to denote a tiny bit of wire protocol,
+ * providing framing over byte stream transport protocols.
  *
- * The XCM library includes a set of inter-process communication
- * transports - all hosted under the same API. A XCM transport
- * provides a connection-oriented, reliable service, with in-order
- * delivery. There are two types of transports; one providing a
- * messaging service and another providing a byte stream.
+ * The primary component of the XCM library is a set of inter-process
+ * communication transports - all hosted under the same API. A XCM
+ * transport provides a connection-oriented, reliable service, with
+ * in-order delivery. There are two types of transports; one providing
+ * a messaging service and another providing a byte stream.
  *
- * The XCM API allows a straight-forward mapping to TCP and TLS for
- * remote communcation, as well as more efficient inter-process
+ * The XCM API allows a straight-forward mapping to TLS, TCP and SCTP
+ * for remote communcation, as well as more efficient inter-process
  * commmunication (IPC) mechanisms for local communication.
  *
  * This document focuses on the API, but also contains information
  * specific to the implementation.
  *
  * XCM reuses much of the terminology of the BSD Sockets API. Compared
- * to thex BSD Socket API, XCM has more uniform semantics across all
+ * to the BSD Socket API, XCM has more uniform semantics across
  * underlying transports.
  *
  * @section semantics Overall Semantics
@@ -59,28 +59,27 @@ extern "C" {
  * XCM implements a connection-oriented, client-server model. The
  * server process creates one or more server sockets (e.g, with
  * xcm_server()) bound to a specific address, after which clients may
- * initiate connections to the server. Upon connection establishment,
- * two connection sockets will be created; one on the server side
- * (e.g., returned from xcm_accept()), and one of the client side
- * (e.g., returned from xcm_connect()). Thus, a server serving
- * multiple clients will have multiple sockets; one server socket and
- * N connection sockets, one each for every client. A client will
- * typically have one connection socket for each server it is
- * connected to.
+ * successfully establish connections to the server. When a connection
+ * is establishment, two connection sockets will be created; one on
+ * the server side (e.g., returned from xcm_accept()), and one of the
+ * client side (e.g., returned from xcm_connect()). Thus, a server
+ * serving multiple clients will have multiple sockets; one server
+ * socket and N connection sockets, one each for every client. A
+ * client will typically have one connection socket for each server it
+ * is connected to.
  *
  * User application data (messages or bytes, depending on service
  * type) are always sent and received on a particular connection
- * socket (and never on a server socket).
+ * socket - never on a server socket.
  *
  * @subsection service_types Messaging and Byte Streams
  *
  * A XCM transport either provides a messaging or a byte stream service.
  *
- * Messaging transports preserve message boundaries between the sender
- * and the receiver. The buffer passed to xcm_send() constitutes one
- * (and only one) message. What's received on the other end, as
- * exactly one xcm_receive() call, is a buffer with the same length
- * and contents.
+ * Messaging transports preserve message boundaries across the
+ * network. The buffer passed to xcm_send() constitutes one (and only
+ * one) message. What's received on the other end, in exactly one
+ * xcm_receive() call, is a buffer with the same length and contents.
  *
  * The @ref ux_transport, @ref tcp_transport, @ref tls_transport, @ref
  * utls_transport, and @ref sctp_transport all provide a messaging type
@@ -100,20 +99,20 @@ extern "C" {
  * calls, each producing "ab", "c", and "d", respectively, or any
  * other combination.
  *
- * The @ref btls_transport transport provides a bytestream service.
+ * The @ref btls_transport transport provides a byte stream service.
  *
  * Applications that allow the user to configure an arbitrary XCM
- * address, but is designed to handle only a certain service type, may
- * limit what type of sockets may be instantiated to be of only the
- * messaging service type, or only byte stream, by passing the
+ * address, but are designed to handle only a certain service type,
+ * may limit what type of sockets may be instantiated to be of only
+ * the messaging service type, or only byte stream, by passing the
  * "xcm.service" attribute with the appropriate value (see @ref
  * xcm_attr for details) at the time of socket creation. Because of
  * XCM's history as a messaging-only framework, "xcm.service" defaults
  * to "messaging".
  *
  * Applications which are designed to handle both messaging and byte
- * stream transports may use the value of "xcm.service" to
- * differentiate the treatment where so is required (e.g., in
+ * stream transports may retrieve the value of "xcm.service" and use
+ * it to differentiate the treatment where so is required (e.g., in
  * xcm_send() return code handling).
  *
  * Connections spawned off a server socket (e.g., with xcm_accept())
@@ -224,7 +223,7 @@ extern "C" {
  *
  * @section error_handling Error Handling
  *
- * In general, XCM follow the UNIX system API tradition when it comes
+ * In general, XCM follows the UNIX system API tradition when it comes
  * to error handling. Where possible, errors are signaled to the
  * application by using unused parts of the value range of the
  * function return type. For functions returning signed integer types,
@@ -360,7 +359,7 @@ extern "C" {
  * which is often a good idea for performance reasons.
  *
  * For send operations on non-blocking connection sockets, XCM may
- * buffer whole or part of the message (or data, for bytestream
+ * buffer whole or part of the message (or data, for byte stream
  * transports) before transmission to the lower layer. This may be due
  * to socket output buffer underrun, or the need for some in-band
  * signaling, like cryptographic key exchange, to happen before the
@@ -665,7 +664,7 @@ extern "C" {
  *
  * @paragraph common_cnt_attr Byte Counter Attributes
  * 
- * These counters are available on both bytestream and messaging type
+ * These counters are available on both byte stream and messaging type
  * connection sockets.
  *
  * The byte counters are incremented with the length of the XCM data
