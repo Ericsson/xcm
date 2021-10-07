@@ -282,6 +282,11 @@ static bool is_tls_or_utls(const char *addr)
     return is_tls(addr) || is_utls(addr);
 }
 
+static bool is_sctp(const char *addr)
+{
+    return strncmp(addr, "sctp", 4) == 0;
+}
+
 static pid_t simple_server(const char *ns, const char *addr,
 			   const char *in_msg, const char *out_msg,
 			   const char *server_cert_dir,
@@ -910,7 +915,7 @@ TESTCASE(xcm, bulk_transfer)
 	struct xcm_socket *connect_sock = NULL;
 	struct xcm_socket *accepted_sock = NULL;
 
-	size_t data_size = is_in_valgrind() ?
+	size_t data_size = is_in_valgrind() || is_sctp(test_addr) ?
 	    tu_randint(1000000, 5*1000000) :
 	    tu_randint(10*1000000, 100*1000000);
 	char *data = ut_malloc(data_size);
