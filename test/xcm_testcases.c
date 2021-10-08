@@ -901,7 +901,7 @@ TESTCASE(xcm, basic)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, bulk_transfer)
+TESTCASE_TIMEOUT(xcm, bulk_transfer, 60)
 {
     int i;
     for (i = 0; i < test_all_addrs_len; i++) {
@@ -916,8 +916,8 @@ TESTCASE(xcm, bulk_transfer)
 	struct xcm_socket *accepted_sock = NULL;
 
 	size_t data_size = is_in_valgrind() || is_sctp(test_addr) ?
-	    tu_randint(1000000, 5*1000000) :
-	    tu_randint(10*1000000, 100*1000000);
+	    tu_randint(1000000, 2*1000000) :
+	    tu_randint(10*1000000, 20*1000000);
 	char *data = ut_malloc(data_size);
 	tu_randblk(data, data_size);
 
