@@ -23,8 +23,8 @@
     log_debug_sock(s, "Connection going from state \"%s\" to \"%s\"",	\
 		   state_name(from_state), state_name(to_state))
 
-#define LOG_CONN_REQ(addr)				\
-    log_debug("Attempting to connect to \"%s\".", addr)
+#define LOG_CONN_REQ(s, addr)					\
+    log_debug_sock(s, "Attempting to connect to \"%s\".", addr)
 
 #define LOG_CONN_CHECK(proto_name, s)				   \
     log_debug_sock(s, "Checking status of on-going %s connection " \
@@ -69,8 +69,8 @@
     log_debug("Parsing of address \"%s\" failed; errno %d (%s).", addr, \
 	      reason_errno, strerror(reason_errno))
 
-#define LOG_SERVER_REQ(addr)						\
-    log_debug("Attempting to create server socket bound to \"%s\".", addr)
+#define LOG_SERVER_REQ(s, addr)						\
+    log_debug_sock(s, "Attempting to create server socket bound to \"%s\".", addr)
 
 #define LOG_SOCKET_CREATION_FAILED(reason_errno)		  \
     log_debug("Failed to create OS-level socket; errno %d (%s).", \

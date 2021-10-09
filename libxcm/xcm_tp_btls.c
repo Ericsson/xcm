@@ -807,7 +807,7 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    LOG_CONN_REQ(remote_addr);
+    LOG_CONN_REQ(s, remote_addr);
 
     if (finalize_tls_conf(s) < 0)
 	goto err_deinit;
@@ -823,7 +823,7 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	LOG_TLS_AUTH_DISABLED(s);
 
     bts->ssl_ctx = ctx_store_get_ctx(bts->tls_client, bts->cert_file,
-				     bts->key_file, bts->tc_file);
+				     bts->key_file, bts->tc_file, s);
 
     if (!bts->ssl_ctx)
 	goto err_deinit;
@@ -884,7 +884,7 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    LOG_SERVER_REQ(local_addr);
+    LOG_SERVER_REQ(s, local_addr);
 
     struct xcm_addr_host host;
     uint16_t port;
@@ -910,7 +910,7 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
      * changes XCM_TLS_CERT during runtime.
      */
     bts->ssl_ctx = ctx_store_get_ctx(bts->tls_client, bts->cert_file,
-				    bts->key_file, bts->tc_file);
+				     bts->key_file, bts->tc_file, s);
     if (bts->ssl_ctx == NULL)
 	goto err_deinit;
 
@@ -1020,7 +1020,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     conn_bts->ssl_ctx =
 	ctx_store_get_ctx(conn_bts->tls_client, conn_bts->cert_file,
-			  conn_bts->key_file, conn_bts->tc_file);
+			  conn_bts->key_file, conn_bts->tc_file, conn_s);
     if (conn_bts->ssl_ctx == NULL) {
 	errno = EPROTO;
 	goto err_close;

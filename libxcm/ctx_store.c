@@ -214,9 +214,11 @@ void ctx_store_init(void)
 }
 
 typedef SSL_CTX *(ctx_load_fun)(const char *cert_file, const char *key_file,
-				const char *tc_file, uint8_t *hash);
+				const char *tc_file, uint8_t *hash,
+				void *log_ref);
 
-static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow)
+static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow,
+			     void *log_ref)
 {
     struct stat statbuf;
     UT_SAVE_ERRNO;
@@ -224,7 +226,7 @@ static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow)
     UT_RESTORE_ERRNO(stat_errno);
 
     if (rc < 0) {
-	LOG_TLS_CERT_STAT_FAILED(file, stat_errno);
+	LOG_TLS_CERT_STAT_FAILED(log_ref, file, stat_errno);
 	return -1;
     }
 
@@ -237,27 +239,28 @@ static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow)
 		  sizeof(statbuf.st_mtim.tv_nsec));
 
     if (!follow && (statbuf.st_mode & S_IFMT) == S_IFLNK)
-	return do_hash_file_meta(file, ctx, true);
+	return do_hash_file_meta(file, ctx, true, log_ref);
 
     return 0;
 }
 
-static int hash_file_meta(const char *file, SHA256_CTX *ctx)
+static int hash_file_meta(const char *file, SHA256_CTX *ctx, void *log_ref)
 {
-    return do_hash_file_meta(file, ctx, false);
+    return do_hash_file_meta(file, ctx, false, log_ref);
 }
 
 static int get_cert_files_hash(const char *cert_file, const char *key_file,
-			       const char *tc_file, uint8_t *hash)
+			       const char *tc_file, uint8_t *hash,
+			       void *log_ref)
 {
     SHA256_CTX ctx;
     SHA256_Init(&ctx);
 
-    if (hash_file_meta(cert_file, &ctx) < 0)
+    if (hash_file_meta(cert_file, &ctx, log_ref) < 0)
 	return -1;
-    if (hash_file_meta(key_file, &ctx) < 0)
+    if (hash_file_meta(key_file, &ctx, log_ref) < 0)
 	return -1;
-    if (tc_file != NULL && hash_file_meta(tc_file, &ctx) < 0)
+    if (tc_file != NULL && hash_file_meta(tc_file, &ctx, log_ref) < 0)
 	return -1;
 
     SHA256_Final(hash, &ctx);
@@ -272,7 +275,7 @@ static bool hash_equal(const uint8_t *hash_a, const uint8_t *hash_b)
 
 static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
 				  const char *key_file, const char *tc_file,
-				  ctx_load_fun load_fun)
+				  ctx_load_fun load_fun, void *log_ref)
 {
     cache_lock(cache);
 
@@ -282,24 +285,26 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
     if (entry != NULL) {
 	uint8_t hash[SHA256_DIGEST_LENGTH];
 
-	if (get_cert_files_hash(cert_file, key_file, tc_file, hash) < 0)
+	if (get_cert_files_hash(cert_file, key_file, tc_file, hash,
+				log_ref) < 0)
 	    return NULL;
 
-	LOG_TLS_CTX_HASH(cert_file, key_file, tc_file,
+	LOG_TLS_CTX_HASH(log_ref, cert_file, key_file, tc_file,
 			 hash, SHA256_DIGEST_LENGTH);
 
 	if (!hash_equal(hash, entry->hash)) {
-	    LOG_TLS_CTX_FILES_CHANGED;
+	    LOG_TLS_CTX_FILES_CHANGED(log_ref);
 	    cache_invalidate(cache, entry);
 	    entry = NULL;
 	}
     }
 
     if (entry != NULL)
-	LOG_TLS_CTX_REUSE(cert_file, key_file, tc_file);
+	LOG_TLS_CTX_REUSE(log_ref, cert_file, key_file, tc_file);
     else {
 	uint8_t hash[SHA256_DIGEST_LENGTH];
-	SSL_CTX *ssl_ctx = load_fun(cert_file, key_file, tc_file, hash);
+	SSL_CTX *ssl_ctx =
+	    load_fun(cert_file, key_file, tc_file, hash, log_ref);
 	if (ssl_ctx)
 	    entry = cache_install(cache, cert_file, key_file, tc_file,
 				  hash, ssl_ctx);
@@ -312,16 +317,17 @@ static SSL_CTX *ctx_cache_get_ctx(struct cache *cache, const char *cert_file,
 
 static bool cert_files_changed(const uint8_t *hash,
 			       const char *cert_file, const char *key_file,
-			       const char *tc_file)
+			       const char *tc_file, void *log_ref)
 {
     uint8_t new_hash[SHA256_DIGEST_LENGTH];
 
-    if (get_cert_files_hash(cert_file, key_file, tc_file, new_hash) < 0)
+    if (get_cert_files_hash(cert_file, key_file, tc_file, new_hash,
+			    log_ref) < 0)
 	return true;
 
     if (!hash_equal(new_hash, hash)) {
-	LOG_TLS_CTX_HASH_CHANGED(cert_file, key_file, tc_file, new_hash,
-				 SHA256_DIGEST_LENGTH);
+	LOG_TLS_CTX_HASH_CHANGED(log_ref, cert_file, key_file, tc_file,
+				 new_hash, SHA256_DIGEST_LENGTH);
 	return true;
     }
 
@@ -331,7 +337,7 @@ static bool cert_files_changed(const uint8_t *hash,
 static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
 					const char *key_file,
 					const char *tc_file,
-					uint8_t *hash)
+					uint8_t *hash, void *log_ref)
 {
     const SSL_METHOD* method = SSLv23_method();
     if (method == NULL) {
@@ -348,49 +354,50 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
     SSL_CTX_set_options(ssl_ctx, TLS_OPT_SET);
     SSL_CTX_clear_options(ssl_ctx, TLS_OPT_CLEAR);
 
-    LOG_TLS_1_2_CIPHERS(TLS_1_2_CIPHER_LIST);
+    LOG_TLS_1_2_CIPHERS(log_ref, TLS_1_2_CIPHER_LIST);
     int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_1_2_CIPHER_LIST);
     ut_assert(rc == 1);
 
 #ifdef HAS_TLS_1_3
-    LOG_TLS_1_3_CIPHERS(TLS_1_3_CIPHER_SUITES);
+    LOG_TLS_1_3_CIPHERS(log_ref, TLS_1_3_CIPHER_SUITES);
     rc = SSL_CTX_set_ciphersuites(ssl_ctx, TLS_1_3_CIPHER_SUITES);
     ut_assert(rc == 1);
 #endif
 
     SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_OFF);
 
-    LOG_TLS_CERT_FILES(cert_file, key_file, tc_file);
+    LOG_TLS_CERT_FILES(log_ref, cert_file, key_file, tc_file);
 
     bool cert_changed = false;
 
-    if (get_cert_files_hash(cert_file, key_file, tc_file, hash) < 0)
+    if (get_cert_files_hash(cert_file, key_file, tc_file, hash, log_ref) < 0)
 	goto err_free;
 
-    LOG_TLS_CTX_HASH(cert_file, key_file, tc_file, hash, SHA256_DIGEST_LENGTH);
+    LOG_TLS_CTX_HASH(log_ref, cert_file, key_file, tc_file, hash,
+		     SHA256_DIGEST_LENGTH);
 
     if (tc_file != NULL &&
 	!SSL_CTX_load_verify_locations(ssl_ctx, tc_file, NULL)) {
-	LOG_TLS_ERR_LOADING_TC(tc_file);
+	LOG_TLS_ERR_LOADING_TC(log_ref, tc_file);
 	goto err_cert;
     }
 
     if (SSL_CTX_use_certificate_chain_file(ssl_ctx, cert_file) != 1) {
-	LOG_TLS_ERR_LOADING_CERT(cert_file);
+	LOG_TLS_ERR_LOADING_CERT(log_ref, cert_file);
 	goto err_cert;
     }
 
     if (SSL_CTX_use_PrivateKey_file(ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-	LOG_TLS_ERR_LOADING_KEY(key_file);
+	LOG_TLS_ERR_LOADING_KEY(log_ref, key_file);
 	goto err_cert;
     }
 
     if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
-	LOG_TLS_INCONSISTENT_KEY;
+	LOG_TLS_INCONSISTENT_KEY(log_ref);
 	goto err_cert;
     }
 
-    if (cert_files_changed(hash, cert_file, key_file, tc_file)) {
+    if (cert_files_changed(hash, cert_file, key_file, tc_file, log_ref)) {
 	cert_changed = true;
 	goto err_free;
     }
@@ -403,7 +410,7 @@ static SSL_CTX *try_load_ssl_ctx_common(const char *cert_file,
     return ssl_ctx;
 
 err_cert:
-    if (cert_files_changed(hash, cert_file, key_file, tc_file))
+    if (cert_files_changed(hash, cert_file, key_file, tc_file, log_ref))
 	cert_changed = true;
 err_free:
     SSL_CTX_free(ssl_ctx);
@@ -414,12 +421,13 @@ err_free:
 static SSL_CTX *load_ssl_ctx_common(const char *cert_file,
 				    const char *key_file,
 				    const char *tc_file,
-				    uint8_t *hash)
+				    uint8_t *hash, void *log_ref)
 {
     SSL_CTX *ctx;
 
     do {
-	ctx = try_load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
+	ctx = try_load_ssl_ctx_common(cert_file, key_file, tc_file, hash,
+				      log_ref);
     } while (ctx == NULL && errno == EAGAIN);
 
     return ctx;
@@ -428,12 +436,12 @@ static SSL_CTX *load_ssl_ctx_common(const char *cert_file,
 static SSL_CTX *load_client_ssl_ctx(const char *cert_file,
 				    const char *key_file,
 				    const char *tc_file,
-				    uint8_t *hash)
+				    uint8_t *hash, void *log_ref)
 {
-    LOG_TLS_CREATING_CLIENT_CTX(cert_file, key_file, tc_file);
+    LOG_TLS_CREATING_CLIENT_CTX(log_ref, cert_file, key_file, tc_file);
 
     SSL_CTX *ssl_ctx =
-	load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
+	load_ssl_ctx_common(cert_file, key_file, tc_file, hash, log_ref);
     if (ssl_ctx == NULL) {
 	errno = EPROTO;
 	return NULL;
@@ -450,12 +458,12 @@ static SSL_CTX *load_client_ssl_ctx(const char *cert_file,
 static SSL_CTX *load_server_ssl_ctx(const char *cert_file,
 				    const char *key_file,
 				    const char *tc_file,
-				    uint8_t *hash)
+				    uint8_t *hash, void *log_ref)
 {
-    LOG_TLS_CREATING_SERVER_CTX(cert_file, key_file, tc_file);
+    LOG_TLS_CREATING_SERVER_CTX(log_ref, cert_file, key_file, tc_file);
 
     SSL_CTX *ssl_ctx =
-	load_ssl_ctx_common(cert_file, key_file, tc_file, hash);
+	load_ssl_ctx_common(cert_file, key_file, tc_file, hash, log_ref);
     if (!ssl_ctx)
 	goto err;
 
@@ -466,7 +474,7 @@ static SSL_CTX *load_server_ssl_ctx(const char *cert_file,
 
 	STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
 	if (cert_names == NULL) {
-	    LOG_TLS_ERR_LOADING_TC(tc_file);
+	    LOG_TLS_ERR_LOADING_TC(log_ref, tc_file);
 	    goto err_free_ctx;
 	}
 
@@ -484,14 +492,15 @@ err:
 }
 
 SSL_CTX *ctx_store_get_ctx(bool client, const char *cert_file,
-			   const char *key_file, const char *tc_file)
+			   const char *key_file, const char *tc_file,
+			   void *log_ref)
 {
     if (client)
 	return ctx_cache_get_ctx(&client_cache, cert_file, key_file, tc_file,
-				 load_client_ssl_ctx);
+				 load_client_ssl_ctx, log_ref);
     else
 	return ctx_cache_get_ctx(&server_cache, cert_file, key_file, tc_file,
-				 load_server_ssl_ctx);
+				 load_server_ssl_ctx, log_ref);
 }
 
 void ctx_store_put(SSL_CTX *ssl_ctx)

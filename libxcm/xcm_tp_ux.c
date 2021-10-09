@@ -189,7 +189,7 @@ static int ux_init(struct xcm_socket *s, struct xcm_socket *parent)
 static int ux_connect(struct xcm_socket *s, const char *remote_addr)
 {
 
-    LOG_CONN_REQ(remote_addr);
+    LOG_CONN_REQ(s, remote_addr);
 
     struct sockaddr_un servaddr = {
 	.sun_family = AF_UNIX
@@ -272,7 +272,7 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
 {
     struct ux_socket *us = TOUX(s);
 
-    LOG_SERVER_REQ(local_addr);
+    LOG_SERVER_REQ(s, local_addr);
 
     struct sockaddr_un addr = {
 	.sun_family = AF_UNIX

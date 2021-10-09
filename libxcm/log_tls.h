@@ -57,119 +57,128 @@
 #define LOG_TLS_PEER_CERT_NOT_OK(s, reason)				\
     log_debug_sock(s, "Peer certificate verification failed: %s.", reason)
 
-#define LOG_TLS_CIPHERS(proto_major, proto_minor, ciphers)		\
-    log_debug("Setting TLS %d.%d ciphers to \"%s\".", proto_major,	\
-	      proto_minor, ciphers)
+#define LOG_TLS_CIPHERS(s, proto_major, proto_minor, ciphers)		\
+    log_debug_sock(s, "Setting TLS %d.%d ciphers to \"%s\".", proto_major, \
+		   proto_minor, ciphers)
 
-#define LOG_TLS_1_2_CIPHERS(ciphers)	\
-    LOG_TLS_CIPHERS(1, 2, ciphers)
+#define LOG_TLS_1_2_CIPHERS(s, ciphers)		\
+    LOG_TLS_CIPHERS(s, 1, 2, ciphers)
 
-#define LOG_TLS_1_3_CIPHERS(ciphers)	\
-    LOG_TLS_CIPHERS(1, 3, ciphers)
+#define LOG_TLS_1_3_CIPHERS(s, ciphers)		\
+    LOG_TLS_CIPHERS(s, 1, 3, ciphers)
 
-#define LOG_TLS_CERT_FILES(cert_file, key_file, tc_file)		\
+#define LOG_TLS_CERT_FILES(s, cert_file, key_file, tc_file)		\
     do {								\
 	if (tc_file != NULL)						\
-	    log_debug("Using certificate file \"%s\", key \"%s\" and "	\
-		      "trust chain \"%s\".", cert_file, key_file, tc_file); \
+	    log_debug_sock(s, "Using certificate file \"%s\", key "	\
+			   "\"%s\" and trust chain \"%s\".", cert_file, \
+			   key_file, tc_file);				\
 	else								\
-	    log_debug("Using certificate file \"%s\" and key \"%s\". No " \
-		      "trusted CA bundle configured.", cert_file, key_file); \
+	    log_debug_sock(s, "Using certificate file \"%s\" and key "	\
+			   "\"%s\". No trusted CA bundle configured.",	\
+			   cert_file, key_file);			\
     } while (0)
 
-#define LOG_TLS_CERT_STAT_FAILED(filename, reason_errno)		\
-    log_debug("Error retrieving meta data for file \"%s\"; errno %d (%s).", \
-	      filename, reason_errno, strerror(reason_errno))
+#define LOG_TLS_CERT_STAT_FAILED(s, filename, reason_errno)	     \
+    log_debug_sock(s, "Error retrieving meta data for file \"%s\"; " \
+		   "errno %d (%s).", filename, reason_errno,	     \
+		   strerror(reason_errno))
 
-#define LOG_TLS_CREATING_CTX(type, cert_file, key_file, tc_file)	\
+#define LOG_TLS_CREATING_CTX(s, type, cert_file, key_file, tc_file)	\
     do {								\
 	if (tc_file != NULL)						\
-	    log_debug("Creating %s SSL context with certificate "	\
-		      "file \"%s\", key file \"%s\" and trusted CA file " \
-		      "\"%s\".", type, cert_file, key_file, tc_file);	\
+	    log_debug_sock(s, "Creating %s SSL context with certificate " \
+			   "file \"%s\", key file \"%s\" and trusted CA file " \
+			   "\"%s\".", type, cert_file, key_file, tc_file); \
 	else								\
-	    log_debug("Creating %s SSL context with certificate "	\
-		      "file \"%s\" and key file \"%s\". No trusted CAs " \
-		      "in use.", type, cert_file, key_file);		\
+	    log_debug_sock(s, "Creating %s SSL context with certificate " \
+			   "file \"%s\" and key file \"%s\". No trusted CAs " \
+			   "in use.", type, cert_file, key_file);	\
     } while (0)
 
-#define LOG_TLS_CREATING_CLIENT_CTX(cert_file, key_file, tc_file)	\
-    LOG_TLS_CREATING_CTX("client", cert_file, key_file, tc_file)
+#define LOG_TLS_CREATING_CLIENT_CTX(s, cert_file, key_file, tc_file)	\
+    LOG_TLS_CREATING_CTX(s, "client", cert_file, key_file, tc_file)
 
-#define LOG_TLS_CREATING_SERVER_CTX(cert_file, key_file, tc_file)	\
-    LOG_TLS_CREATING_CTX("server", cert_file, key_file, tc_file)
+#define LOG_TLS_CREATING_SERVER_CTX(s, cert_file, key_file, tc_file)	\
+    LOG_TLS_CREATING_CTX(s, "server", cert_file, key_file, tc_file)
 
 #define LOG_TLS_CTX_RETRY \
-    log_debug("Certificate files changed on disk during processing. " \
-	      "Retrying.")
+    log_debug_sock(s, "Certificate files changed on disk during " \
+		   "processing. Retrying.")
 
-#define LOG_TLS_CTX_REUSE(cert_file, key_file, tc_file)			\
+#define LOG_TLS_CTX_REUSE(s, cert_file, key_file, tc_file)		\
     do {								\
 	if (tc_file != NULL)						\
-	    log_debug("Using cached SSL context with certificate file "	\
-		      "\"%s\", key file \"%s\" and trust chain file "	\
-		      "\"%s\".",  cert_file, key_file, tc_file);	\
+	    log_debug_sock(s, "Using cached SSL context with "		\
+			   "certificate file \"%s\", key file \"%s\" "	\
+			   "and trust chain file \"%s\".", cert_file,	\
+			   key_file, tc_file);				\
 	else								\
-	    log_debug("Using cached SSL context with certificate file \"%s\"" \
-		      "and key file \"%s\". No trusted CAs in use.",	\
-		      cert_file, key_file);				\
+	    log_debug_sock(s, "Using cached SSL context with "		\
+			   "certificate file \"%s\" and key file "	\
+			   "\"%s\". No trusted CAs in use.",		\
+			   cert_file, key_file);			\
     } while (0)
 
 void hash_description(uint8_t *hash, size_t hash_len, char *buf);
 
-#define LOG_TLS_CTX_HASH_EVENT(cert_file, key_file, tc_file,		\
+#define LOG_TLS_CTX_HASH_EVENT(s, cert_file, key_file, tc_file,		\
 			       event, hash, hash_size)			\
     do {								\
 	char hash_desc[3 * hash_size + 1];				\
 	hash_description(hash, hash_size, hash_desc);			\
 	if (tc_file != NULL)						\
-	    log_debug("File metadata hash for certificate file \"%s\", " \
-		      "key file \"%s\" and trusted CA file \"%s\" %s %s.", \
-		      cert_file, key_file, tc_file, event, hash_desc);	\
+	    log_debug_sock(s, "File metadata hash for certificate file " \
+			   "\"%s\", key file \"%s\" and trusted CA file " \
+			   "\"%s\" %s %s.", cert_file, key_file, tc_file, \
+			   event, hash_desc);				\
 	else								\
-	    log_debug("File metadata hash for certificate file \"%s\", " \
-		      "and key file \"%s\" %s %s.",			\
-		      cert_file, key_file, event, hash_desc);		\
+	    log_debug_sock(s, "File metadata hash for certificate file " \
+			   "\"%s\", and key file \"%s\" %s %s.",	\
+			   cert_file, key_file, event, hash_desc);	\
     } while (0)
     
-#define LOG_TLS_CTX_HASH(cert_file, key_file, tc_file, hash, hash_size)	\
-    LOG_TLS_CTX_HASH_EVENT(cert_file, key_file, tc_file, "is", hash,	\
+#define LOG_TLS_CTX_HASH(s, cert_file, key_file, tc_file, hash, hash_size) \
+    LOG_TLS_CTX_HASH_EVENT(s, cert_file, key_file, tc_file, "is", hash,	\
 			   hash_size)
 
-#define LOG_TLS_CTX_HASH_CHANGED(cert_file, key_file, tc_file,		\
+#define LOG_TLS_CTX_HASH_CHANGED(s, cert_file, key_file, tc_file,	\
 				 new_hash, hash_size)			\
-    LOG_TLS_CTX_HASH_EVENT(cert_file, key_file, tc_file,		\
+    LOG_TLS_CTX_HASH_EVENT(s, cert_file, key_file, tc_file,		\
 			   "changed while reading to", new_hash,	\
 			   hash_size)
 
-#define LOG_TLS_CTX_FILES_CHANGED					\
-    log_debug("Certificate, private key or trust CA files have "	\
-	      "changed. Invalidating cache entry.")
+#define LOG_TLS_CTX_FILES_CHANGED(s)					\
+    log_debug_sock(s, "Certificate, private key or trust CA files have " \
+		   "changed. Invalidating cache entry.")
 
 void log_tls_get_error_stack(char *buf, size_t capacity);
 
-#define LOG_TLS_WITH_ERR_STACK(format, ...) \
+#define LOG_TLS_WITH_ERR_STACK(s, format, ...)				\
     do {								\
 	char reasons[1024];						\
 	log_tls_get_error_stack(reasons, sizeof(reasons));		\
-	log_debug(format ": %s", ##__VA_ARGS__, reasons);		\
+	log_debug_sock(s, format ": %s", ##__VA_ARGS__, reasons);	\
     } while (0)
 
-#define LOG_TLS_INCONSISTENT_KEY \
-    LOG_TLS_WITH_ERR_STACK("Private key is not consistent with the " \
+#define LOG_TLS_INCONSISTENT_KEY(s)					\
+    LOG_TLS_WITH_ERR_STACK(s, "Private key is not consistent with the "	\
 			   "certificate.")
 
 #define LOG_TLS_PROTO_ERR(s) \
-    LOG_TLS_WITH_ERR_STACK("TLS protocol error occured")
+    LOG_TLS_WITH_ERR_STACK(s, "TLS protocol error occured")
 
-#define LOG_TLS_ERR_LOADING_KEY(key_file) \
-    LOG_TLS_WITH_ERR_STACK("Error loading private key file \"%s\"", key_file)
+#define LOG_TLS_ERR_LOADING_KEY(s, key_file)				\
+    LOG_TLS_WITH_ERR_STACK(s, "Error loading private key file \"%s\"",	\
+			   key_file)
 
-#define LOG_TLS_ERR_LOADING_CERT(filename)				\
-    LOG_TLS_WITH_ERR_STACK("Error loading certificate file \"%s\"", filename)
+#define LOG_TLS_ERR_LOADING_CERT(s, filename)				\
+    LOG_TLS_WITH_ERR_STACK(s, "Error loading certificate file \"%s\"",	\
+			   filename)
 
-#define LOG_TLS_ERR_LOADING_TC(tc_file) \
-    LOG_TLS_WITH_ERR_STACK("Error loading trust chain file \"%s\"", tc_file)
+#define LOG_TLS_ERR_LOADING_TC(s, tc_file)			       \
+    LOG_TLS_WITH_ERR_STACK(s, "Error loading trust chain file \"%s\"", \
+			   tc_file)
 
 #define LOG_TLS_OPENSSL_WANTS(s, action)		\
     log_debug_sock(s, "OpenSSL wants to %s.", action)

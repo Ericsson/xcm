@@ -165,7 +165,7 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    LOG_CONN_REQ(remote_addr);
+    LOG_CONN_REQ(s, remote_addr);
 
     char btls_addr[XCM_ADDR_MAX+1];
 
@@ -189,7 +189,7 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    LOG_SERVER_REQ(local_addr);
+    LOG_SERVER_REQ(s, local_addr);
 
     char btls_addr[XCM_ADDR_MAX+1];
 

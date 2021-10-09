@@ -414,7 +414,7 @@ static void try_finish_connect(struct xcm_socket *s)
 
 static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 {
-    LOG_CONN_REQ(remote_addr);
+    LOG_CONN_REQ(s, remote_addr);
 
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -457,7 +457,7 @@ err_deinit:
 
 static int sctp_server(struct xcm_socket *s, const char *local_addr)
 {
-    LOG_SERVER_REQ(local_addr);
+    LOG_SERVER_REQ(s, local_addr);
 
     struct xcm_addr_host host;
     uint16_t port;

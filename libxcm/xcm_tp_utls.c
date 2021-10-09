@@ -204,7 +204,7 @@ void remove_sub_socket(struct xcm_socket **s)
 
 static int utls_connect(struct xcm_socket *s, const char *remote_addr)
 {
-    LOG_CONN_REQ(remote_addr);
+    LOG_CONN_REQ(s, remote_addr);
 
     struct utls_socket *us = TOUTLS(s);
 
@@ -265,7 +265,7 @@ static int utls_server(struct xcm_socket *s, const char *local_addr)
 {
     struct utls_socket *us = TOUTLS(s);
 
-    LOG_SERVER_REQ(local_addr);
+    LOG_SERVER_REQ(s, local_addr);
 
     struct xcm_addr_host host;
     uint16_t port;
