@@ -781,10 +781,7 @@ static int finalize_tls_conf(struct xcm_socket *s)
 
     if (ut_self_net_ns(ns) < 0) {
 	LOG_TLS_NET_NS_LOOKUP_FAILED(s, errno);
-	/* the underlying syscall errors aren't allowed (by the API)
-	   as return codes */
-	errno = EPROTO;
-	return -1;
+	ns[0] = '\0';
     }
 
     const char *cert_dir = get_cert_dir();
