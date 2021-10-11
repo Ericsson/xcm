@@ -25,6 +25,10 @@ static void usage(const char *name)
     printf(" -b <name>=(true|false)  Set boolean connection attribute\n");
     printf(" -i <name>=<value>       Set integer connection attribute.\n");
     printf(" -s <name>=<value>       Set string connection attribute.\n");
+    printf(" -x                      One subsequent -b, -i or -s switch "
+	   "configure a server\n"
+	   "                         (rather than a connection) socket "
+	   "attribute.\n");
     printf(" -h                      Prints this text.\n");
 }
 
@@ -84,7 +88,7 @@ static void parse_bool_attr(const char *s, char *name, bool *value)
 	*value = false;
     else {
 	fprintf(stderr, "Boolean attributes need to be either 'true' or "
-		"'false'.");
+		"'false'.\n");
 	exit(EXIT_FAILURE);
     }
 }
@@ -204,15 +208,12 @@ static void handle_client_term(int rc, const char *msg, void *data)
     listen_xcm(server);
 }
 
-static void run_server(const char *addr, const struct xcm_attr_map *conn_attrs,
+static void run_server(const char *addr,
+		       const struct xcm_attr_map *server_attrs,
+		       const struct xcm_attr_map *conn_attrs,
 		       struct event_base *event_base)
 {
-    struct xcm_attr_map *attrs = xcm_attr_map_create();
-    xcm_attr_map_add_str(attrs, "xcm.service", "any");
-
-    struct xcm_socket *server_socket = xcm_server_a(addr, attrs);
-
-    xcm_attr_map_destroy(attrs);
+    struct xcm_socket *server_socket = xcm_server_a(addr, server_attrs);
 
     if (server_socket == NULL)
 	ut_die("Unable to bind server socket");
@@ -251,27 +252,35 @@ int main(int argc, char **argv)
     int c;
     bool client = true;
     struct xcm_attr_map *conn_attrs = xcm_attr_map_create();
+    struct xcm_attr_map *server_attrs = xcm_attr_map_create();
+    struct xcm_attr_map *attrs = conn_attrs;
     char attr_name[MAX_ATTR_NAME_SIZE + 1];
     bool attr_bool_value;
     int64_t attr_int64_value;
     char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
-    while ((c = getopt(argc, argv, "lb:i:s:h")) != -1)
+    while ((c = getopt(argc, argv, "lb:i:s:xh")) != -1)
     switch (c) {
     case 'l':
 	client = false;
 	break;
     case 'b':
 	parse_bool_attr(optarg, attr_name, &attr_bool_value);
-	xcm_attr_map_add_bool(conn_attrs, attr_name, attr_bool_value);
+	xcm_attr_map_add_bool(attrs, attr_name, attr_bool_value);
+	attrs = conn_attrs;
 	break;
     case 'i':
 	parse_int64_attr(optarg, attr_name, &attr_int64_value);
-	xcm_attr_map_add_int64(conn_attrs, attr_name, attr_int64_value);
+	xcm_attr_map_add_int64(attrs, attr_name, attr_int64_value);
+	attrs = conn_attrs;
 	break;
     case 's':
 	parse_str_attr(optarg, attr_name, attr_str_value);
-	xcm_attr_map_add_str(conn_attrs, attr_name, attr_str_value);
+	xcm_attr_map_add_str(attrs, attr_name, attr_str_value);
+	attrs = conn_attrs;
+	break;
+    case 'x':
+	attrs = server_attrs;
 	break;
     case 'h':
 	usage(argv[0]);
@@ -285,9 +294,24 @@ int main(int argc, char **argv)
 	exit(EXIT_FAILURE);
     }
 
+    if (attrs == server_attrs) {
+	fprintf(stderr, "-x specified without subsequent -b, -i or "
+		"-s.\n");
+	exit(EXIT_FAILURE);
+    }
+
+    if (client && xcm_attr_map_size(server_attrs) > 0) {
+	fprintf(stderr, "Server socket attributes may not be specified "
+		"in client mode.\n");
+	exit(EXIT_FAILURE);
+    }
+
     const char *addr = argv[optind];
 
-    xcm_attr_map_add_str(conn_attrs, "xcm.service", "any");
+    if (client)
+	xcm_attr_map_add_str(conn_attrs, "xcm.service", "any");
+    else
+	xcm_attr_map_add_str(server_attrs, "xcm.service", "any");
 
     struct event_base *event_base = event_base_new();
 
@@ -306,9 +330,10 @@ int main(int argc, char **argv)
     if (client)
 	run_client(addr, conn_attrs, event_base);
     else
-	run_server(addr, conn_attrs, event_base);
+	run_server(addr, server_attrs, conn_attrs, event_base);
 
     xcm_attr_map_destroy(conn_attrs);
+    xcm_attr_map_destroy(server_attrs);
 
     event_base_free(event_base);
 
