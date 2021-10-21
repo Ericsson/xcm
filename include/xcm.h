@@ -1208,19 +1208,6 @@ extern "C" {
  * In case the system follows the iproute2 conventions in regards to
  * network namespace naming, the TLS and UTLS transports support
  * per-network namespace TLS certificates and private keys.
- *
- * @section limitations Limitations
- *
- * XCM, in its current form, does not support binding to a local
- * socket before doing connect() - something that is possible with BSD
- * Sockets, but very rarely makes sense.
- *
- * XCM also doesn't have a sendmmsg() or recvmmsg() equivalent. Those
- * could easily be added, and would provide some major performance
- * improvements for applications that are sending or receiving
- * multiple messages on the same connection on the same time. *mmsg()
- * equivalents have been left out because there are strong doubts
- * there are such applications.
  */
 
 /*!
