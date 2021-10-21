@@ -625,6 +625,13 @@ extern "C" {
  * xcm_attr_map_destroy(attrs);
  * ~~~~~~~~~~~~~
  *
+ * @subsection xcm_attr_inheritance Attribute Inheritance
+ *
+ * Connection sockets spawned off a server sockets will inherit the
+ * server socket's attributes that also applies to connection sockets.
+ * An application may override such values by passing a different
+ * values in the xcm_accept_a() call.
+ *
  * @subsection xcm_attr Generic Attributes
  *
  * These attributes are expected to be found on XCM sockets regardless
@@ -637,9 +644,9 @@ extern "C" {
  * ---------------|-------------|------------|------|------------
  * xcm.type       | All         | String     | R    | The socket type: "server" or "connection".
  * xcm.transport  | All         | String     | R    | The transport type.
- * xcm.service    | All         | String     | RW   | The service type: "messaging" or "bytestream". Writable only at the time of socket creation. If specified, it may be used by an application to limit the type of transports being used. The string "any" may be used to signify that any type of service is accepted. The default is "messaging".
+ * xcm.service    | All         | String     | RW   | The service type: "messaging" or "bytestream". Writable only at the time of socket creation. If specified, it may be used by an application to limit the type of transports being used. The string "any" may be used to signify that any type of service is accepted. The default value is "messaging".
  * xcm.local_addr | All         | String     | RW   | The local address of a socket. Writable only if supplied to xcm_connect_a() together with a TLS, UTLS or TCP type address. Usually only needs to be written on multihomed hosts, in cases where the application needs to specify the source IP address to be used. Also see xcm_local_addr().
- * xcm.blocking   | All         | Boolean    | RW    | See xcm_set_blocking() and xcm_is_blocking().
+ * xcm.blocking   | All         | Boolean    | RW    | See xcm_set_blocking() and xcm_is_blocking(). The default value is true.
  * xcm.remote_addr | Connection | String     | R    | See xcm_remote_addr().
  * xcm.max_msg_size | Connection | Integer   | R    | The maximum size of any message transported by this connection.
  *
@@ -652,7 +659,7 @@ extern "C" {
  *
  * Some of the message and byte counter attributes use the concept of
  * a "lower layer". What this means depends on the transport. For the
- * UX And TCP transports, it is the Linux kernel. For example, for
+ * UX and TCP transports, it is the Linux kernel. For example, for
  * TCP, if the xcm.to_lower_msgs is incremented, it means that XCM has
  * successfully sent the complete message to the kernel's networking
  * stack for further processing. It does not means it has reached the
@@ -884,14 +891,14 @@ extern "C" {
  * Attribute Name     | Socket Type | Value Type | Mode | Description
  * -------------------|-------------|------------|------|------------
  * tcp.rtt            | Connection  | Integer    | R    | The current TCP round-trip estimate (in us).
- * tcp.total_retrans  | Connection | Integer  | R    | The total number of retransmitted TCP segments.
+ * tcp.total_retrans  | Connection  | Integer    | R    | The total number of retransmitted TCP segments.
  * tcp.segs_in        | Connection  | Integer    | R    | The total number of segments received.
  * tcp.segs_out       | Connection  | Integer    | R    | The total number of segments sent.
- * tcp.keepalive      | Connection  | Boolean    | RW   | Controls if TCP keepalive is enabled. The default is true.
- * tcp.keepalive_time | Connection  | Integer    | RW   | The time (in s) before the first keepalive probe is sent on an idle connection. The default is 1 s.
- * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes. The default is 1 s.
- * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default is 3.
- * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default is 3 s.
+ * tcp.keepalive      | Connection  | Boolean    | RW   | Controls if TCP keepalive is enabled. The default value is true.
+ * tcp.keepalive_time | Connection  | Integer    | RW   | The time (in s) before the first keepalive probe is sent on an idle connection. The default value is 1 s.
+ * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes. The default value is 1 s.
+ * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default value is 3.
+ * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.
@@ -912,7 +919,7 @@ extern "C" {
  *
  * @subsubsection tls_version TLS Protocol Version and Features
  *
- * The TLS transport uses only TLS 1.2 and, if the XCM library is
+ * The TLS transport only employs TLS 1.2 and, if the XCM library is
  * built with OpenSSL 1.1.1 or later, TLS 1.3 as well.
  *
  * TLS 1.2 renegotiation is disabled, if the XCM library is built with
@@ -1041,9 +1048,9 @@ extern "C" {
  * TLS remote peer authentication may be disabled by setting the
  * "tls.auth" socket attribute to false.
  *
- * Connection sockets created by xcm_accept() or xcm_accept_a()
- * inherit the "tls.auth" attribute value from their parent server
- * sockets.
+ * The default value is true. Connection sockets created by
+ * xcm_accept() or xcm_accept_a() inherit the "tls.auth" attribute
+ * value from their parent server sockets.
  *
  * The "tls.auth" socket attribute may only be set at the time of
  * socket creation (except for server sockets).
@@ -1064,7 +1071,8 @@ extern "C" {
  * If enabled, XCM will verify the hostname in the address supplied in
  * the xcm_connect_a() call. In case the attribute "tls.peer_names" is
  * also supplied, it overrides this behavior. The value of this
- * attribute is a ':'-separated set of subject names.
+ * attribute is a ':'-separated set of subject names. "tls.peer_names"
+ * may not be set unless "tls.verify_peer_name" is set to true.
  *
  * If there is a non-zero overlap between these two sets, the
  * verification is considered successful. The actual procedure is
@@ -1101,10 +1109,10 @@ extern "C" {
  * ------------------------|-------------|-------------|------|------------
  * tls.cert_file           | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
  * tls.key_file            | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
- * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation.
- * tls.client              | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only
- * tls.auth                | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation.
- * tls.verify_peer_name    | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation.
+ * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
+ * tls.client              | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
+ * tls.auth                | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation. Default value is true.
+ * tls.verify_peer_name    | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation. Default value is false.
  * tls.peer_names          | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
  * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
  *
@@ -1178,7 +1186,7 @@ extern "C" {
  * stream service over TCP.
  *
  * Unlike the @ref tls_transport, BTLS doesn't have a framing header
- * nor anything else on the wire protocol level that is specific to
+ * or anything else on the wire protocol level that is specific to
  * XCM. It's a "raw" TLS connection.
  *
  * Other than providing a byte stream, it's identical to the @ref
@@ -1439,6 +1447,9 @@ struct xcm_socket *xcm_accept(struct xcm_socket *server_socket);
  * This function is equivalent to xcm_accept(), only it also allows
  * the caller to specify a set of @ref attributes to be applied as a
  * part of accepting the new connection socket.
+ *
+ * Such attributes will override any value inherited from the server
+ * socket.
  *
  * @param[in] server_socket The server socket on which to attempt to accept
  *                          one pending connection.
