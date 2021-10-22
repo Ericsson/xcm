@@ -611,6 +611,10 @@ extern "C" {
  * The attribute sets are represented by the @c xcm_attr_map type in
  * xcm_attr_map.h.
  *
+ * The caller retains the ownership of the @c xcm_attr_map passed to
+ * xcm_connect_a(), xcm_server_a(), or xcm_accept_a(), and may destroy
+ * it after the call has completed, or reuse it.
+ *
  * A somewhat contrived example:
  * ~~~~~~~~~~~~~{.c}
  * struct xcm_attr_map *attrs = xcm_attr_map_create();
@@ -620,7 +624,7 @@ extern "C" {
  * xcm_attr_map_add_str(attrs, "tls.peer_names", "myservice");
  * xcm_attr_map_add_int64(attrs, "tcp.keepalive_interval", 10);
  *
- * int rc = xcm_connect_a("tls:192.168.1.99:4711", attrs);
+ * struct xcm_socket *conn = xcm_connect_a("tls:192.168.1.99:4711", attrs);
  *
  * xcm_attr_map_destroy(attrs);
  * ~~~~~~~~~~~~~
@@ -1301,7 +1305,7 @@ struct xcm_socket *xcm_connect(const char *remote_addr, int flags);
  * xcm_attr_set() calls.
  *
  * @param[in] remote_addr The remote address which to connect.
- * @param[in] attrs A set of attributes to be applied to the connection socket, or NULL.
+ * @param[in] attrs A set of attributes to be applied to the connection socket, or NULL. Only accessed during the call.
  *
  * @return Returns a socket reference on success, or NULL if an error occured
  *         (in which case errno is set).
@@ -1355,7 +1359,7 @@ struct xcm_socket *xcm_server(const char *local_addr);
  * part of server socket creation.
  *
  * @param[in] local_addr The local address to which this socket should be bound.
- * @param[in] attrs A set of attributes to be applied to the socket, or NULL.
+ * @param[in] attrs A set of attributes to be applied to the socket, or NULL.  Only accessed during the call.
  *
  * @return Returns a server socket reference on success, or NULL if an
  *         error occured (in which case errno is set).
@@ -1440,7 +1444,7 @@ struct xcm_socket *xcm_accept(struct xcm_socket *server_socket);
  *
  * @param[in] server_socket The server socket on which to attempt to accept
  *                          one pending connection.
- * @param[in] attrs A set of attributes to be applied to the socket, or NULL.
+ * @param[in] attrs A set of attributes to be applied to the socket, or NULL.  Only accessed during the call.
  *
  * @return Returns a newly created XCM connection socket on success,
  *         or NULL if an error occured (in which case errno is set).
