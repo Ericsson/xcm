@@ -464,31 +464,20 @@ static SSL_CTX *load_server_ssl_ctx(const char *cert_file,
 
     SSL_CTX *ssl_ctx =
 	load_ssl_ctx_common(cert_file, key_file, tc_file, hash, log_ref);
-    if (!ssl_ctx)
-	goto err;
 
-    if (tc_file != NULL) {
+    if (ssl_ctx == NULL) {
+	errno = EPROTO;
+	return NULL;
+    }
+
+    if (tc_file != NULL)
 	SSL_CTX_set_verify(ssl_ctx,
 			   SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
 			   NULL);
-
-	STACK_OF(X509_NAME) *cert_names = SSL_load_client_CA_file(tc_file);
-	if (cert_names == NULL) {
-	    LOG_TLS_ERR_LOADING_TC(log_ref, tc_file);
-	    goto err_free_ctx;
-	}
-
-	SSL_CTX_set_client_CA_list(ssl_ctx, cert_names);
-    } else
+    else
 	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
 
     return ssl_ctx;
-
-err_free_ctx:
-    SSL_CTX_free(ssl_ctx);
-err:
-    errno = EPROTO;
-    return NULL;
 }
 
 SSL_CTX *ctx_store_get_ctx(bool client, const char *cert_file,
