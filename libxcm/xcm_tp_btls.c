@@ -395,7 +395,7 @@ static void process_ssl_proto_error(struct xcm_socket *s)
     bts->conn.badness_reason = EPROTO;
 }
 
-static void process_ssl_error(struct xcm_socket *s, int condition,
+static void process_ssl_event(struct xcm_socket *s, int condition,
 			     int ssl_rc, int ssl_errno)
 {
     struct btls_socket *bts = TOBTLS(s);
@@ -666,7 +666,7 @@ static void try_finish_tls_handshake(struct xcm_socket *s)
     UT_RESTORE_ERRNO(accept_errno);
 
     if (rc < 1)
-	process_ssl_error(s, 0, rc, accept_errno);
+	process_ssl_event(s, 0, rc, accept_errno);
     else {
 	BTLS_SET_STATE(s, conn_state_ready);
 
@@ -1101,7 +1101,7 @@ static int btls_send(struct xcm_socket *s, const void *buf, size_t len)
     if (rc == 0)
 	process_ssl_close(s);
     else
-	process_ssl_error(s, XCM_SO_SENDABLE, rc, write_errno);
+	process_ssl_event(s, XCM_SO_SENDABLE, rc, write_errno);
 
     TP_RET_ERR_IF_STATE(s, bts, conn_state_closed, EPIPE);
 
@@ -1145,7 +1145,7 @@ static int btls_receive(struct xcm_socket *s, void *buf, size_t capacity)
 	return rc;
     }
 
-    process_ssl_error(s, XCM_SO_RECEIVABLE, rc, read_errno);
+    process_ssl_event(s, XCM_SO_RECEIVABLE, rc, read_errno);
 
     TP_RET_IF_STATE(bts, conn_state_closed, 0);
 
