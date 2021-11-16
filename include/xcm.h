@@ -1606,8 +1606,8 @@ int xcm_await(struct xcm_socket *socket, int condition);
  *
  * @param[in] socket The connection or server socket.
  *
- * @return Returns the XCM socket fd on success, or -1 if an error
- *         occured (in which case errno is set).
+ * @return Returns 0 on success, or -1 if an error occured (in
+ *         which case errno is set).
  *
  * errno        | Description
  * -------------|------------
