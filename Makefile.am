@@ -65,6 +65,7 @@ libxcm_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/libxcm
 if LTTNG
 libxcm_la_SOURCES += lttng/xcm_lttng.c
 libxcm_la_CPPFLAGS += -DXCM_LTTNG -I$(srcdir)/lttng
+libxcm_la_LDFLAGS += -llttng-ust
 endif
 
 if CTL

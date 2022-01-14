@@ -101,7 +101,7 @@ AC_ARG_ENABLE([lttng],
 AM_CONDITIONAL([LTTNG], [test "x$enable_lttng" != "xno"])
 
 AS_IF([test "x$enable_lttng" != "xno"], [
-	AC_CHECK_LIB(lttng-ust, ltt_probe_register, [],
+	AC_CHECK_LIB([lttng-ust], [main], [],
 	             [AC_MSG_ERROR([Unable to find the lttng-ust library. Disable LTTng to avoid this dependency.])])
 ])
 

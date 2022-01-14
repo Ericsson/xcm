@@ -6,8 +6,8 @@
 #undef TRACEPOINT_PROVIDER
 #define TRACEPOINT_PROVIDER com_ericsson_xcm
 
-#undef TRACEPOINT_INCLUDE_FILE
-#define TRACEPOINT_INCLUDE_FILE ./xcm_lttng.h
+#undef TRACEPOINT_INCLUDE
+#define TRACEPOINT_INCLUDE "./xcm_lttng.h"
 
 #if !defined(_XCM_LTTNG_H) || defined(TRACEPOINT_HEADER_MULTI_READ)
 #define _XCM_LTTNG_H
