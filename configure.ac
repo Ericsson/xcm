@@ -32,13 +32,14 @@ AC_USE_SYSTEM_EXTENSIONS
 
 LT_INIT
 
-AC_CHECK_LIB(dl, dlopen, [],
-             [AC_MSG_ERROR([Unable to find the DL library.])])
-AC_CHECK_LIB(rt, clock_gettime, [],
+AC_CHECK_LIB([rt], [clock_gettime],
+             [AC_SUBST([RT_LIBS], [-lrt])],
              [AC_MSG_ERROR([Unable to find the RT library.])])
-AC_CHECK_LIB(pthread, pthread_create, [],
+AC_CHECK_LIB([pthread], [pthread_create],
+             [AC_SUBST([PTHREAD_LIBS], [-lpthread])],
              [AC_MSG_ERROR([Unable to find the pthread library.])])
-AC_CHECK_LIB(anl, getaddrinfo_a, [],
+AC_CHECK_LIB([anl], [getaddrinfo_a],
+             [AC_SUBST([ANL_LIBS], [-lanl])],
              [AC_MSG_ERROR([Unable to find the ANL library.])])
 
 AC_SUBST([AM_CFLAGS])
@@ -49,10 +50,11 @@ AC_ARG_ENABLE([tls],
     AS_HELP_STRING([--disable-tls], [disable XCM TLS and UTLS transports]))
 
 AS_IF([test "x$enable_tls" != "xno"], [
-	AC_CHECK_LIB(crypto, CRYPTO_memdup, [])
-	AC_CHECK_LIB(ssl, SSL_write, [],
+	AC_CHECK_LIB(crypto, CRYPTO_memdup, [:],
+		    [AC_MSG_ERROR([Unable to find the Crypto library.])])
+	AC_CHECK_LIB(ssl, SSL_write, [AC_SUBST([SSL_LIBS], [-lssl])],
 		    [AC_MSG_ERROR([Unable to find the OpenSSL library.])])
-	AC_CHECK_HEADERS(openssl/ssl.h, [],
+	AC_CHECK_HEADERS(openssl/ssl.h, [:],
                  [AC_MSG_ERROR([Unable to find the OpenSSL header files.])])
 	AC_CHECK_DECLS([OPENSSL_THREADS], [],
 	               [AC_MSG_ERROR([OpenSSL is built w/o threads support.])],
@@ -87,9 +89,10 @@ AC_ARG_ENABLE([xcm_tool],
     AS_HELP_STRING([--disable-xcm-tool], [disable the 'xcm' command-line tool]))
 
 AS_IF([test "x$enable_xcm_tool" != "xno"], [
-	AC_CHECK_LIB(event, event_base_dispatch, [],
+	AC_CHECK_LIB(event, event_base_dispatch,
+	             [AC_SUBST([EVENT_LIBS], [-levent])],
 	             [AC_MSG_ERROR([Unable to find the libevent library. Disable the XCM tool to avoid this dependency.])])
-	AC_CHECK_HEADERS(event.h, [],
+	AC_CHECK_HEADERS(event.h, [:],
 	                 [AC_MSG_ERROR([Unable to find libevent header files.])])
 ])
 
@@ -101,7 +104,8 @@ AC_ARG_ENABLE([lttng],
 AM_CONDITIONAL([LTTNG], [test "x$enable_lttng" != "xno"])
 
 AS_IF([test "x$enable_lttng" != "xno"], [
-	AC_CHECK_LIB([lttng-ust], [main], [],
+	AC_CHECK_LIB([lttng-ust], [main],
+	             [AC_SUBST([LTTNG_LIBS], [-llttng-ust])],
 	             [AC_MSG_ERROR([Unable to find the lttng-ust library. Disable LTTng to avoid this dependency.])])
 ])
 

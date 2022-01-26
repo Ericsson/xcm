@@ -58,14 +58,15 @@ LIBXCM_SOURCES += libxcm/ctl.c common/common_ctl.c
 endif
 
 libxcm_la_SOURCES = $(LIBXCM_SOURCES)
-libxcm_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libxcm/libxcm.vs \
+libxcm_la_LDFLAGS = @ANL_LIBS@ @SSL_LIBS@ \
+	-Wl,--version-script=$(srcdir)/libxcm/libxcm.vs \
 	-version-info $(XCM_VERSION_CURRENT):$(XCM_VERSION_REVISION):$(XCM_VERSION_AGE)
 libxcm_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/libxcm
 
 if LTTNG
 libxcm_la_SOURCES += lttng/xcm_lttng.c
 libxcm_la_CPPFLAGS += -DXCM_LTTNG -I$(srcdir)/lttng
-libxcm_la_LDFLAGS += -llttng-ust
+libxcm_la_LDFLAGS += @LTTNG_LIBS@
 endif
 
 if CTL
@@ -82,19 +83,19 @@ xcmpong_SOURCES = tools/xcmpong.c common/util.c
 # libtool.
 xcmpong_CFLAGS = $(AM_CFLAGS)
 xcmpong_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT
+xcmpong_LDFLAGS = @RT_LIBS@
 xcmpong_LDADD = libxcm.la
-xcmpong_LDFLAGS = -lrt
 
 if XCM_TOOL
 xcm_SOURCES = tools/xcm.c tools/fdfwd.c common/util.c
 # You might think of _CFLAGS setting as a no-op, but in fact this
-# makes 'xcmmon/util.c' to be built in a separate version for
-# 'umpong', which is needed since the other version is built by
+# makes 'common/util.c' to be built in a separate version for
+# 'xcm', which is needed since the other version is built by
 # libtool.
 xcm_CFLAGS = $(AM_CFLAGS)
 xcm_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT
 xcm_LDADD = libxcm.la
-xcm_LDFLAGS = -levent
+xcm_LDFLAGS = @EVENT_LIBS@
 endif
 
 if CTL
@@ -122,11 +123,11 @@ XCMTEST_TESTCASE_SOURCES = test/xcm_testcases.c test/addr_testcases.c \
 xcmtest_SOURCES = $(XCMTEST_TESTCASE_SOURCES) $(UTEST_SOURCES) \
 	common/util.c common/slist.c test/testutil.c test/pingpong.c
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
+xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -no-install
 xcmtest_LDADD = libxcm.la
 if CTL
 xcmtest_LDADD += libxcmctl.la
 endif
-xcmtest_LDFLAGS = -no-install
 
 doxygen: .doxygenerated
 
