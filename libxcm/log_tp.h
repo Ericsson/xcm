@@ -197,25 +197,24 @@
     log_debug_sock(conn_sock, "Application requesting to receive " \
 		   "with %zd byte buffer.", capacity)
 
-#define LOG_RCV_MSG(conn_sock, buf, len)			      \
-    (void)buf;							      \
-    do {							      \
-	log_debug_sock(conn_sock, "Received a complete %d byte message from " \
-		       "lower layer.", len);				\
-    } while (0)
+#define LOG_RCV_DATA(conn_sock, len)					\
+    log_debug_sock(conn_sock, "Received %d bytes of data from lower layer.", \
+		   len)
+
+#define LOG_RCV_MSG(conn_sock, len)					\
+    log_debug_sock(conn_sock, "Received a complete %d byte message from " \
+		   "lower layer.", len)
 
 #define LOG_RCV_MSG_TRUNCATED(conn_sock, capacity, len) \
     log_debug_sock(s, "Message truncated. Application-supplied buffer was " \
 		   "only %zd byte, and message size was %d byte.",	\
 		   capacity, len)
 
-#define LOG_APP_DELIVERED(conn_sock, buf, len)				\
-    do {								\
-	log_debug_sock(s, "Successfully delivered %d byte message to "	\
-		       "application.", len);				\
-    } while (0)
+#define LOG_APP_DELIVERED(conn_sock, len)				\
+    log_debug_sock(s, "Successfully delivered %d byte buffer to the "	\
+		   "application.", len)
 
-#define LOG_RCV_EOF(conn_sock) \
+#define LOG_RCV_EOF(conn_sock)			\
     log_debug_sock(conn_sock, "Received EOF.")
 
 #define LOG_RCV_FAILED(conn_sock, reason_errno)				\

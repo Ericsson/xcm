@@ -386,10 +386,9 @@ static int buffer_payload(struct xcm_socket *s)
 	return -1;
     }
 
-    const void *buf = mbuf_payload_start(rbuf);
     size_t len = mbuf_complete_payload_len(rbuf);
 
-    LOG_RCV_MSG(s, buf, len);
+    LOG_RCV_MSG(s, len);
     XCM_TP_CNT_MSG_INC(ts->conn.cnts, from_lower, len);
 
     return 1;
@@ -438,7 +437,7 @@ static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity)
 
     mbuf_reset(&ts->conn.receive_mbuf);
 
-    LOG_APP_DELIVERED(s, buf, user_len);
+    LOG_APP_DELIVERED(s, user_len);
     XCM_TP_CNT_MSG_INC(ts->conn.cnts, to_app, user_len);
 
     return user_len;

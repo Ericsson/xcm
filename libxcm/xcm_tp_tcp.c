@@ -712,9 +712,8 @@ static void buffer_payload(struct xcm_socket *s)
 	    if (left > 0) {
 		buffer_read(s, left);
 		if (mbuf_payload_left(rbuf) == 0) {
-		    const void *buf = mbuf_payload_start(rbuf);
 		    size_t compl_len = mbuf_complete_payload_len(rbuf);
-		    LOG_RCV_MSG(s, buf, compl_len);
+		    LOG_RCV_MSG(s, compl_len);
 		    XCM_TP_CNT_MSG_INC(ts->conn.cnts, from_lower, compl_len);
 		}
 	    }
@@ -775,7 +774,7 @@ static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity)
 
     mbuf_reset(&ts->conn.receive_mbuf);
 
-    LOG_APP_DELIVERED(s, buf, user_len);
+    LOG_APP_DELIVERED(s, user_len);
     XCM_TP_CNT_MSG_INC(ts->conn.cnts, to_app, user_len);
 
     return user_len;

@@ -408,9 +408,9 @@ static int ux_receive(struct xcm_socket *s, void *buf, size_t capacity)
     int rc = recv(us->fd, buf, capacity, MSG_TRUNC);
 
     if (rc > 0) {
-	LOG_RCV_MSG(s, buf, rc);
+	LOG_RCV_MSG(s, rc);
 	XCM_TP_CNT_MSG_INC(us->cnts, from_lower, rc);
-	LOG_APP_DELIVERED(s, buf, rc);
+	LOG_APP_DELIVERED(s, rc);
 	XCM_TP_CNT_MSG_INC(us->cnts, to_app, rc);
 	return UT_MIN(rc, capacity);
     } else if (rc == 0) {
