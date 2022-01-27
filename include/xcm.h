@@ -1282,8 +1282,6 @@ struct xcm_socket;
  * -------------|------------
  * EINVAL       | Invalid address format.
  * ENOPROTOOPT  | Transport protocol not available.
- * EMFILE       | The limit on the total number of open fds has been reached.
- * ENOENT       | DNS domain name resolution failed.
  *
  * See xcm_finish() for other possible errno values.
  *
@@ -1338,12 +1336,13 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
  *
  * errno        | Description
  * -------------|------------
- * EACCESS      | Permission to create the socket is denied.
+ * EACCESS      | Permission to create the socket was denied.
  * EADDRINUSE   | Local socket address is already in use.
  * ENOMEM       | Insufficient memory.
  * EINVAL       | Invalid address format.
  * ENOPROTOOPT  | Transport protocol not available.
- * EMFILE       | The limit on the total number of open fds has been reached.
+ * EMFILE       | The per-process limit on the number of open file descriptors has been reached.
+ * ENFILE       | The limit on the total number of open file descriptors has been reached.
  * EPROTO       | A protocol error occured.
  * ENOENT       | DNS domain name resolution failed.
  *
@@ -1424,11 +1423,7 @@ void xcm_cleanup(struct xcm_socket *socket);
  * @return Returns a newly created XCM connection socket on success,
  *         or NULL if an error occured (in which case errno is set).
  *
- * errno        | Description
- * -------------|------------
- * EMFILE       | The limit on the total number of open fds has been reached.
- *
- * See xcm_finish() for other possible errno values.
+ * See xcm_finish() for possible errno values.
  */
 
 struct xcm_socket *xcm_accept(struct xcm_socket *server_socket);
@@ -1656,6 +1651,10 @@ int xcm_fd(struct xcm_socket *socket);
  * ENOMEM       | Insufficient memory (or other resources) to perform operation.
  * EINTR        | The operation was interrupted by a UNIX signal.
  * EPROTO       | A non-recoverable protocol error occurred.
+ * EMFILE       | The per-process limit on the number of open file descriptors has been reached.
+ * ENFILE       | The limit on the total number of open file descriptors has been reached.
+ * EACCES       | Permission to create the socket was denied.
+ * ENOENT       | DNS domain name resolution failed.
  */
 
 int xcm_finish(struct xcm_socket *socket);
