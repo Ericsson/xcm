@@ -287,9 +287,9 @@
 #define LOG_SOCKET_INVALID_TYPE(s)					\
     log_debug_sock(s, "Operation failed; socket is of the wrong type.")
 
-#define LOG_SOCKET_INVALID_STATE(s, s_state)				\
-    log_debug_sock(s, "Operation failed; socket is in invalid state \"%s\".", \
-		   state_name(s_state))
+#define LOG_SOCKET_WRONG_STATE(s, s_state)				\
+    log_debug_sock(s, "Unable to perform operation; socket currently " \
+		   "in state \"%s\".", state_name(s_state))
 
 #define LOG_SOCKET_NAME_FAILED(s, endpoint, reason_errno)	     \
     log_debug_sock(s, "Failed to retrive %s socket; errno %d (%s).", \

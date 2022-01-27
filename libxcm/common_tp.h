@@ -54,7 +54,7 @@ int tls_to_utls(const char *tls_addr, char *utls_addr, size_t capacity);
 #define TP_RET_ERR_CMP_STATE(_s, _ts, _state, _cmp, _errno)		\
     do {								\
 	if (_ts->conn.state _cmp _state) {				\
-	    LOG_SOCKET_INVALID_STATE(_s, _ts->conn.state);		\
+	    LOG_SOCKET_WRONG_STATE(_s, _ts->conn.state);		\
 	    errno = _errno;						\
 	    return -1;							\
 	}								\
