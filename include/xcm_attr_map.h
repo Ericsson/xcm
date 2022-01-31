@@ -110,6 +110,19 @@ void xcm_attr_map_add_str(struct xcm_attr_map *attr_map,
 
 
 /**
+ * Copies all attributes of a map to another.
+ *
+ * This function adds all the attributes of the source map to the
+ * target map. The source map remains unchanged.
+ *
+ * @param[in] dst_map The attribute map to which the attributes will be added.
+ * @param[in] src_map The attribute map which attributes will be copied.
+ */
+void xcm_attr_map_add_all(struct xcm_attr_map *dst_map,
+			  const struct xcm_attr_map *src_map);
+
+
+/**
  * Retrieve the value associated with a particular key.
  *
  * This function retrieves the attribute value, value type and value

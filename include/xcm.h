@@ -24,8 +24,8 @@ extern "C" {
  * available in xcm_compat.h
  *
  * @author Mattias Rönnblom
- * @version 0.18 [API]
- * @version 1.4.0 [Implementation]
+ * @version 0.19 [API]
+ * @version 1.4.1 [Implementation]
  *
  * The low API/ABI version number is a result of all XCM releases
  * being backward compatible, and thus left the major version at 0.
@@ -1050,11 +1050,11 @@ extern "C" {
  * peer, often referred to as _mutual TLS_ (mTLS).
  *
  * TLS remote peer authentication may be disabled by setting the
- * "tls.auth" socket attribute to false.
+ * "tls.auth" socket attribute to false. The default value is true.
  *
- * The default value is true. Connection sockets created by
- * xcm_accept() or xcm_accept_a() inherit the "tls.auth" attribute
- * value from their parent server sockets.
+ * Connection sockets created by xcm_accept() or xcm_accept_a()
+ * inherit the "tls.auth" attribute value from their parent server
+ * sockets.
  *
  * The "tls.auth" socket attribute may only be set at the time of
  * socket creation (except for server sockets).
@@ -1107,18 +1107,39 @@ extern "C" {
  * Also, while uppercase and lowercase letters are allowed in domain
  * names, no significance is attached to the case.
  *
+ * @subsubsection validity_checks Certificate Validity Period Checks
+ *
+ * By default, the XCM TLS transport checks the validity period of
+ * each certificate in the chain of trust, down to and including the
+ * remote peer's leaf certificate, against the current system time. If
+ * any certificate is either not-yet-valid or has expired, the TLS
+ * handshake fails.
+ *
+ * A socket may be configured to accept not-yet-valid certificates by
+ * setting the "tls.accept_not_yet_valid" socket attribute to true.
+ *
+ * Similarly, a socket may be configured to accept expired
+ * certificates as valid by setting the "tls.accept_expired" socket
+ * attribute to true.
+ *
+ * Connection sockets created by xcm_accept() or xcm_accept_a()
+ * inherit the "tls.accept_not_yet_valid" and "tls.accept_expired"
+ * attribute values from their parent server sockets.
+ *
  * @subsubsection tls_attr TLS Socket Attributes
  *
- * Attribute Name          | Socket Type | Value Type  | Mode | Description
- * ------------------------|-------------|-------------|------|------------
- * tls.cert_file           | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
- * tls.key_file            | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
- * tls.tc_file             | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
- * tls.client              | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
- * tls.auth                | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation. Default value is true.
- * tls.verify_peer_name    | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation. Default value is false.
- * tls.peer_names          | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
- * tls.peer_subject_key_id | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case the TLS connection is not established.
+ * Attribute Name           | Socket Type | Value Type  | Mode | Description
+ * -------------------------|-------------|-------------|------|------------
+ * tls.cert_file            | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
+ * tls.key_file             | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
+ * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
+ * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
+ * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation. Default value is true.
+ * tls.accept_not_yet_valid | All         | Boolean     | RW   | If true, not-yet-valid certificates will be accepted. For connection sockets, writable only at socket creation. Default is false.
+ * tls.accept_expired       | All         | Boolean     | RW   | If true, expired certificates will be accepted. For connection sockets, writable only at socket creation. Default is false.
+ * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation. Default value is false.
+ * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
+ * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or the TLS authenication is disabled and the remote peer did not send a certificate).
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
  * all the @ref tcp_attr.

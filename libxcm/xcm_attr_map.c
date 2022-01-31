@@ -160,6 +160,13 @@ void xcm_attr_map_add_str(struct xcm_attr_map *attr_map,
 		     strlen(attr_value) + 1);
 }
 
+void xcm_attr_map_add_all(struct xcm_attr_map *dst_map,
+			 const struct xcm_attr_map *src_map)
+{
+    if (dst_map != src_map)
+	xcm_attr_map_foreach(src_map, copy_attr_cb, dst_map);
+}
+
 const void *xcm_attr_map_get(const struct xcm_attr_map *attr_map,
 			     const char *attr_name,
 			     enum xcm_attr_type *attr_type,

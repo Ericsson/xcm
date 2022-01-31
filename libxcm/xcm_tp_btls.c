@@ -66,6 +66,8 @@ struct btls_socket
 
     bool tls_auth;
     bool tls_client;
+    bool tls_accept_not_yet_valid;
+    bool tls_accept_expired;
     bool verify_peer_name;
 
     /* Track if certain attributes are changed during socket creation,
@@ -257,6 +259,9 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
     bts->tls_auth = parent_bts->tls_auth;
 
     bts->tls_client = parent_bts->tls_client;
+
+    bts->tls_accept_not_yet_valid = parent_bts->tls_accept_not_yet_valid;
+    bts->tls_accept_expired = parent_bts->tls_accept_expired;
 
     bts->verify_peer_name = parent_bts->verify_peer_name;
 
@@ -496,19 +501,26 @@ static void verify_peer_cert(struct xcm_socket *s)
     X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
 
     if (remote_cert != NULL) {
-	int rc = SSL_get_verify_result(bts->conn.ssl);
+	int err = SSL_get_verify_result(bts->conn.ssl);
 
-	if (rc != X509_V_OK) {
-	    const char *reason = X509_verify_cert_error_string(rc);
-	    LOG_TLS_PEER_CERT_NOT_OK(s, reason);
+	if (err == X509_V_OK)
+	    LOG_TLS_CERT_OK(s);
+	else if (err == X509_V_ERR_CERT_NOT_YET_VALID &&
+		 bts->tls_accept_not_yet_valid)
+	    LOG_TLS_CERT_NOT_YET_VALID_BUT_ACCEPTED(s);
+	else if (err == X509_V_ERR_CERT_HAS_EXPIRED &&
+		 bts->tls_accept_expired)
+	    LOG_TLS_CERT_EXPIRED_BUT_ACCEPTED(s);
+	else {
+	    const char *reason = X509_verify_cert_error_string(err);
+	    LOG_TLS_CERT_NOT_OK(s, reason);
 	    BTLS_SET_STATE(s, conn_state_bad);
 	    bts->conn.badness_reason = EPROTO;
-	} else
-	    LOG_TLS_PEER_CERT_OK(s);
+	}
 
 	X509_free(remote_cert);
     } else {
-	LOG_TLS_PEER_CERT_NOT_OK(s, "peer certificate not found");
+	LOG_TLS_CERT_NOT_OK(s, "no peer certificate");
 	BTLS_SET_STATE(s, conn_state_bad);
 	bts->conn.badness_reason = EPROTO;
     }
@@ -800,7 +812,41 @@ err_inval:
     return -1;
 }
 
-static void set_verify(SSL *ssl, bool tls_client, bool tls_auth)
+static int verify_cb(int preverify_ok, X509_STORE_CTX *x509_ctx,
+		     bool accept_not_yet_valid, bool accept_expired)
+{
+    if (preverify_ok == 1)
+	return 1;
+
+    int err = X509_STORE_CTX_get_error(x509_ctx);
+
+    if (accept_not_yet_valid && err == X509_V_ERR_CERT_NOT_YET_VALID)
+	return 1;
+
+    if (accept_expired && err == X509_V_ERR_CERT_HAS_EXPIRED)
+	return 1;
+
+    return 0;
+}
+
+static int accept_not_yet_valid_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
+{
+    return verify_cb(preverify_ok, x509_ctx, true, false);
+}
+
+static int accept_expired_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
+{
+    return verify_cb(preverify_ok, x509_ctx, false, true);
+}
+
+static int accept_expired_and_not_yet_valid_cb(int preverify_ok,
+					       X509_STORE_CTX *x509_ctx)
+{
+    return verify_cb(preverify_ok, x509_ctx, true, true);
+}
+
+static void conf_verify_cb(SSL *ssl, bool tls_client, bool tls_auth,
+			   bool accept_not_yet_valid, bool accept_expired)
 {
     int mode;
 
@@ -812,7 +858,22 @@ static void set_verify(SSL *ssl, bool tls_client, bool tls_auth)
     } else
 	mode = SSL_VERIFY_NONE;
 
-    SSL_set_verify(ssl, mode, NULL);
+    /* Poor design of SSL_set_verify() - doesn'ẗ allow passing a void
+       user data pointer. Thus we need to set different cbs to get
+       different behaviour. */
+
+    SSL_verify_cb cb;
+
+    if (accept_not_yet_valid && !accept_expired)
+	cb = accept_not_yet_valid_cb;
+    else if (!accept_not_yet_valid && accept_expired)
+	cb = accept_expired_cb;
+    else if (accept_not_yet_valid && accept_expired)
+	cb = accept_expired_and_not_yet_valid_cb;
+    else
+	cb = NULL;
+
+    SSL_set_verify(ssl, mode, cb);
 }
 
 static int btls_connect(struct xcm_socket *s, const char *remote_addr)
@@ -849,7 +910,8 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-    set_verify(bts->conn.ssl, bts->tls_client, bts->tls_auth);
+    conf_verify_cb(bts->conn.ssl, bts->tls_client, bts->tls_auth,
+		   bts->tls_accept_not_yet_valid, bts->tls_accept_expired);
 
     if (bts->verify_peer_name)  {
 	if (bts->conn.remote_host.type == xcm_addr_type_name &&
@@ -1053,7 +1115,9 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (!conn_bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(conn_s);
 
-    set_verify(conn_bts->conn.ssl, conn_bts->tls_client, conn_bts->tls_auth);
+    conf_verify_cb(conn_bts->conn.ssl, conn_bts->tls_client, conn_bts->tls_auth,
+		   conn_bts->tls_accept_not_yet_valid,
+		   conn_bts->tls_accept_expired);
 
     if (conn_bts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
 	goto err_close;
@@ -1409,8 +1473,8 @@ static int get_client_attr(struct xcm_socket *s, void *context,
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_client, value, capacity);
 }
 
-static int set_auth_attr(struct xcm_socket *s, void *context,
-			 const void *value, size_t len)
+static int set_early_bool_attr(struct xcm_socket *s, bool *attr,
+			       const void *value, size_t len)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1420,13 +1484,45 @@ static int set_auth_attr(struct xcm_socket *s, void *context,
 	return -1;
     }
 
-    return xcm_tp_set_bool_attr(value, len, &(bts->tls_auth));
+    return xcm_tp_set_bool_attr(value, len, attr);
+}
+
+static int set_auth_attr(struct xcm_socket *s, void *context,
+			 const void *value, size_t len)
+{
+    return set_early_bool_attr(s, &(TOBTLS(s)->tls_auth), value, len);
 }
 
 static int get_auth_attr(struct xcm_socket *s, void *context,
 			 void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_auth, value, capacity);
+}
+
+static int set_accept_not_yet_valid_attr(struct xcm_socket *s, void *context,
+					 const void *value, size_t len)
+{
+    return set_early_bool_attr(s, &(TOBTLS(s)->tls_accept_not_yet_valid),
+			       value, len);
+}
+
+static int get_accept_not_yet_valid_attr(struct xcm_socket *s, void *context,
+					 void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOBTLS(s)->tls_accept_not_yet_valid, value,
+				capacity);
+}
+
+static int set_accept_expired_attr(struct xcm_socket *s, void *context,
+				   const void *value, size_t len)
+{
+    return set_early_bool_attr(s, &(TOBTLS(s)->tls_accept_expired), value, len);
+}
+
+static int get_accept_expired_attr(struct xcm_socket *s, void *context,
+				   void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOBTLS(s)->tls_accept_expired, value, capacity);
 }
 
 #define GEN_TCP_FIELD_GET(field_name)					\
@@ -1769,6 +1865,11 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
 			set_client_attr, get_client_attr),		\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
 			set_auth_attr, get_auth_attr),			\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_ACCEPT_NOT_YET_VALID, xcm_attr_type_bool, \
+			set_accept_not_yet_valid_attr,			\
+			get_accept_not_yet_valid_attr),			\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_ACCEPT_EXPIRED, xcm_attr_type_bool, \
+			set_accept_expired_attr, get_accept_expired_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
 			set_verify_peer_name_attr, get_verify_peer_name_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_PEER_NAMES, xcm_attr_type_str, \

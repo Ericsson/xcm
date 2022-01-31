@@ -51,11 +51,21 @@
 #define LOG_TLS_INVALID_PEER_NAME(s, name)			\
     log_debug_sock(s, "Invalid peer name \"%s\".", name)
 
-#define LOG_TLS_PEER_CERT_OK(s)						\
-    log_debug_sock(s, "Peer certificate verified successfully.")
+#define LOG_TLS_CERT_OK(s)					\
+    log_debug_sock(s, "Certificate verification successful.")
 
-#define LOG_TLS_PEER_CERT_NOT_OK(s, reason)				\
-    log_debug_sock(s, "Peer certificate verification failed: %s.", reason)
+#define LOG_TLS_CERT_INVALID_BUT_ACCEPTED(s, invalid_details)		\
+    log_debug_sock(s, "Verification encountered %s certificate, "	\
+		   "but socket configured to accept such.", invalid_details)
+
+#define LOG_TLS_CERT_NOT_YET_VALID_BUT_ACCEPTED(s)		\
+    LOG_TLS_CERT_INVALID_BUT_ACCEPTED(s, "a not yet valid")
+
+#define LOG_TLS_CERT_EXPIRED_BUT_ACCEPTED(s)		\
+    LOG_TLS_CERT_INVALID_BUT_ACCEPTED(s, "an expired")
+
+#define LOG_TLS_CERT_NOT_OK(s, reason)					\
+    log_debug_sock(s, "Certificate verification failed: %s.", reason)
 
 #define LOG_TLS_CIPHERS(s, proto_major, proto_minor, ciphers)		\
     log_debug_sock(s, "Setting TLS %d.%d ciphers to \"%s\".", proto_major, \

@@ -269,6 +269,33 @@ TESTCASE(attr_map, exists)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(attr_map, add_all)
+{
+    struct xcm_attr_map *dst = xcm_attr_map_create();
+    struct xcm_attr_map *src = xcm_attr_map_create();
+
+    xcm_attr_map_add_all(dst, src);
+
+    CHK(xcm_attr_map_equal(dst, src));
+
+    xcm_attr_map_add_bool(src, "a", true);
+    xcm_attr_map_add_bool(src, "b", true);
+    xcm_attr_map_add_all(dst, src);
+
+    CHK(xcm_attr_map_equal(dst, src));
+
+    xcm_attr_map_add_bool(src, "c", true);
+    CHK(!xcm_attr_map_equal(dst, src));
+
+    xcm_attr_map_add_all(dst, src);
+    CHK(xcm_attr_map_equal(dst, src));
+
+    xcm_attr_map_destroy(dst);
+    xcm_attr_map_destroy(src);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(attr_map, clone)
 {
     struct xcm_attr_map *original = xcm_attr_map_create();

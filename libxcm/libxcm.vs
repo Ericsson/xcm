@@ -34,6 +34,7 @@
     xcm_attr_map_add_bool;
     xcm_attr_map_add_int64;
     xcm_attr_map_add_str;
+    xcm_attr_map_add_all;
     xcm_attr_map_get;
     xcm_attr_map_get_bool;
     xcm_attr_map_get_int64;

@@ -16,7 +16,9 @@ from cryptography.x509.oid import NameOID
 
 PUBLIC_EXPONENT = 65537
 KEY_SIZE = 2048
-VALIDITY = datetime.timedelta(days=365*10)
+
+DEFAULT_VALIDITY_START = datetime.timedelta(0)
+DEFAULT_VALIDITY_END = datetime.timedelta(days=365*10)
 
 def usage(name):
     print("%s [<cert.yaml>]" % name)
@@ -32,8 +34,7 @@ class Usage(enum.Enum):
     SERVER = "server"
 
 
-def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None,
-                usage=None):
+def create_cert(subject_names, ca, issuer_key, issuer_cert, usage, validity):
     private_key = gen_private_key()
 
     public_key = private_key.public_key()
@@ -57,12 +58,15 @@ def create_cert(subject_names, ca=False, issuer_key=None, issuer_cert=None,
         sign_key = private_key
         issuer = name
 
+    not_valid_before = now + validity[0]
+    not_valid_after = now + validity[1]
+
     builder = (
         x509.CertificateBuilder()
         .subject_name(name)
         .issuer_name(issuer)
-        .not_valid_before(now)
-        .not_valid_after(now + VALIDITY)
+        .not_valid_before(not_valid_before)
+        .not_valid_after(not_valid_after)
         .serial_number(x509.random_serial_number())
         .public_key(public_key)
         .add_extension(constraints, critical=True)
@@ -107,6 +111,17 @@ def get_usage(conf):
 
     return usage
 
+def get_validity(conf):
+    validity = conf.get('validity')
+
+    if validity is None:
+        return DEFAULT_VALIDITY_START, DEFAULT_VALIDITY_END
+
+    validity_start = datetime.timedelta(seconds=validity[0])
+    validity_end = datetime.timedelta(seconds=validity[1])
+
+    return validity_start, validity_end
+
 def create_certs(conf_certs):
     keys = {}
     certs = {}
@@ -122,10 +137,13 @@ def create_certs(conf_certs):
             issuer_key = None
             issuer_cert = None
 
+        validity = get_validity(params)
+
         usage = get_usage(params)
 
         keys[id], certs[id] = \
-            create_cert(subject_names, ca, issuer_key, issuer_cert, usage)
+            create_cert(subject_names, ca, issuer_key, issuer_cert, usage,
+                        validity)
 
     return keys, certs
 
