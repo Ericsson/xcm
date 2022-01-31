@@ -494,9 +494,17 @@ SSL_CTX *ctx_store_get_ctx(bool client, const char *cert_file,
 
 void ctx_store_put(SSL_CTX *ssl_ctx)
 {
-    if (cache_try_put(&client_cache, ssl_ctx))
+
+    cache_lock(&client_cache);
+    bool done = cache_try_put(&client_cache, ssl_ctx);
+    cache_unlock(&client_cache);
+
+    if (done)
 	return;
-    if (cache_try_put(&server_cache, ssl_ctx))
-	return;
-    ut_assert(0);
+
+    cache_lock(&server_cache);
+    done = cache_try_put(&server_cache, ssl_ctx);
+    cache_unlock(&server_cache);
+
+    ut_assert(done);
 }
