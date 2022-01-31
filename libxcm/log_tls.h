@@ -84,23 +84,17 @@
 		   "errno %d (%s).", filename, reason_errno,	     \
 		   strerror(reason_errno))
 
-#define LOG_TLS_CREATING_CTX(s, type, cert_file, key_file, tc_file)	\
+#define LOG_TLS_CREATING_CTX(s, cert_file, key_file, tc_file)	\
     do {								\
 	if (tc_file != NULL)						\
-	    log_debug_sock(s, "Creating %s SSL context with certificate " \
+	    log_debug_sock(s, "Creating SSL context with certificate " \
 			   "file \"%s\", key file \"%s\" and trusted CA file " \
-			   "\"%s\".", type, cert_file, key_file, tc_file); \
+			   "\"%s\".", cert_file, key_file, tc_file); \
 	else								\
-	    log_debug_sock(s, "Creating %s SSL context with certificate " \
+	    log_debug_sock(s, "Creating SSL context with certificate " \
 			   "file \"%s\" and key file \"%s\". No trusted CAs " \
-			   "in use.", type, cert_file, key_file);	\
+			   "in use.", cert_file, key_file);	\
     } while (0)
-
-#define LOG_TLS_CREATING_CLIENT_CTX(s, cert_file, key_file, tc_file)	\
-    LOG_TLS_CREATING_CTX(s, "client", cert_file, key_file, tc_file)
-
-#define LOG_TLS_CREATING_SERVER_CTX(s, cert_file, key_file, tc_file)	\
-    LOG_TLS_CREATING_CTX(s, "server", cert_file, key_file, tc_file)
 
 #define LOG_TLS_CTX_RETRY \
     log_debug_sock(s, "Certificate files changed on disk during " \

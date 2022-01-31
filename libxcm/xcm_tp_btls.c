@@ -800,6 +800,21 @@ err_inval:
     return -1;
 }
 
+static void set_verify(SSL *ssl, bool tls_client, bool tls_auth)
+{
+    int mode;
+
+    if (tls_auth) {
+	mode = SSL_VERIFY_PEER;
+
+	if (!tls_client)
+	    mode |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+    } else
+	mode = SSL_VERIFY_NONE;
+
+    SSL_set_verify(ssl, mode, NULL);
+}
+
 static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct btls_socket *bts = TOBTLS(s);
@@ -819,8 +834,8 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
 
-    bts->ssl_ctx = ctx_store_get_ctx(bts->tls_client, bts->cert_file,
-				     bts->key_file, bts->tc_file, s);
+    bts->ssl_ctx =
+	ctx_store_get_ctx(bts->cert_file, bts->key_file, bts->tc_file, s);
 
     if (!bts->ssl_ctx)
 	goto err_deinit;
@@ -833,6 +848,8 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+
+    set_verify(bts->conn.ssl, bts->tls_client, bts->tls_auth);
 
     if (bts->verify_peer_name)  {
 	if (bts->conn.remote_host.type == xcm_addr_type_name &&
@@ -906,8 +923,8 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
      * error detection - is effectivily disabled if the application
      * changes XCM_TLS_CERT during runtime.
      */
-    bts->ssl_ctx = ctx_store_get_ctx(bts->tls_client, bts->cert_file,
-				     bts->key_file, bts->tc_file, s);
+    bts->ssl_ctx =
+	ctx_store_get_ctx(bts->cert_file, bts->key_file, bts->tc_file, s);
     if (bts->ssl_ctx == NULL)
 	goto err_deinit;
 
@@ -1016,8 +1033,8 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	goto err_close;
 
     conn_bts->ssl_ctx =
-	ctx_store_get_ctx(conn_bts->tls_client, conn_bts->cert_file,
-			  conn_bts->key_file, conn_bts->tc_file, conn_s);
+	ctx_store_get_ctx(conn_bts->cert_file, conn_bts->key_file,
+			  conn_bts->tc_file, conn_s);
     if (conn_bts->ssl_ctx == NULL) {
 	errno = EPROTO;
 	goto err_close;
@@ -1035,6 +1052,8 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     ut_assert(conn_bts->tls_auth == (conn_bts->tc_file != NULL));
     if (!conn_bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(conn_s);
+
+    set_verify(conn_bts->conn.ssl, conn_bts->tls_client, conn_bts->tls_auth);
 
     if (conn_bts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
 	goto err_close;
