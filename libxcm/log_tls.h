@@ -54,16 +54,6 @@
 #define LOG_TLS_CERT_OK(s)					\
     log_debug_sock(s, "Certificate verification successful.")
 
-#define LOG_TLS_CERT_INVALID_BUT_ACCEPTED(s, invalid_details)		\
-    log_debug_sock(s, "Verification encountered %s certificate, "	\
-		   "but socket configured to accept such.", invalid_details)
-
-#define LOG_TLS_CERT_NOT_YET_VALID_BUT_ACCEPTED(s)		\
-    LOG_TLS_CERT_INVALID_BUT_ACCEPTED(s, "a not yet valid")
-
-#define LOG_TLS_CERT_EXPIRED_BUT_ACCEPTED(s)		\
-    LOG_TLS_CERT_INVALID_BUT_ACCEPTED(s, "an expired")
-
 #define LOG_TLS_CERT_NOT_OK(s, reason)					\
     log_debug_sock(s, "Certificate verification failed: %s.", reason)
 

@@ -265,11 +265,7 @@ static int check_tls_attrs(struct xcm_socket *s, const char *ns,
 	return -1;
 
     if (check_bool_attr(s, parent_attrs, attrs,
-			"tls.accept_not_yet_valid", false) < 0)
-	return -1;
-
-    if (check_bool_attr(s, parent_attrs, attrs,
-			"tls.accept_expired", false) < 0)
+			"tls.check_time", true) < 0)
 	return -1;
 
     return 0;
@@ -3044,8 +3040,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
-    CHKERRNO(xcm_attr_set_bool(conn, "tls.accept_not_yet_valid", true), EACCES);
-    CHKERRNO(xcm_attr_set_bool(conn, "tls.accept_expired", true), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
 
@@ -3321,36 +3316,30 @@ static int handshake(const char *server_cert_dir, const char *client_cert_dir,
 			   success_expected);
 }
 
-static struct xcm_attr_map *create_validity_attrs(bool accept_not_yet_valid,
-						  bool accept_expired)
+static struct xcm_attr_map *create_validity_attrs(bool check_time)
 {
     struct xcm_attr_map *attrs =
     	xcm_attr_map_create();
 
-    if (accept_not_yet_valid)
-	xcm_attr_map_add_bool(attrs, "tls.accept_not_yet_valid", true);
-
-    if (accept_expired)
-	xcm_attr_map_add_bool(attrs, "tls.accept_expired", true);
+    if (!check_time)
+	xcm_attr_map_add_bool(attrs, "tls.check_time", false);
+    else if (tu_randbool())
+	xcm_attr_map_add_bool(attrs, "tls.check_time", true);
 
     return attrs;
 }
 
 static int handshake_validity(const char *server_cert_dir,
-			      bool server_accept_not_yet_valid,
-			      bool server_accept_expired,
+			      bool server_check_time,
 			      const char *client_cert_dir,
-			      bool client_accept_not_yet_valid,
-			      bool client_accept_expired,
+			      bool client_check_time,
 			      bool success_expected)
 {
     struct xcm_attr_map *server_attrs =
-	create_validity_attrs(server_accept_not_yet_valid,
-			      server_accept_expired);
+	create_validity_attrs(server_check_time);
 
     struct xcm_attr_map *client_attrs =
-	create_validity_attrs(client_accept_not_yet_valid,
-			      client_accept_expired);
+	create_validity_attrs(client_check_time);
 
     int rc = handshake_attrs(server_cert_dir, server_attrs,
 			     client_cert_dir, client_attrs,
@@ -3750,22 +3739,19 @@ TESTCASE(xcm, tls_one_way_mistrust)
 #define EXPIRED_PERIOD "[-1000, -1]"
 #define NOT_YET_VALID_PERIOD "[500, 1000]"
 
-static int run_not_yet_valid(const char *expired_cert_dir, const char *valid_dir)
+static int run_time_check(const char *invalid_time_cert_dir,
+			  const char *valid_dir)
 {
-    CHKNOERR(handshake_validity("ep-x", false, false,
-				"ep-y", true, false,
+    CHKNOERR(handshake_validity("ep-x", true, "ep-y", false,
 				true));
 
-    CHKNOERR(handshake_validity("ep-y", true, false,
-				"ep-x", false, false,
+    CHKNOERR(handshake_validity("ep-y", false, "ep-x", true,
 				true));
 
-    CHKNOERR(handshake_validity("ep-y", false, true,
-				"ep-x", false, true,
+    CHKNOERR(handshake_validity("ep-y", true, "ep-x", true,
 				false));
 
-    CHKNOERR(handshake_validity("ep-x", true, true,
-				"ep-y", true, true,
+    CHKNOERR(handshake_validity("ep-x", false, "ep-y", false,
 				true));
 
     return UTEST_SUCCESS;
@@ -3781,33 +3767,7 @@ TESTCASE(xcm, tls_leaf_not_yet_valid)
 
     CHKNOERR(handshake_2_way("ep-x", "ep-y", false));
 
-    int rc = run_not_yet_valid("ep-x", "ep-y");
-
-    if (rc < 0)
-	return rc;
-
-    return UTEST_SUCCESS;
-}
-
-static int run_expired(const char *expired_cert_dir, const char *valid_dir)
-{
-    CHKNOERR(handshake_validity("ep-x", false, false,
-				"ep-y", false, true,
-				true));
-
-    CHKNOERR(handshake_validity("ep-y", false, true,
-				"ep-x", false, false,
-				true));
-
-    CHKNOERR(handshake_validity("ep-y", true, false,
-				"ep-x", true, false,
-				false));
-
-    CHKNOERR(handshake_validity("ep-x", true, true,
-				"ep-y", true, true,
-				true));
-
-    return UTEST_SUCCESS;
+    return run_time_check("ep-x", "ep-y");
 }
 
 TESTCASE(xcm, tls_leaf_expired)
@@ -3820,12 +3780,7 @@ TESTCASE(xcm, tls_leaf_expired)
 
     CHKNOERR(handshake_2_way("ep-x", "ep-y", false));
 
-    int rc = run_expired("ep-x", "ep-y");
-
-    if (rc < 0)
-	return rc;
-
-    return UTEST_SUCCESS;
+    return run_time_check("ep-x", "ep-y");
 }
 
 TESTCASE(xcm, tls_ca_not_yet_valid)
@@ -3838,12 +3793,7 @@ TESTCASE(xcm, tls_ca_not_yet_valid)
 
     CHKNOERR(handshake_2_way("ep-x", "ep-y", false));
 
-    int rc = run_not_yet_valid("ep-x", "ep-y");
-
-    if (rc < 0)
-	return rc;
-
-    return UTEST_SUCCESS;
+    return run_time_check("ep-x", "ep-y");
 }
 
 TESTCASE(xcm, tls_ca_expired)
@@ -3856,12 +3806,7 @@ TESTCASE(xcm, tls_ca_expired)
 
     CHKNOERR(handshake_2_way("ep-x", "ep-y", false));
 
-    int rc = run_expired("ep-x", "ep-y");
-
-    if (rc < 0)
-	return rc;
-
-    return UTEST_SUCCESS;
+    return run_time_check("ep-x", "ep-y");
 }
 
 TESTCASE(xcm, tls_local_leaf_validity_ignored)

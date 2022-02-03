@@ -1110,21 +1110,17 @@ extern "C" {
  * @subsubsection validity_checks Certificate Validity Period Checks
  *
  * By default, the XCM TLS transport checks the validity period of
- * each certificate in the chain of trust, down to and including the
- * remote peer's leaf certificate, against the current system time. If
- * any certificate is either not-yet-valid or has expired, the TLS
- * handshake fails.
+ * each X.509 certificate in the chain of trust, down to and including
+ * the remote peer's leaf certificate, against the current system
+ * time. If any certificate is found to be either not yet valid or
+ * expired, TLS connection establishment is aborted.
  *
- * A socket may be configured to accept not-yet-valid certificates by
- * setting the "tls.accept_not_yet_valid" socket attribute to true.
- *
- * Similarly, a socket may be configured to accept expired
- * certificates as valid by setting the "tls.accept_expired" socket
- * attribute to true.
+ * A socket may be configured to accept not-yet-valid certificates and
+ * expired certificates by setting the "tls.check_time" to false.
  *
  * Connection sockets created by xcm_accept() or xcm_accept_a()
- * inherit the "tls.accept_not_yet_valid" and "tls.accept_expired"
- * attribute values from their parent server sockets.
+ * inherit the "tls.check_time" attribute value from their parent
+ * server sockets.
  *
  * @subsubsection tls_attr TLS Socket Attributes
  *
@@ -1135,8 +1131,7 @@ extern "C" {
  * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
  * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
  * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation. Default value is true.
- * tls.accept_not_yet_valid | All         | Boolean     | RW   | If true, not-yet-valid certificates will be accepted. For connection sockets, writable only at socket creation. Default is false.
- * tls.accept_expired       | All         | Boolean     | RW   | If true, expired certificates will be accepted. For connection sockets, writable only at socket creation. Default is false.
+ * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. For connection sockets, writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation. Default value is false.
  * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
  * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or the TLS authenication is disabled and the remote peer did not send a certificate).
