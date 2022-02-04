@@ -13,7 +13,7 @@ endif
 
 include_HEADERS = include/xcm.h include/xcm_compat.h include/xcm_addr.h \
 	include/xcm_addr_compat.h include/xcm_attr.h include/xcm_attr_map.h \
-	include/xcm_attr_types.h
+	include/xcm_attr_types.h include/xcm_version.h
 
 noinst_PROGRAMS = server client
 
@@ -37,12 +37,13 @@ XCMCTL_VERSION_CURRENT=1
 XCMCTL_VERSION_REVISION=0
 XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 
-LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_compat.c libxcm/xcm_addr.c \
-	libxcm/xcm_addr_compat.c libxcm/xcm_attr_map.c libxcm/xcm_tp.c \
-	libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c libxcm/common_tp.c \
-	libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c libxcm/xcm_dns.c \
-	libxcm/xcm_dns_glibc.c libxcm/epoll_reg.c libxcm/epoll_reg_set.c \
-	libxcm/active_fd.c common/slist.c common/util.c
+LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_version.c libxcm/xcm_compat.c \
+	libxcm/xcm_addr.c libxcm/xcm_addr_compat.c libxcm/xcm_attr_map.c \
+	libxcm/xcm_tp.c libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c \
+	libxcm/common_tp.c libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c \
+	libxcm/xcm_dns.c libxcm/xcm_dns_glibc.c libxcm/epoll_reg.c \
+	libxcm/epoll_reg_set.c libxcm/active_fd.c common/slist.c \
+	common/util.c
 
 if TLS
 LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/xcm_tp_btls.c \

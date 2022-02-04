@@ -8,10 +8,11 @@
 #include "testutil.h"
 #include "utest.h"
 #include "util.h"
-#include "xcm.h"
-#include "xcm_addr.h"
-#include "xcm_attr.h"
-#include "xcmc.h"
+#include <xcm.h>
+#include <xcm_version.h>
+#include <xcm_addr.h>
+#include <xcm_attr.h>
+#include <xcmc.h>
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -5760,6 +5761,19 @@ TESTCASE(xcm, ctl_concurrent_clients_idle_socket)
 TESTCASE(xcm, ctl_concurrent_clients_active_socket)
 {
     return ctl_concurrent_clients(true);
+}
+
+TESTCASE(xcm, version)
+{
+    CHKINTEQ(xcm_version_major(), XCM_VERSION_MAJOR);
+    CHKINTEQ(xcm_version_minor(), XCM_VERSION_MINOR);
+    CHKINTEQ(xcm_version_patch(), XCM_VERSION_PATCH);
+    CHKSTREQ(xcm_version(), XCM_VERSION);
+    CHKINTEQ(xcm_version_api_major(), XCM_VERSION_API_MAJOR);
+    CHKINTEQ(xcm_version_api_minor(), XCM_VERSION_API_MINOR);
+    CHKSTREQ(xcm_version_api(), XCM_VERSION_API);
+
+    return UTEST_SUCCESS;
 }
 
 #endif

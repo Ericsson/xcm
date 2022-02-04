@@ -5,7 +5,9 @@
 
 #include "fdfwd.h"
 #include "util.h"
-#include "xcm.h"
+
+#include <xcm.h>
+#include <xcm_version.h>
 
 #include <event.h>
 #include <getopt.h>
@@ -29,8 +31,22 @@ static void usage(const char *name)
 	   "configure a server\n"
 	   "                         (rather than a connection) socket "
 	   "attribute.\n");
+    printf(" -v                      Prints XCM library version "
+	   "information.\n");
     printf(" -h                      Prints this text.\n");
 }
+
+static void print_versions(void)
+{
+    printf("XCM library version information:\n");
+    printf("  Run-time:\n");
+    printf("    Implementation: %s\n", xcm_version());
+    printf("    API: %s\n", xcm_version_api());
+    printf("  Compile-time:\n");
+    printf("    Implementation: %s\n", XCM_VERSION);
+    printf("    API: %s\n", XCM_VERSION_API);
+}
+
 
 #define MAX_ATTR_NAME_SIZE (64)
 #define MAX_ATTR_VALUE_SIZE (512)
@@ -259,7 +275,7 @@ int main(int argc, char **argv)
     int64_t attr_int64_value;
     char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
-    while ((c = getopt(argc, argv, "lb:i:s:xh")) != -1)
+    while ((c = getopt(argc, argv, "lb:i:s:xvh")) != -1)
     switch (c) {
     case 'l':
 	client = false;
@@ -281,6 +297,10 @@ int main(int argc, char **argv)
 	break;
     case 'x':
 	attrs = server_attrs;
+	break;
+    case 'v':
+	print_versions();
+	exit(EXIT_SUCCESS);
 	break;
     case 'h':
 	usage(argv[0]);

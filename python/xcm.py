@@ -58,6 +58,14 @@ xcm_is_blocking_c = xcm_c.xcm_is_blocking
 xcm_is_blocking_c.restype = c_bool
 xcm_is_blocking_c.argtypes = [c_void_p]
 
+xcm_version_c = xcm_c.xcm_version
+xcm_version_c.restype = c_char_p
+xcm_version_c.argtypes = []
+
+xcm_version_api_c = xcm_c.xcm_version_api
+xcm_version_api_c.restype = c_char_p
+xcm_version_api_c.argtypes = []
+
 ATTR_TYPE_BOOL = 1
 ATTR_TYPE_INT64 = 2
 ATTR_TYPE_STR = 3
@@ -306,3 +314,11 @@ def server(addr, attrs={}):
             _raise_io_err()
     finally:
         xcm_attr_map_destroy_c(attr_map)
+
+
+def version():
+    return xcm_version_c().decode('utf-8')
+
+
+def version_api():
+    return xcm_version_api_c().decode('utf-8')

@@ -1,14 +1,16 @@
  -*- Autoconf -*-
 
 m4_define([xcm_major_version], [1])
-m4_define([xcm_minor_version], [4])
-m4_define([xcm_patch_version], [1])
+m4_define([xcm_minor_version], [5])
+m4_define([xcm_patch_version], [0])
 m4_define([xcm_version],[xcm_major_version.xcm_minor_version.xcm_patch_version])
 
 # XCM never had a non-backward-compatible API/ABI change for any
 # release, even before version 1.0.0.
 m4_define([xcm_abi_major_version], [m4_eval(xcm_major_version - 1)])
-m4_define([xcm_abi_minor_version], 19)
+# step xcm_minor_version if this is increased
+m4_define([xcm_abi_minor_version], 20)
+m4_define([xcm_abi_version],[xcm_abi_major_version.xcm_abi_minor_version])
 
 AC_INIT(xcm, [xcm_version], [mattias.ronnblom@ericsson.com])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
@@ -19,9 +21,11 @@ AC_PROG_CC
 
 AC_SUBST([XCM_ABI_MAJOR_VERSION], [xcm_abi_major_version])
 AC_SUBST([XCM_ABI_MINOR_VERSION], [xcm_abi_minor_version])
+AC_SUBST([XCM_ABI_VERSION], [xcm_abi_version])
 AC_SUBST([XCM_MAJOR_VERSION], [xcm_major_version])
 AC_SUBST([XCM_MINOR_VERSION], [xcm_minor_version])
 AC_SUBST([XCM_PATCH_VERSION], [xcm_patch_version])
+AC_SUBST([XCM_VERSION], [xcm_version])
 
 # XCM depends on constructor functions to register transports into the
 # core library, and thus cannot be built statically.
@@ -44,7 +48,7 @@ AC_CHECK_LIB([anl], [getaddrinfo_a],
 
 AC_SUBST([AM_CFLAGS])
 
-AC_CONFIG_FILES([Makefile python/config.py])
+AC_CONFIG_FILES([Makefile include/xcm_version.h python/config.py])
 
 AC_ARG_ENABLE([tls],
     AS_HELP_STRING([--disable-tls], [disable XCM TLS and UTLS transports]))

@@ -15,17 +15,19 @@ extern "C" {
  *
  * @section introduction Introduction
  *
- * This is the documentation for the Extensible Connection-oriented
- * Messaging (XCM) programming APIs.
+ * This is the API documentation for the Extensible Connection-oriented
+ * Messaging (XCM) library.
  *
- * XCM consists the core API in xcm.h, an address helper library API
- * in xcm_addr.h, and the attribute APIs in xcm_attr.h and
- * xcm_attr_map.h. Obsolete, but still present, functions are
- * available in xcm_compat.h
+ * XCM API consists of the following parts:
+ * * Core API: xcm.h.
+ * * Address handling library: xcm_addr.h.
+ * * Socket attribute APIs: xcm_attr.h and xcm_attr_map.h.
+ * * API and implementation version information: xcm_version.h.
+ * * Obsolete, but still available, functions: xcm_compat.h.
  *
  * @author Mattias Rönnblom
- * @version 0.19 [API]
- * @version 1.4.1 [Implementation]
+ * @version 0.20 [API]
+ * @version 1.5.0 [Implementation]
  *
  * The low API/ABI version number is a result of all XCM releases
  * being backward compatible, and thus left the major version at 0.
@@ -1238,7 +1240,6 @@ extern "C" {
 #include <errno.h>
 #include <stdbool.h>
 #include <sys/types.h>
-
 #include <xcm_attr_map.h>
 
 /** Flag used in xcm_connect() */

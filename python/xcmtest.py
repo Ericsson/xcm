@@ -196,6 +196,9 @@ class TestXcm(unittest.TestCase):
         with self.assertRaises(xcm.error) as cm:
             xcm.connect("tcp:nonexistentdomain:4711", 0)
         self.assertEqual(cm.exception.errno, errno.ENOENT)
+    def test_version(self):
+        self.assertEqual(xcm.version().count("."), 2)
+        self.assertEqual(xcm.version_api().count("."), 1)
 
 if __name__ == '__main__':
     unittest.main()

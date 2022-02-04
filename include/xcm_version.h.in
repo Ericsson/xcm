@@ -1,0 +1,101 @@
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) 2022 Ericsson AB
+ */
+
+#ifndef XCM_VERSION_H
+#define XCM_VERSION_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*!
+ * @file xcm_version.h
+ * @brief This file contains functions and macros to retrieve XCM
+ *        version information. The library (i.e., implementation) version
+ *        uses the semver convention.
+ */
+
+/** The XCM library major version. */
+#define XCM_VERSION_MAJOR @XCM_MAJOR_VERSION@
+
+/** The XCM library minor version. */
+#define XCM_VERSION_MINOR @XCM_MINOR_VERSION@
+
+/** The XCM library patch version. */
+#define XCM_VERSION_PATCH @XCM_PATCH_VERSION@
+
+/** The complete XCM library version in string format. */
+#define XCM_VERSION "@XCM_VERSION@"
+
+/** @} */
+
+/** The XCM API/ABI major version this library version implements. */
+#define XCM_VERSION_API_MAJOR @XCM_ABI_MAJOR_VERSION@
+
+/** The XCM API/ABI minor version this library version implements. */
+#define XCM_VERSION_API_MINOR @XCM_ABI_MINOR_VERSION@
+
+/** The complete XCM API version in string format. */
+#define XCM_VERSION_API "@XCM_ABI_VERSION@"
+
+/** Retrieves the library major version.
+ *
+ * This function returns the implementation major version of the
+ * library used at run time.
+ */
+unsigned int xcm_version_major(void);
+
+/** Retrieves the library minor version.
+ *
+ * This function returns the implementation minor version of the
+ * library used at run time.
+ */
+
+unsigned int xcm_version_minor(void);
+
+/** Retrieves the library patch version.
+ *
+ * This function returns the implementation patch version of the
+ * library used at run time.
+ */
+unsigned int xcm_version_patch(void);
+
+/** Retrieves the library version as a string.
+ *
+ * This function returns the version of the library used at run time,
+ * in string format.
+ *
+ * The string returned is statically allocated, and thus must not be
+ * free'd by the caller.
+ */
+const char *xcm_version(void);
+
+/** Retrieves the XCM API major version.
+ *
+ * This function returns the API major version of the library used at
+ * run time adheres to.
+ */
+unsigned int xcm_version_api_major(void);
+
+/** Retrieves the XCM API minor version.
+ *
+ * This function returns the API minor version of the library used at
+ * run time adheres to.
+ */
+unsigned int xcm_version_api_minor(void);
+
+/** Retrieves the library API version as a string.
+ *
+ * This function returns the API version of the library used at run
+ * time adheres to.
+ *
+ * The string returned is statically allocated, and thus must not be
+ * free'd by the caller.
+ */
+const char *xcm_version_api(void);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

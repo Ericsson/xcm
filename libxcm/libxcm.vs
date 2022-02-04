@@ -19,6 +19,13 @@
     xcm_is_blocking;
     xcm_remote_addr;
     xcm_local_addr;
+    xcm_version_major;
+    xcm_version_minor;
+    xcm_version_patch;
+    xcm_version;
+    xcm_version_api_major;
+    xcm_version_api_minor;
+    xcm_version_api;
     xcm_attr_set;
     xcm_attr_set_bool;
     xcm_attr_set_int64;
