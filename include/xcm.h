@@ -18,7 +18,7 @@ extern "C" {
  * This is the API documentation for the Extensible Connection-oriented
  * Messaging (XCM) library.
  *
- * XCM API consists of the following parts:
+ * The XCM API consists of the following parts:
  * * Core API: xcm.h.
  * * Address handling library: xcm_addr.h.
  * * Socket attribute APIs: xcm_attr.h and xcm_attr_map.h.
