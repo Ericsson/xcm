@@ -250,7 +250,7 @@ void xcm_tp_socket_get_attrs(struct xcm_socket *s,
 			     const struct xcm_tp_attr **attr_list,
 			     size_t *attr_list_len)
 {
-    return XCM_TP_CALL(get_attrs, s, attr_list, attr_list_len);
+    XCM_TP_CALL(get_attrs, s, attr_list, attr_list_len);
 }
 
 int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity)
