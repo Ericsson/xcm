@@ -181,7 +181,7 @@ int xcm_tp_socket_finish(struct xcm_socket *s)
 {
     int rc = XCM_TP_CALL(finish, s);
 
-    consider_ctl(s, rc, errno);
+    consider_ctl(s, rc < 0 && errno != EAGAIN, rc < 0 && errno == EAGAIN);
 
     xcm_tp_socket_update(s);
 
