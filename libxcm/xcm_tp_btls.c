@@ -64,6 +64,9 @@ struct btls_socket
 {
     char laddr[XCM_ADDR_MAX+1];
 
+    /* IPv6 scope id */
+    int64_t scope;
+
     bool tls_auth;
     bool tls_client;
     bool check_time;
@@ -107,6 +110,7 @@ struct btls_socket
 	    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
 	} conn;
 	struct {
+	    bool created;
 	    int fd;
 	} server;
     };
@@ -270,6 +274,11 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
 static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct btls_socket *bts = TOBTLS(s);
+
+    if (parent != NULL)
+	bts->scope = TOBTLS(parent)->scope;
+    else
+	bts->scope = -1;
 
     bts->tls_auth = true;
     bts->check_time = true;
@@ -562,6 +571,21 @@ static int bind_local_addr(struct xcm_socket *s)
 
 static void try_finish_connect(struct xcm_socket *s);
 
+static int conf_scope(struct xcm_socket *s, int64_t *scope,
+		      const struct xcm_addr_ip *ip)
+{
+    if (*scope >= 0 && ip->family == AF_INET) {
+	LOG_SCOPE_SET_ON_IPV4_SOCKET(s);
+	errno = EINVAL;
+	return -1;
+    }
+
+    if (*scope == -1 && ip->family == AF_INET6)
+	*scope = 0;
+
+    return 0;
+}
+
 static void begin_connect(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
@@ -591,9 +615,12 @@ static void begin_connect(struct xcm_socket *s)
     if (tcp_opts_effectuate(&bts->conn.tcp_opts, conn_fd) <  0)
 	goto err;
 
+    if (conf_scope(s, &bts->scope, &bts->conn.remote_host.ip) < 0)
+	goto err;
+
     struct sockaddr_storage servaddr;
     tp_ip_to_sockaddr(&bts->conn.remote_host.ip, bts->conn.remote_port,
-		      (struct sockaddr*)&servaddr);
+		      bts->scope, (struct sockaddr*)&servaddr);
 
     if (connect(conn_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
@@ -965,10 +992,13 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
     if (tcp_effectuate_dscp(bts->server.fd) < 0)
 	goto err_deinit;
 
-    struct sockaddr_storage addr;
-    tp_ip_to_sockaddr(&host.ip, port, (struct sockaddr*)&addr);
+    if (conf_scope(s, &bts->scope, &host.ip) < 0)
+	goto err_deinit;
 
-    if (bind(bts->server.fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    struct sockaddr_storage addr;
+    tp_ip_to_sockaddr(&host.ip, port, bts->scope, (struct sockaddr *)&addr);
+
+    if (bind(bts->server.fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
 	goto err_deinit;
     }
@@ -986,6 +1016,8 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
     epoll_reg_set_fd(&bts->fd_reg, bts->server.fd);
 
     LOG_SERVER_CREATED_FD(s, bts->server.fd);
+
+    bts->server.created = true;
 
     return 0;
  
@@ -1511,6 +1543,55 @@ GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
 
+static int set_scope_attr(struct xcm_socket *s, void *context,
+			  const void *value, size_t len)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if ((s->type == xcm_socket_type_conn &&
+	 bts->conn.state != conn_state_initialized) ||
+	(s->type == xcm_socket_type_server && bts->server.created)) {
+	errno = EACCES;
+	return -1;
+    }
+
+    int64_t scope;
+    memcpy(&scope, value, sizeof(int64_t));
+
+    /* An already-existing scope id means it was inherited from a
+       parent socket (i.e., the server socket). Passing different
+       ipv6.scope in the xcm_accept_a() call is nonsensical, and thus
+       disallowed. */
+    if (bts->scope >= 0 && bts->scope != scope) {
+	LOG_SCOPE_CHANGED_ON_ACCEPT(s, bts->scope, scope);
+	errno = EINVAL;
+	return -1;
+    }
+
+    if (scope < 0 || scope > UINT32_MAX) {
+	errno = EINVAL;
+	return -1;
+    }
+
+    bts->scope = scope;
+
+    return 0;
+}
+
+static int get_scope_attr(struct xcm_socket *s, void *context,
+			  void *value, size_t capacity)
+{
+    int64_t scope = TOBTLS(s)->scope;
+
+    if (scope >= 0) {
+	memcpy(value, &(TOBTLS(s)->scope), sizeof(int64_t));
+	return sizeof(int64_t);
+    } else { /* IPv4 */
+	errno = ENOENT;
+	return -1;
+    }
+}
+
 static int set_file_attr(struct xcm_socket *s, void *context,
 			 const void *value, size_t len,
 			 char **target, bool *mark)
@@ -1799,7 +1880,9 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     return len;
 }
 
-#define COMMON_ATTRS							\
+/* The common attributes are split in two to maintain some order when the
+   attributes are listed over the control interface */
+#define XCM_COMMON_ATTRS							\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CLIENT, xcm_attr_type_bool,	\
 			set_client_attr, get_client_attr),		\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
@@ -1817,10 +1900,15 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str, \
 			set_tc_file_attr, get_tc_file_attr)
 
+#define IP_COMMON_ATTRS							\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_IPV6_SCOPE, xcm_attr_type_int64,	\
+			set_scope_attr, get_scope_attr)
+
 static struct xcm_tp_attr conn_attrs[] = {
-    COMMON_ATTRS,
+    XCM_COMMON_ATTRS,
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
 			xcm_attr_type_bin, get_peer_subject_key_id),
+    IP_COMMON_ATTRS,
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,
@@ -1843,7 +1931,8 @@ static struct xcm_tp_attr conn_attrs[] = {
 };
 
 static struct xcm_tp_attr server_attrs[] = {
-    COMMON_ATTRS
+    XCM_COMMON_ATTRS,
+    IP_COMMON_ATTRS
 };
 
 static void btls_get_attrs(struct xcm_socket* s,

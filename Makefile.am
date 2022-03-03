@@ -122,7 +122,8 @@ XCMTEST_TESTCASE_SOURCES = test/xcm_testcases.c test/addr_testcases.c \
 	test/attr_map_testcases.c test/slist_testcases.c
 
 xcmtest_SOURCES = $(XCMTEST_TESTCASE_SOURCES) $(UTEST_SOURCES) \
-	common/util.c common/slist.c test/testutil.c test/pingpong.c
+	common/util.c common/slist.c test/testutil.c test/tnet.c \
+	test/pingpong.c
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
 xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -no-install
 xcmtest_LDADD = libxcm.la

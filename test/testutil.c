@@ -213,6 +213,45 @@ int tu_executef_es(const char *fmt, ...)
     return tu_execute_es(cmd);
 }
 
+char *tu_popen_es(const char *fmt, ...)
+{
+    va_list argp;
+    va_start(argp, fmt);
+
+    char cmd[8192];
+    vsnprintf(cmd, sizeof(cmd), fmt, argp);
+
+    va_end(argp);
+
+    FILE *p = popen(cmd, "r");
+
+    if (p == NULL)
+	return NULL;
+
+    char *output = NULL;
+    size_t output_len = 0;
+
+    for (;;) {
+	char buf[16];
+	size_t rc = fread(buf, 1, sizeof(buf), p);
+
+	if (rc > 0) {
+	    output = ut_realloc(output, output_len + rc + 1);
+	    memcpy(output + output_len, buf, rc);
+
+	    output_len += rc;
+
+	    output[output_len] = '\0';
+	}
+
+	if (rc < sizeof(buf)) {
+	    pclose(p);
+	    return output;
+	}
+    }
+}
+
+
 int tu_wait(pid_t p)
 {
     int wstatus;

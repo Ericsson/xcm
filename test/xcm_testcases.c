@@ -6,6 +6,7 @@
 #include "config.h"
 #include "pingpong.h"
 #include "testutil.h"
+#include "tnet.h"
 #include "utest.h"
 #include "util.h"
 #include <xcm.h>
@@ -182,7 +183,6 @@ static void determine_path(char *path, const char *file_type,
 			   const char *ns, const char *cert_dir,
 			   const struct xcm_attr_map *parent_attrs,
 			   const struct xcm_attr_map *attrs)
-
 {
     char attr_name[64];
     snprintf(attr_name, sizeof(attr_name), "tls.%s_file", file_type);
@@ -203,7 +203,7 @@ static int check_cert_attrs(struct xcm_socket *s, const char *ns,
 			    const struct xcm_attr_map *parent_attrs,
 			    const struct xcm_attr_map *attrs)
 {
-    if (!cert_dir)
+    if (cert_dir == NULL)
 	cert_dir = getenv("XCM_TLS_CERT");
 
     char cert_file[PATH_MAX];
@@ -224,11 +224,14 @@ static int check_cert_attrs(struct xcm_socket *s, const char *ns,
 
     int rc = tu_assure_str_attr(s, "tls.tc_file", tc_file);
 
-    if (tls_auth)
-	CHK(rc == 0);
-    else {
-	CHK(rc < 0);
-	CHKERRNOEQ(ENOENT);
+    if (tls_auth) {
+	if (rc != 0)
+	    return -1;
+    } else {
+	if (rc >= 0)
+	    return -1;
+	if (errno != ENOENT)
+	    return -1;
     }
     return 0;
 }
@@ -270,6 +273,11 @@ static int check_tls_attrs(struct xcm_socket *s, const char *ns,
 	return -1;
 
     return 0;
+}
+
+static bool is_ipv6(const char *addr)
+{
+    return strchr(addr, '[') != NULL;
 }
 
 static bool is_tls(const char *addr)
@@ -561,50 +569,13 @@ static int conf_rto_min(void)
     return 0;
 }
 
+#define TEST_NS0 "testns0"
+#define TEST_NS1 "testns1"
+
+#define TEST_NS0_IP "10.42.42.1"
+#define TEST_NS1_IP "10.42.42.2"
+
 #ifdef XCM_TLS
-
-static int setup_named_ns(const char *name)
-{
-    tu_executef_es("ip netns del %s 2>/dev/null", name);
-
-    if (tu_executef_es("ip netns add %s", name) != 0)
-	return -1;
-    if (conf_loopback(name) < 0)
-	return -1;
-    return 0;
-}
-
-static int connect_named_ns(const char *ns0_name, const char *ns0_ip,
-			    const char *ns1_name, const char *ns1_ip)
-{
-    if (tu_executef_es("ip -n %s link add type veth", ns0_name) != 0)
-	return -1;
-
-    if (tu_executef_es("ip -n %s link set veth1 netns %s", ns0_name,
-		       ns1_name) != 0)
-	return -1;
-
-    if (tu_executef_es("ip -n %s addr add %s/24 dev veth0", ns0_name,
-		       ns0_ip) != 0)
-	return -1;
-
-    if (tu_executef_es("ip -n %s addr add %s/24 dev veth1", ns1_name,
-		       ns1_ip) != 0)
-	return -1;
-
-    if (tu_executef_es("ip -n %s link set veth0 up", ns0_name) != 0)
-	return -1;
-
-    if (tu_executef_es("ip -n %s link set veth1 up", ns1_name) != 0)
-	return -1;
-
-    return 0;
-}
-
-static int teardown_named_ns(const char *name)
-{
-    return tu_executef_es("ip netns del %s", name) != 0 ? -1: 0;
-}
 
 static const char *get_cert_base(void)
 {
@@ -884,16 +855,25 @@ TESTCASE(xcm, basic)
 	CHKSTREQ(buf, server_msg);
 
 	if (strcmp(test_proto, "tcp") == 0 ||
-	    strcmp(test_proto, "tls") == 0) {
+	    strcmp(test_proto, "tls") == 0 ||
+	    strcmp(test_proto, "btls") == 0) {
 	    CHKNOERR(tu_assure_int64_attr(client_conn, "tcp.rtt",
-				       cmp_type_none, 0));
+					  cmp_type_none, 0));
 	    CHKNOERR(tu_assure_int64_attr(client_conn, "tcp.total_retrans", 
-				       cmp_type_none, 0));
+					  cmp_type_none, 0));
 	    if (kernel_has_tcp_info_segs()) {
 		CHKNOERR(tu_assure_int64_attr(client_conn, "tcp.segs_in",
 					      cmp_type_greater_than, 0));
 		CHKNOERR(tu_assure_int64_attr(client_conn, "tcp.segs_out",
 					      cmp_type_greater_than, 0));
+	    }
+	    if (is_ipv6(test_addr))
+		CHKNOERR(tu_assure_int64_attr(client_conn, "ipv6.scope",
+					      cmp_type_equal, 0));
+	    else { /* IPv4 */
+		int64_t v;
+		CHKERRNO(xcm_attr_get_int64(client_conn, "ipv6.scope", &v),
+			 ENOENT);
 	    }
 	}
 
@@ -2784,6 +2764,385 @@ TESTCASE(xcm, bind_to_source_addr)
     return UTEST_SUCCESS;
 }
 
+static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
+{
+    CHKERRNO(xcm_attr_set_str(conn, "tls.cert_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.key_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
+
+    return UTEST_SUCCESS;
+}
+
+static void assure_non_blocking(struct xcm_attr_map *attrs)
+{
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+}
+
+#define ESTABLISHMENT_TIMEOUT (is_in_valgrind() ? 5.0 : 1.0)
+
+static int establish_ns(const char *server_ns, const char *server_addr,
+			struct xcm_attr_map *server_attrs,
+			struct xcm_attr_map *accept_attrs,
+			const char *connect_ns, const char *connect_addr,
+			struct xcm_attr_map *connect_attrs,
+			bool success_expected)
+{
+    assure_non_blocking(server_attrs);
+    assure_non_blocking(accept_attrs);
+    assure_non_blocking(connect_attrs);
+
+    int old_ns = -1;
+
+    if (server_ns != NULL && (old_ns = tu_enter_ns(server_ns)) < 0)
+	return -1; /* NS-related failures should never be expected */
+
+    struct xcm_socket *server_sock = tu_server_a(server_addr, server_attrs);
+    struct xcm_socket *connect_sock = NULL;
+    struct xcm_socket *accepted_sock = NULL;
+
+    if (old_ns >= 0) {
+	if (tu_leave_ns(old_ns) < 0)
+	    return -1;
+	old_ns = -1;
+    }
+
+    bool success = false;
+
+    if (server_sock == NULL)
+	goto out;
+
+    bool connect_done = false;
+    bool accept_done = false;
+    double deadline = tu_ftime() + ESTABLISHMENT_TIMEOUT;
+
+    if (connect_ns != NULL && (old_ns = tu_enter_ns(connect_ns)) < 0)
+	return -1;
+
+    while (!connect_done || !accept_done) {
+	if (connect_sock == NULL) {
+	    connect_sock = tu_connect_a(connect_addr, connect_attrs);
+
+	    if (connect_sock == NULL &&
+		(errno != EAGAIN && errno != ECONNREFUSED))
+		goto out;
+	} else {
+	    if (xcm_finish(connect_sock) == 0)
+		connect_done = true;
+	    else if (errno == ECONNREFUSED) {
+		xcm_close(connect_sock);
+		connect_sock = NULL;
+	    } else if (errno != EAGAIN)
+		goto out;
+	}
+
+	if (accepted_sock == NULL) {
+	    accepted_sock = xcm_accept_a(server_sock, accept_attrs);
+	    if (accepted_sock == NULL && errno != EAGAIN)
+		goto out;
+	} else {
+	    if (xcm_finish(accepted_sock) == 0)
+		accept_done = true;
+	    else if (errno != EAGAIN)
+		goto out;
+	}
+
+	if (tu_ftime() > deadline)
+	    goto out;
+    }
+
+    if (is_tls(server_addr) ||
+	(is_tls(connect_addr) && is_utls(server_addr))) {
+
+	if (check_tls_attrs(accepted_sock, NULL, NULL, server_attrs,
+			    accept_attrs) < 0)
+	    return UTEST_FAIL;
+	if (check_setting_now_ro_tls_attrs(accepted_sock) < 0)
+	    return UTEST_FAIL;
+	if (check_tls_attrs(connect_sock, NULL, NULL, NULL,
+			    connect_attrs) < 0)
+	    return UTEST_FAIL;
+	if (check_setting_now_ro_tls_attrs(connect_sock) < 0)
+	    return UTEST_FAIL;
+    }
+
+    char m = 42;
+
+    bool bytestream = tu_is_bytestream_addr(server_addr);
+
+    for (;;) {
+	int rc = xcm_send(connect_sock, &m, 1);
+
+	if (rc < 0 && rc == EAGAIN) {
+	    xcm_finish(accepted_sock);
+	    continue;
+	}
+
+	if ((bytestream && rc == 1) || (!bytestream && rc == 0))
+	    break;
+
+	return UTEST_FAIL;
+    }
+
+    for (;;) {
+	char m2;
+
+	int rc = xcm_receive(accepted_sock, &m2, 1);
+
+	if (rc < 0 && rc == EAGAIN) {
+	    xcm_finish(connect_sock);
+	    continue;
+	}
+
+	if (rc == 1 && m2 == m)
+	    break;
+
+	return UTEST_FAIL;
+    }
+
+    success = true;
+
+out:
+
+    if (old_ns >= 0) {
+	if (tu_leave_ns(old_ns) < 0)
+	    return -1;
+	old_ns = -1;
+    }
+
+    CHKNOERR(xcm_close(server_sock));
+    CHKNOERR(xcm_close(accepted_sock));
+    CHKNOERR(xcm_close(connect_sock));
+
+    return success == success_expected ? UTEST_SUCCESS : UTEST_FAIL;
+}
+
+#ifdef XCM_TLS
+
+static int establish(const char *server_addr,
+		     struct xcm_attr_map *server_attrs,
+		     struct xcm_attr_map *accept_attrs,
+		     const char *connect_addr,
+		     struct xcm_attr_map *connect_attrs,
+		     bool success_expected)
+{
+    return establish_ns(NULL, server_addr, server_attrs, accept_attrs,
+			NULL, connect_addr, connect_attrs, success_expected);
+}
+
+static int establish_xtls(const char *tls_addr,
+			  struct xcm_attr_map *server_attrs,
+			  struct xcm_attr_map *accept_attrs,
+			  struct xcm_attr_map *connect_attrs,
+			  bool success_expected)
+{
+    if (establish(tls_addr, server_attrs, accept_attrs,
+		  tls_addr, connect_attrs, success_expected) < 0)
+	return UTEST_FAIL;
+
+    struct xcm_addr_host host;
+    uint16_t port;
+    CHKNOERR(xcm_addr_parse_tls(tls_addr, &host, &port));
+
+    char utls_addr[128];
+    CHKNOERR(xcm_addr_make_utls(&host, port, utls_addr, sizeof(utls_addr)));
+
+    /* Test UTLS client and server sockets. Since UTLS <-> UTLS would
+       result in a UX connection, use TLS on one side, and UTLS on the
+       other */
+    if (establish(tls_addr, server_attrs, accept_attrs,
+		  utls_addr, connect_attrs, success_expected) < 0)
+	return UTEST_FAIL;
+
+    if (establish(utls_addr, server_attrs, accept_attrs,
+		  tls_addr, connect_attrs, success_expected) < 0)
+	return UTEST_FAIL;
+
+    char btls_addr[128];
+    CHKNOERR(xcm_addr_make_btls(&host, port, btls_addr, sizeof(btls_addr)));
+
+    if (establish(btls_addr, server_attrs, accept_attrs,
+		  btls_addr, connect_attrs, success_expected) < 0)
+	return UTEST_FAIL;
+
+    return UTEST_SUCCESS;
+}
+
+static struct xcm_attr_map *create_cert_attrs(const char *base_dir,
+					      const char *cert,
+					      const char *key,
+					      const char *tc)
+{
+    char path[PATH_MAX];
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    if (cert != NULL) {
+	snprintf(path, sizeof(path), "%s/%s", base_dir, cert);
+	xcm_attr_map_add_str(attrs, "tls.cert_file", path);
+    }
+
+    if (key != NULL) {
+	snprintf(path, sizeof(path), "%s/%s", base_dir, key);
+	xcm_attr_map_add_str(attrs, "tls.key_file", path);
+    }
+
+    if (tc != NULL) {
+	snprintf(path, sizeof(path), "%s/%s", base_dir, tc);
+	xcm_attr_map_add_str(attrs, "tls.tc_file", path);
+    }
+
+    return attrs;
+}
+
+static struct xcm_attr_map *create_cert_attrs_dir(const char *base_dir,
+						  const char *rel_dir)
+{
+    char path[PATH_MAX];
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    snprintf(path, sizeof(path), "%s/%s/cert.pem", base_dir, rel_dir);
+    xcm_attr_map_add_str(attrs, "tls.cert_file", path);
+
+    snprintf(path, sizeof(path), "%s/%s/key.pem", base_dir, rel_dir);
+    xcm_attr_map_add_str(attrs, "tls.key_file", path);
+
+    snprintf(path, sizeof(path), "%s/%s/tc.pem", base_dir, rel_dir);
+    xcm_attr_map_add_str(attrs, "tls.tc_file", path);
+
+    return attrs;
+}
+
+#endif
+
+static int run_ipv6_link_local(const char *proto)
+{
+    struct tnet *net = tnet_create();
+    CHK(net != NULL);
+
+    struct tnet_ns *server_ns = tnet_add_ns(net, NULL);
+    struct tnet_ns *client_ns = tnet_add_ns(net, NULL);
+    CHK(server_ns != NULL && client_ns != NULL);
+
+    CHKNOERR(tnet_ns_link(server_ns, client_ns));
+
+    const char *server_ll_addr = tnet_ns_veth_ll_addr(server_ns);
+
+    int server_scope = tnet_ns_veth_index(server_ns);
+    struct xcm_attr_map *server_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_int64(server_attrs, "ipv6.scope", server_scope);
+    struct xcm_attr_map *accept_attrs = xcm_attr_map_create();
+
+    int client_scope = tnet_ns_veth_index(client_ns);
+    struct xcm_attr_map *connect_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_int64(connect_attrs, "ipv6.scope", client_scope);
+
+#ifdef XCM_TLS
+    if (strcmp(proto, "tls") == 0 || strcmp(proto, "btls") == 0) {
+	struct xcm_attr_map *cert_attrs =
+	    create_cert_attrs_dir(get_cert_base(), "default");
+
+	xcm_attr_map_add_all(server_attrs, cert_attrs);
+	xcm_attr_map_add_all(connect_attrs, cert_attrs);
+
+	xcm_attr_map_destroy(cert_attrs);
+    }
+#endif
+
+    char addr[256];
+    snprintf(addr, sizeof(addr), "%s:[%s]:4711", proto, server_ll_addr);
+
+    CHKNOERR(establish_ns(tnet_ns_name(server_ns), addr, server_attrs,
+			  accept_attrs, tnet_ns_name(client_ns),
+			  addr, connect_attrs, true));
+
+    xcm_attr_map_add_int64(accept_attrs, "ipv6.scope", server_scope);
+    CHKNOERR(establish_ns(tnet_ns_name(server_ns), addr, server_attrs,
+			  accept_attrs, tnet_ns_name(client_ns),
+			  addr, connect_attrs, true));
+
+    /* passing different scope in the xcm_accept_a() attributes
+       doesn't make sense, and should be disallowed */
+    xcm_attr_map_add_int64(accept_attrs, "ipv6.scope", server_scope + 1);
+    CHKNOERR(establish_ns(tnet_ns_name(server_ns), addr, server_attrs,
+			  accept_attrs, tnet_ns_name(client_ns),
+			  addr, connect_attrs, false));
+
+    xcm_attr_map_destroy(server_attrs);
+    xcm_attr_map_destroy(accept_attrs);
+    xcm_attr_map_destroy(connect_attrs);
+
+    tnet_destroy(net);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, ipv6_link_local)
+{
+    REQUIRE_ROOT;
+
+    int rc;
+
+    if ((rc = run_ipv6_link_local("tcp")) < 0)
+	return rc;
+
+#ifdef XCM_TLS
+    if ((rc = run_ipv6_link_local("tls")) < 0)
+	return rc;
+    if ((rc = run_ipv6_link_local("btls")) < 0)
+	return rc;
+#endif
+
+    return UTEST_SUCCESS;
+}
+
+static int run_disallow_link_local_on_ipv4(const char *proto)
+{
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_int64(attrs, "ipv6.scope", 0);
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", true);
+
+    char addr[128];
+    snprintf(addr, sizeof(addr), "%s:127.0.0.1:42", proto);
+
+    CHKNULLERRNO(xcm_connect_a(addr, attrs), EINVAL);
+    CHKNULLERRNO(xcm_server_a(addr, attrs), EINVAL);
+
+    snprintf(addr, sizeof(addr), "%s:localhost:42", proto);
+
+    /* the assumption is that localhost resolves to an IPv4 address */
+    CHKNULLERRNO(xcm_connect_a(addr, attrs), EINVAL);
+    CHKNULLERRNO(xcm_server_a(addr, attrs), EINVAL);
+
+    xcm_attr_map_destroy(attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, disallow_link_local_on_ipv4)
+{
+    REQUIRE_ROOT;
+
+    int rc;
+
+    if ((rc = run_disallow_link_local_on_ipv4("tcp")) < 0)
+	return rc;
+
+#ifdef XCM_TLS
+    if ((rc = run_disallow_link_local_on_ipv4("tls")) < 0)
+	return rc;
+    if ((rc = run_disallow_link_local_on_ipv4("btls")) < 0)
+	return rc;
+#endif
+
+    return UTEST_SUCCESS;
+}
+
 static int run_disallow_bind_on_accept(const char *client_proto,
 				       const char *server_proto)
 {
@@ -3027,226 +3386,6 @@ TESTCASE_SERIALIZED(xcm, utls_remote_addr)
     tu_wait(server_pid);
 
     return UTEST_SUCCESS;
-}
-
-static void assure_non_blocking(struct xcm_attr_map *attrs)
-{
-    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
-}
-
-static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
-{
-    CHKERRNO(xcm_attr_set_str(conn, "tls.cert_file", "cert.pem"), EACCES);
-    CHKERRNO(xcm_attr_set_str(conn, "tls.key_file", "cert.pem"), EACCES);
-    CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
-    CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
-    CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
-    CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
-    CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
-    CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
-
-    return UTEST_SUCCESS;
-}
-
-#define ESTABLISHMENT_TIMEOUT (is_in_valgrind() ? 5.0 : 1.0)
-
-static int establish(const char *server_addr,
-		     struct xcm_attr_map *server_attrs,
-		     struct xcm_attr_map *accept_attrs,
-		     const char *connect_addr,
-		     struct xcm_attr_map *connect_attrs,
-		     bool success_expected)
-{
-    assure_non_blocking(server_attrs);
-    assure_non_blocking(accept_attrs);
-    assure_non_blocking(connect_attrs);
-
-    struct xcm_socket *server_sock = tu_server_a(server_addr, server_attrs);
-    struct xcm_socket *connect_sock = NULL;
-    struct xcm_socket *accepted_sock = NULL;
-
-    bool success = false;
-
-    if (server_sock == NULL)
-	goto out;
-
-    bool connect_done = false;
-    bool accept_done = false;
-    double deadline = tu_ftime() + ESTABLISHMENT_TIMEOUT;
-
-    while (!connect_done || !accept_done) {
-	if (connect_sock == NULL) {
-	    connect_sock = tu_connect_a(connect_addr, connect_attrs);
-	    if (connect_sock == NULL &&
-		(errno != EAGAIN && errno != ECONNREFUSED))
-		goto out;
-	} else {
-	    if (xcm_finish(connect_sock) == 0)
-		connect_done = true;
-	    else if (errno == ECONNREFUSED) {
-		xcm_close(connect_sock);
-		connect_sock = NULL;
-	    } else if (errno != EAGAIN)
-		goto out;
-	}
-
-	if (accepted_sock == NULL) {
-	    accepted_sock = xcm_accept_a(server_sock, accept_attrs);
-	    if (accepted_sock == NULL && errno != EAGAIN)
-		goto out;
-	} else {
-	    if (xcm_finish(accepted_sock) == 0)
-		accept_done = true;
-	    else if (errno != EAGAIN)
-		goto out;
-	}
-
-	if (tu_ftime() > deadline)
-	    goto out;
-    }
-
-    if (is_tls(server_addr) ||
-	(is_tls(connect_addr) && is_utls(server_addr))) {
-
-	if (check_tls_attrs(accepted_sock, NULL, NULL, server_attrs,
-			    accept_attrs) < 0)
-	    return UTEST_FAIL;
-	if (check_setting_now_ro_tls_attrs(accepted_sock) < 0)
-	    return UTEST_FAIL;
-	if (check_tls_attrs(connect_sock, NULL, NULL, NULL,
-			    connect_attrs) < 0)
-	    return UTEST_FAIL;
-	if (check_setting_now_ro_tls_attrs(connect_sock) < 0)
-	    return UTEST_FAIL;
-    }
-
-    char m = 42;
-
-    bool bytestream = tu_is_bytestream_addr(server_addr);
-
-    for (;;) {
-	int rc = xcm_send(connect_sock, &m, 1);
-
-	if (rc < 0 && rc == EAGAIN) {
-	    xcm_finish(accepted_sock);
-	    continue;
-	}
-
-	if ((bytestream && rc == 1) || (!bytestream && rc == 0))
-	    break;
-
-	return UTEST_FAIL;
-    }
-
-    for (;;) {
-	char m2;
-
-	int rc = xcm_receive(accepted_sock, &m2, 1);
-
-	if (rc < 0 && rc == EAGAIN) {
-	    xcm_finish(connect_sock);
-	    continue;
-	}
-
-	if (rc == 1 && m2 == m)
-	    break;
-
-	return UTEST_FAIL;
-    }
-
-    success = true;
-
-out:
-
-    CHKNOERR(xcm_close(server_sock));
-    CHKNOERR(xcm_close(accepted_sock));
-    CHKNOERR(xcm_close(connect_sock));
-
-    return success == success_expected ? UTEST_SUCCESS : UTEST_FAIL;
-}
-
-static int establish_xtls(const char *tls_addr,
-			  struct xcm_attr_map *server_attrs,
-			  struct xcm_attr_map *accept_attrs,
-			  struct xcm_attr_map *connect_attrs,
-			  bool success_expected)
-{
-    if (establish(tls_addr, server_attrs, accept_attrs,
-		  tls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
-
-    struct xcm_addr_host host;
-    uint16_t port;
-    CHKNOERR(xcm_addr_parse_tls(tls_addr, &host, &port));
-
-    char utls_addr[128];
-    CHKNOERR(xcm_addr_make_utls(&host, port, utls_addr, sizeof(utls_addr)));
-
-    /* Test UTLS client and server sockets. Since UTLS <-> UTLS would
-       result in a UX connection, use TLS on one side, and UTLS on the
-       other */
-    if (establish(tls_addr, server_attrs, accept_attrs,
-		  utls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
-
-    if (establish(utls_addr, server_attrs, accept_attrs,
-		  tls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
-
-    char btls_addr[128];
-    CHKNOERR(xcm_addr_make_btls(&host, port, btls_addr, sizeof(btls_addr)));
-
-    if (establish(btls_addr, server_attrs, accept_attrs,
-		  btls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
-
-    return UTEST_SUCCESS;
-}
-
-static struct xcm_attr_map *create_cert_attrs(const char *base_dir,
-					      const char *cert,
-					      const char *key,
-					      const char *tc)
-{
-    char path[PATH_MAX];
-
-    struct xcm_attr_map *attrs = xcm_attr_map_create();
-
-    if (cert != NULL) {
-	snprintf(path, sizeof(path), "%s/%s", base_dir, cert);
-	xcm_attr_map_add_str(attrs, "tls.cert_file", path);
-    }
-
-    if (key != NULL) {
-	snprintf(path, sizeof(path), "%s/%s", base_dir, key);
-	xcm_attr_map_add_str(attrs, "tls.key_file", path);
-    }
-
-    if (tc != NULL) {
-	snprintf(path, sizeof(path), "%s/%s", base_dir, tc);
-	xcm_attr_map_add_str(attrs, "tls.tc_file", path);
-    }
-
-    return attrs;
-}
-
-static struct xcm_attr_map *create_cert_attrs_dir(const char *base_dir,
-						  const char *rel_dir)
-{
-    char path[PATH_MAX];
-
-    struct xcm_attr_map *attrs = xcm_attr_map_create();
-
-    snprintf(path, sizeof(path), "%s/%s/cert.pem", base_dir, rel_dir);
-    xcm_attr_map_add_str(attrs, "tls.cert_file", path);
-
-    snprintf(path, sizeof(path), "%s/%s/key.pem", base_dir, rel_dir);
-    xcm_attr_map_add_str(attrs, "tls.key_file", path);
-
-    snprintf(path, sizeof(path), "%s/%s/tc.pem", base_dir, rel_dir);
-    xcm_attr_map_add_str(attrs, "tls.tc_file", path);
-
-    return attrs;
 }
 
 static int do_handshake(struct xcm_attr_map *server_attrs,
@@ -4473,12 +4612,6 @@ TESTCASE(xcm, tls_extended_key_usage)
     return UTEST_SUCCESS;
 }
 
-#define TEST_NS0 "testns0"
-#define TEST_NS1 "testns1"
-
-#define TEST_NS0_IP "10.42.42.1"
-#define TEST_NS1_IP "10.42.42.2"
-
 #ifdef XCM_TLS
 
 TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
@@ -4486,7 +4619,8 @@ TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
     REQUIRE_ROOT;
     REQUIRE_NOT_IN_VALGRIND;
 
-    CHKNOERR(setup_named_ns(TEST_NS0));
+    struct tnet *net = tnet_create_one_ns(TEST_NS0);
+    CHK(net != NULL);
 
     const char *utls_addr = "utls:127.0.0.1:32123";
 
@@ -4498,7 +4632,7 @@ TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
     errno = 0;
     struct xcm_socket *client_conn = xcm_connect(utls_addr, 0);
 
-    CHKNOERR(teardown_named_ns(TEST_NS0));
+    tnet_destroy(net);
 
     CHK(client_conn == NULL);
     CHKERRNOEQ(ECONNREFUSED);
@@ -4515,9 +4649,9 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert)
     REQUIRE_ROOT;
     REQUIRE_NOT_IN_VALGRIND;
 
-    CHKNOERR(setup_named_ns(TEST_NS0));
-    CHKNOERR(setup_named_ns(TEST_NS1));
-    CHKNOERR(connect_named_ns(TEST_NS0, TEST_NS0_IP, TEST_NS1, TEST_NS1_IP));
+    struct tnet *net = tnet_create_two_linked_ns(TEST_NS0, TEST_NS0_IP,
+						 TEST_NS1, TEST_NS1_IP);
+    CHK(net != NULL);
 
     CHKNOERR(
 	gen_certs(
@@ -4571,7 +4705,7 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert)
 
     struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
 
-    CHKNOERR(teardown_named_ns(TEST_NS1));
+    tnet_destroy(net);
 
     CHK(client_conn != NULL);
 
@@ -4620,7 +4754,8 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
     if (setenv("XCM_TLS_CERT", get_cert_path(path, "ep"), 1) < 0)
 	return UTEST_FAIL;
 
-    CHKNOERR(setup_named_ns(TEST_NS0));
+    struct tnet *net = tnet_create_one_ns(TEST_NS0);
+    CHK(net != NULL);
 
     const char *tls_addr = "tls:127.0.0.1:12234";
 
@@ -4640,7 +4775,7 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
 
     struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
 
-    CHKNOERR(teardown_named_ns(TEST_NS0));
+    tnet_destroy(net);
 
     CHK(client_conn != NULL);
 

@@ -9,8 +9,8 @@
 #include "log_tp.h"
 #include "xcm_addr.h"
 
-void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip,
-		       uint16_t port, struct sockaddr *sockaddr);
+void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
+		       int64_t scope, struct sockaddr *sockaddr);
 
 int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr);
 

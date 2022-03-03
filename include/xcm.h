@@ -26,8 +26,8 @@ extern "C" {
  * * Obsolete, but still available, functions: xcm_compat.h.
  *
  * @author Mattias Rönnblom
- * @version 0.20 [API]
- * @version 1.5.1 [Implementation]
+ * @version 0.21 [API]
+ * @version 1.6.0 [Implementation]
  *
  * The low API/ABI version number is a result of all XCM releases
  * being backward compatible, and thus left the major version at 0.
@@ -176,8 +176,6 @@ extern "C" {
  * interfaces).  '[*]' is the IPv6 equivalent, creating a server
  * socket accepting connections on all IPv4 and IPv6 addresses.
  *
- * IPv6 link local addresses are not supported.
- *
  * Some examples addresses:
  * @code
  * tcp:*:4711
@@ -211,6 +209,26 @@ extern "C" {
  * XCM allows only complete addresses with three '.', and not the
  * archaic, classful, forms, where some bytes where left out, and thus
  * the address contained fewer separators.
+ *
+ * @subsubsection scope IPv6 Link Local Addresses
+ *
+ * IPv6 link local addresses (i.e., fe80::/10) are not guaranteed to
+ * be unique outside a particular broadcast domain. To create such a
+ * socket an application must, besides the link local address to use,
+ * also supply a scope identifier, to allow the kernel to select which
+ * network interface to use.
+ *
+ * The IPv6 scope id is not a part of a XCM address, but instead
+ * provided by the application as a socket attribute "ipv6.scope".
+ * See @ref tcp_attr for details.
+ *
+ * The rationale for this URI-style design choice, compared to the
+ * also-common practice to include a network interface name in the
+ * address ("<IPv6 address>%<if-name>"), is that the IPv6 scope
+ * identifiers are strictly local to the node and thus conceptually
+ * not a part of the address. One host may use a particular scope id
+ * to refer to a particular network, and another host on the same
+ * network may use a different.
  *
  * @section dpd Dead Peer Detection
  *
@@ -894,6 +912,8 @@ extern "C" {
  * the read-only attributes. The read-write attributes are mapped to
  * @c TCP_KEEP* and @c TCP_USER_TIMEOUT.
  *
+ * Besides the TCP layer attributes, the IP
+ *
  * Attribute Name     | Socket Type | Value Type | Mode | Description
  * -------------------|-------------|------------|------|------------
  * tcp.rtt            | Connection  | Integer    | R    | The current TCP round-trip estimate (in us).
@@ -905,6 +925,7 @@ extern "C" {
  * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes. The default value is 1 s.
  * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default value is 3.
  * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
+ * ipv6.scope         | All         | Integer    | RW   | The IPv6 scope id used. Only available on IPv6 sockets. Writable only at socket creation. If left unset, it will take on the value of 0 (the global scope). Any other value denotes the network interface index to be used, for IPv6 link local addresses. See the if_nametoindex(3) manual page for how to map interface names to indices.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.

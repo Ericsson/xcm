@@ -46,6 +46,9 @@ struct tcp_socket
 
     char laddr[XCM_ADDR_MAX+1];
 
+    /* IPv6 scope id */
+    int64_t scope;
+
     union {
 	struct {
 	    enum conn_state state;
@@ -70,6 +73,9 @@ struct tcp_socket
 
 	    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
 	} conn;
+	struct {
+	    bool created;
+	} server;
     };
 };
 
@@ -200,7 +206,13 @@ static int tcp_init(struct xcm_socket *s, struct xcm_socket *parent)
     ts->fd = -1;
     epoll_reg_init(&ts->fd_reg, s->epoll_fd, -1, s);
 
+    if (parent != NULL)
+	ts->scope = TOTCP(parent)->scope;
+    else
+	ts->scope = -1;
+
     if (s->type == xcm_socket_type_conn) {
+
 	ts->conn.state = conn_state_initialized;
 
 	int active_fd = active_fd_get();
@@ -288,6 +300,21 @@ static int bind_local_addr(struct xcm_socket *s)
     return 0;
 }
 
+static int conf_scope(struct xcm_socket *s, int64_t *scope,
+		      const struct xcm_addr_ip *ip)
+{
+    if (*scope >= 0 && ip->family == AF_INET) {
+	LOG_SCOPE_SET_ON_IPV4_SOCKET(s);
+	errno = EINVAL;
+	return -1;
+    }
+
+    if (*scope == -1 && ip->family == AF_INET6)
+	*scope = 0;
+
+    return 0;
+}
+
 static void begin_connect(struct xcm_socket *s)
 {
     struct tcp_socket *ts = TOTCP(s);
@@ -304,9 +331,12 @@ static void begin_connect(struct xcm_socket *s)
 
     epoll_reg_set_fd(&ts->fd_reg, ts->fd);
 
+    if (conf_scope(s, &ts->scope, &ts->conn.remote_host.ip) < 0)
+	goto err;
+
     struct sockaddr_storage servaddr;
     tp_ip_to_sockaddr(&ts->conn.remote_host.ip, ts->conn.remote_port,
-		      (struct sockaddr*)&servaddr);
+		      ts->scope, (struct sockaddr*)&servaddr);
 
     if (connect(ts->fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
@@ -464,8 +494,11 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
 	goto err_close;
     }
 
+    if (conf_scope(s, &ts->scope, &host.ip) < 0)
+	goto err_close;
+
     struct sockaddr_storage addr;
-    tp_ip_to_sockaddr(&host.ip, port, (struct sockaddr*)&addr);
+    tp_ip_to_sockaddr(&host.ip, port, ts->scope, (struct sockaddr *)&addr);
 
     if (bind(ts->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
@@ -480,6 +513,8 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
     epoll_reg_set_fd(&ts->fd_reg, ts->fd);
 
     LOG_SERVER_CREATED_FD(s, ts->fd);
+
+    ts->server.created = true;
 
     return 0;
 
@@ -1016,6 +1051,59 @@ GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
 
+static int set_scope_attr(struct xcm_socket *s, void *context,
+			  const void *value, size_t len)
+{
+    struct tcp_socket *ts = TOTCP(s);
+
+    if ((s->type == xcm_socket_type_conn &&
+	 ts->conn.state != conn_state_initialized) ||
+	(s->type == xcm_socket_type_server && ts->server.created)) {
+	errno = EACCES;
+	return -1;
+    }
+
+    int64_t scope;
+    memcpy(&scope, value, sizeof(int64_t));
+
+    /* An already-existing scope id means it was inherited from a
+       parent socket (i.e., the server socket). Passing different
+       ipv6.scope in the xcm_accept_a() call is nonsensical, and thus
+       disallowed. */
+    if (ts->scope >= 0 && ts->scope != scope) {
+	LOG_SCOPE_CHANGED_ON_ACCEPT(s, ts->scope, scope);
+	errno = EINVAL;
+	return -1;
+    }
+
+    if (scope < 0 || scope > UINT32_MAX) {
+	errno = EINVAL;
+	return -1;
+    }
+
+    ts->scope = scope;
+
+    return 0;
+}
+
+static int get_scope_attr(struct xcm_socket *s, void *context,
+			  void *value, size_t capacity)
+{
+    int64_t scope = TOTCP(s)->scope;
+
+    if (scope >= 0) {
+	memcpy(value, &(TOTCP(s)->scope), sizeof(int64_t));
+	return sizeof(int64_t);
+    } else { /* IPv4 */
+	errno = ENOENT;
+	return -1;
+    }
+}
+
+#define COMMON_ATTRS							\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_IPV6_SCOPE, xcm_attr_type_int64,	\
+			set_scope_attr, get_scope_attr)
+
 const static struct xcm_tp_attr conn_attrs[] = {
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
@@ -1035,7 +1123,12 @@ const static struct xcm_tp_attr conn_attrs[] = {
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_COUNT, xcm_attr_type_int64,
 			set_keepalive_count_attr, get_keepalive_count_attr),
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_USER_TIMEOUT, xcm_attr_type_int64,
-			set_user_timeout_attr, get_user_timeout_attr)
+			set_user_timeout_attr, get_user_timeout_attr),
+    COMMON_ATTRS
+};
+
+static struct xcm_tp_attr server_attrs[] = {
+    COMMON_ATTRS
 };
 
 static void tcp_get_attrs(struct xcm_socket *s,
@@ -1048,7 +1141,8 @@ static void tcp_get_attrs(struct xcm_socket *s,
 	*attr_list_len = UT_ARRAY_LEN(conn_attrs);
 	break;
     case xcm_socket_type_server:
-	*attr_list_len = 0;
+	*attr_list = server_attrs;
+	*attr_list_len = UT_ARRAY_LEN(server_attrs);
 	break;
     default:
 	ut_assert(0);

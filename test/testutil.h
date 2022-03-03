@@ -33,6 +33,8 @@ void tu_execute(const char *cmd);
 void tu_executef(const char *fmt, ...);
 int tu_executef_es(const char *fmt, ...);
 
+char *tu_popen_es(const char *fmt, ...);
+
 int tu_wait(pid_t p);
 int tu_waitstatus(pid_t p, int *status);
 

@@ -76,7 +76,14 @@
     log_debug("Failed to create OS-level socket; errno %d (%s).", \
 	      reason_errno, strerror(reason_errno))
 
-#define LOG_SERVER_REUSEADDR_FAILED(reason_reason) \
+#define LOG_SCOPE_SET_ON_IPV4_SOCKET(s)				\
+    log_debug_sock(s, "IPv6 scope id set on IPv4 socket.")
+
+#define LOG_SCOPE_CHANGED_ON_ACCEPT(s, orig_scope, new_scope)		\
+    log_debug_sock(s, "Attempt to change scope id from %"PRId64" to %"	\
+		   PRId64" on accept.", orig_scope, new_scope)
+
+#define LOG_SERVER_REUSEADDR_FAILED(reason_reason)		      \
     log_debug("Error setting SO_REUSEADDR on underlying TCP socket: " \
 	      "errno %d (%s).", errno, strerror(errno))
 

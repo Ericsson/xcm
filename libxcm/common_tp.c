@@ -9,21 +9,22 @@
 
 #include <stdlib.h>
 
-void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip,
-		       uint16_t port, struct sockaddr *sockaddr)
+void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
+		       int64_t scope, struct sockaddr *sockaddr)
 {
     memset(sockaddr, 0, sizeof(struct sockaddr_storage));
 
     if (xcm_ip->family == AF_INET) {
-	struct sockaddr_in *sockaddr4 = (struct sockaddr_in*)sockaddr;
+	struct sockaddr_in *sockaddr4 = (struct sockaddr_in *)sockaddr;
 	sockaddr4->sin_family = AF_INET;
 	sockaddr4->sin_addr.s_addr = xcm_ip->addr.ip4;
 	sockaddr4->sin_port = port;
     } else {
 	ut_assert(xcm_ip->family == AF_INET6);
-	struct sockaddr_in6 *sockaddr6 = (struct sockaddr_in6*)sockaddr;
+	struct sockaddr_in6 *sockaddr6 = (struct sockaddr_in6 *)sockaddr;
 	sockaddr6->sin6_family = AF_INET6;
 	sockaddr6->sin6_port = port;
+	sockaddr6->sin6_scope_id = scope;
 	memcpy(sockaddr6->sin6_addr.s6_addr, xcm_ip->addr.ip6, 16);
     }
 }
@@ -43,7 +44,7 @@ static int proto_addr_to_sockaddr(const char *addr,
     if (host.type != xcm_addr_type_ip)
 	return -1;
 
-    tp_ip_to_sockaddr(&host.ip, port, sockaddr);
+    tp_ip_to_sockaddr(&host.ip, port, 0, sockaddr);
 
     return 0;
 }
