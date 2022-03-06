@@ -8,6 +8,7 @@
 
 #include "log.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define LOG_TLS_HANDSHAKE(s, client)					\

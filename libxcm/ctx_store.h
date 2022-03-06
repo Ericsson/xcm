@@ -1,8 +1,7 @@
 #ifndef CTX_STORE
 #define CTX_STORE
 
-#include <openssl/ssl.h>
-#include <stdbool.h>
+#include <openssl/ossl_typ.h>
 
 void ctx_store_init(void);
 

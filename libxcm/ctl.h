@@ -13,7 +13,9 @@
  * from outside the process using XCM.
  */
 
-#include "xcm.h"
+#include <stdbool.h>
+
+struct xcm_socket;
 
 struct ctl;
 

@@ -6,10 +6,8 @@
 #ifndef TCP_ATTR_H
 #define TCP_ATTR_H
 
-#include "xcm_tp.h"
-
 #include <stdbool.h>
-#include <sys/types.h>
+#include <stdint.h>
 
 #define XCM_TCP_KEEPALIVE (true)
 #define XCM_TCP_KEEPALIVE_TIME (1)

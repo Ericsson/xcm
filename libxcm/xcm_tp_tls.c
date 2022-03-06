@@ -4,7 +4,6 @@
  */
 
 #include "common_tp.h"
-#include "log_tls.h"
 #include "log_tp.h"
 #include "mbuf.h"
 #include "util.h"
@@ -15,7 +14,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 /*
  * TLS XCM Transport

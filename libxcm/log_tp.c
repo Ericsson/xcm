@@ -1,8 +1,15 @@
 #include "log_tp.h"
 
 #include "util.h"
+#include "xcm_attr_map.h"
 
+#include <arpa/inet.h>
 #include <inttypes.h>
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/socket.h>
 
 const char *log_ip_str(sa_family_t family, const void *ip)
 {

@@ -6,8 +6,6 @@
 #ifndef XCM_TP_H
 #define XCM_TP_H
 
-#include <sys/types.h>
-
 #include "config.h"
 #include "xcm.h"
 #include "xcm_addr_limits.h"

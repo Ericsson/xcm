@@ -8,7 +8,6 @@
 #include "log_tp.h"
 #include "util.h"
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <limits.h>
 #include <netinet/in.h>

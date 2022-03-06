@@ -9,9 +9,16 @@
 #include "epoll_reg.h"
 #include "log_tp.h"
 #include "util.h"
+#include "xcm_addr.h"
 
 #include <netdb.h>
 #include <signal.h>
+#include <netinet/in.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 enum query_state {
     query_state_resolving,

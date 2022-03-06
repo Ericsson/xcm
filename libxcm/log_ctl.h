@@ -6,7 +6,6 @@
 #ifndef LOG_CTL_H
 #define LOG_CTL_H
 
-#include "common_tp.h"
 #include "log.h"
 
 #define LOG_RUN_STAT_ERROR(s, path, reason_errno)	       \

@@ -6,8 +6,14 @@
 #ifndef COMMON_TP_H
 #define COMMON_TP_H
 
-#include "log_tp.h"
 #include "xcm_addr.h"
+
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+struct xcm_socket;
 
 void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
 		       int64_t scope, struct sockaddr *sockaddr);

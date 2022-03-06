@@ -7,15 +7,12 @@
 #define LOG_SOCK_H
 
 #include "log.h"
+#include "xcm_addr.h"
+#include "xcm_attr_map.h"
 #include "xcm_attr_types.h"
 
-#include <arpa/inet.h>
 #include <inttypes.h>
-#include <netinet/in.h>
 #include <stdio.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <xcm_attr_map.h>
 
 #include "common_tp.h"
 

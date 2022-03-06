@@ -14,12 +14,12 @@
 #include "xcm_attr.h"
 #include "xcm_tp.h"
 
-#include <assert.h>
 #include <linux/un.h>
 #include <stdio.h>
+#include <string.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #define MAX_CLIENTS (2)

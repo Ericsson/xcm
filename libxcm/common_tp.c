@@ -5,9 +5,15 @@
 
 #include "common_tp.h"
 
+#include "log_tp.h"
 #include "util.h"
+#include "xcm.h"
+#include "xcm_addr.h"
 
+#include <netinet/in.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
 
 void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
 		       int64_t scope, struct sockaddr *sockaddr)

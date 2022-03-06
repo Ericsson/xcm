@@ -8,6 +8,7 @@
 #include "util.h"
 
 #include <openssl/err.h>
+#include <stdio.h>
 #include <string.h>
 
 void hash_description(uint8_t *hash, size_t hash_len, char *buf)

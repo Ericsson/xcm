@@ -2,6 +2,7 @@
 
 #include "util.h"
 
+#include <string.h>
 #include <sys/queue.h>
 
 struct attr

@@ -4,8 +4,10 @@
 #include "util.h"
 
 #include <pthread.h>
+#include <stddef.h>
 #include <sys/eventfd.h>
 #include <sys/queue.h>
+#include <unistd.h>
 
 /*
  * The Linux kernel limits the number of epoll instances fds the

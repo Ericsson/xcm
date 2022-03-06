@@ -7,19 +7,16 @@
 
 #include "log_epoll.h"
 #include "util.h"
-#include "xcm_addr.h"
 #include "xcm_attr_names.h"
 #include "xcm_tp.h"
 
-#ifdef XCM_CTL
-#include "ctl.h"
-#endif
-
 #include <poll.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/epoll.h>
 
 #define XCM_ENV_DEBUG "XCM_DEBUG"
 

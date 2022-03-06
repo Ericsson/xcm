@@ -3,13 +3,19 @@
 #include "log_tls.h"
 #include "util.h"
 
-#include <openssl/x509_vfy.h>
-#include <openssl/x509v3.h>
+#include <openssl/sha.h>
+#include <openssl/ssl.h>
+#include <openssl/ssl3.h>
+#include <openssl/x509.h>
+
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/queue.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 
 /* OpenSSL 1.1.0 lacks TLS 1.3 support */
 #ifdef SSL_OP_NO_TLSv1_3

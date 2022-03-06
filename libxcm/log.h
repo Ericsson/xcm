@@ -6,10 +6,9 @@
 #ifndef LOG_H
 #define LOG_H
 
-#include "xcm.h"
-
-#include <stdarg.h>
 #include <stdbool.h>
+
+struct xcm_socket;
 
 #define log_event(type, sock, ...)                                      \
     do {                                                                \

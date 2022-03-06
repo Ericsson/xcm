@@ -13,11 +13,9 @@
 #include "xcm_addr_limits.h"
 #include "xcm_tp.h"
 
-#include <ctype.h>
 #include <linux/un.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>

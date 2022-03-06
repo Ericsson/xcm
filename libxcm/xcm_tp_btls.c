@@ -19,14 +19,20 @@
 #include "xcm_dns.h"
 #include "xcm_tp.h"
 
-#include <arpa/inet.h>
+#include <limits.h>
+#include <netinet/in.h>
+#include <openssl/asn1.h>
 #include <openssl/err.h>
-#include <openssl/ssl.h>
+#include <openssl/obj_mac.h>
+#include <openssl/ossl_typ.h>
+#include <openssl/safestack.h>
+#include <openssl/ssl3.h>
+#include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <signal.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 /*
