@@ -75,6 +75,14 @@ static void do_ctl(struct xcm_socket *s)
 }
 
 #define MAX_SKIPPED_CTL_CALLS (256)
+/* This is the maximum number of times an application will go into
+   select() (or the equivalent) and back again before the control
+   interface fd is being properly processed. A higher number here
+   means higher CPU usage and higher latency when the control
+   interface is used. A lower number means more poll() system calls to
+   check the control fd, and higher CPU usage during normal operation
+   (i.e., when the control interface fd is not active). */
+#define MAX_WAKEUPS_PER_CTL_CHECK (4)
 
 static void consider_ctl(struct xcm_socket *s, bool permanently_failed_op,
 			 bool temporarly_failed_op)
@@ -83,11 +91,16 @@ static void consider_ctl(struct xcm_socket *s, bool permanently_failed_op,
     if (permanently_failed_op)
 	return;
 
-    if (temporarly_failed_op || s->skipped_ctl_calls > MAX_SKIPPED_CTL_CALLS) {
+    if (temporarly_failed_op)
+	s->skipped_ctl_calls +=
+	    (MAX_SKIPPED_CTL_CALLS / MAX_WAKEUPS_PER_CTL_CHECK);
+    else
+	s->skipped_ctl_calls++;
+
+    if (s->skipped_ctl_calls > MAX_SKIPPED_CTL_CALLS) {
 	do_ctl(s);
 	s->skipped_ctl_calls = 0;
-    } else
-	s->skipped_ctl_calls++;
+    }
 #endif
 }
 
