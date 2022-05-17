@@ -42,11 +42,6 @@ static bool is_root(void)
     return getuid() == 0;
 }
 
-static bool in_private_ns(void)
-{
-    return is_root();
-}
-
 static bool is_in_valgrind(void)
 {
     return getenv("IN_VALGRIND") ? true : false;
@@ -56,18 +51,6 @@ static bool kernel_has_tcp_info_segs(void)
 {
     return tu_is_kernel_at_least(4, 2);
 }
-
-#define REQUIRE_ROOT \
-    if (!is_root())  \
-	return UTEST_NOT_RUN
-
-#define REQUIRE_NOT_IN_VALGRIND \
-    if (is_in_valgrind())	\
-	return UTEST_NOT_RUN
-
-#define REQUIRE_NOT_IN_PRIVATE_NS \
-    if (in_private_ns())	\
-	return UTEST_NOT_RUN
 
 #define IPT_CMD "iptables -w 10"
 #define IPT6_CMD "ip6tables -w 10"
@@ -627,7 +610,11 @@ static int gen_default_certs(void)
 
 #endif
 
-static int setup_xcm(void)
+#define REQUIRE_ROOT (1U << 0)
+#define REQUIRE_NOT_IN_VALGRIND (1U << 1)
+#define REQUIRE_PUBLIC_DNS (1U << 2)
+
+static int setup_xcm(unsigned setup_flags)
 {
     static bool first = true;
 
@@ -635,6 +622,12 @@ static int setup_xcm(void)
 	srandom((unsigned int)time(NULL));
 	first = false;
     }
+
+    if (setup_flags&REQUIRE_NOT_IN_VALGRIND && is_in_valgrind())
+	return UTEST_NOT_RUN;
+
+    if (setup_flags&REQUIRE_ROOT && !is_root())
+	return UTEST_NOT_RUN;
 
 #ifdef XCM_TLS
     gen_default_certs();
@@ -659,7 +652,7 @@ static int setup_xcm(void)
 
     setup_test_addrs();
 
-    if (is_root()) {
+    if (is_root() && !(setup_flags & REQUIRE_PUBLIC_DNS)) {
 	/* Run tests in a private namespace to allow parallel
 	   execution.  We're using an unnamed network namespace to
 	   avoid confusing XCM about certificate file names. */
@@ -673,7 +666,7 @@ static int setup_xcm(void)
     return UTEST_SUCCESS;
 }
 
-static int teardown_xcm(void)
+static int teardown_xcm(unsigned setup_flags)
 {
     teardown_test_addrs();
 
@@ -1100,8 +1093,6 @@ static int run_dns_immediate_close(const char *proto)
 
 static int run_dns_test(const char *proto)
 {
-    REQUIRE_NOT_IN_PRIVATE_NS;
-
     int rc;
 
     /* these test also makes sure that the syntax validation is not
@@ -1143,7 +1134,7 @@ static int run_dns_test(const char *proto)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, dns)
+TESTCASE_SERIALIZED_F(xcm, dns, REQUIRE_PUBLIC_DNS)
 {
     int i;
     for (i=0; i<dns_supporting_transports_len; i++) {
@@ -1207,10 +1198,9 @@ TESTCASE(xcm, invalid_tp_attr_type)
 
 #define BACKPRESSURE_TEST_DURATION (5.0)
 
-TESTCASE_SERIALIZED_TIMEOUT(xcm, backpressure_with_slow_server, 80.0)
+TESTCASE_SERIALIZED_TIMEOUT_F(xcm, backpressure_with_slow_server, 80.0,
+			      REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_NOT_IN_VALGRIND;
-
     double response_delay = 25e-3;
     int expected_msgs = (int)(BACKPRESSURE_TEST_DURATION/response_delay);
 
@@ -2066,10 +2056,8 @@ static int run_non_established_connect(const char *proto)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, non_established_non_blocking_connect)
+TESTCASE_F(xcm, non_established_non_blocking_connect, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     int rc = run_non_established_connect("tcp");
 
 #ifdef XCM_SCTP
@@ -2200,10 +2188,8 @@ static int run_dead_peer_detection(const char *proto, sa_family_t ip_version)
     return UTEST_SUCCESS;
 }
 
-TESTCASE_TIMEOUT(xcm, tcp_dead_peer_detection, 60.0)
+TESTCASE_TIMEOUT_F(xcm, tcp_dead_peer_detection, 60.0, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_dead_peer_detection("tcp", AF_INET) < 0)
 	return UTEST_FAIL;
     if (run_dead_peer_detection("tcp", AF_INET6) < 0)
@@ -2213,10 +2199,8 @@ TESTCASE_TIMEOUT(xcm, tcp_dead_peer_detection, 60.0)
 
 #ifdef XCM_TLS
 
-TESTCASE_TIMEOUT(xcm, tls_dead_peer_detection, 120.0)
+TESTCASE_TIMEOUT_F(xcm, tls_dead_peer_detection, 120.0, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_dead_peer_detection("tls", AF_INET) < 0)
 	return UTEST_FAIL;
     if (run_dead_peer_detection("tls", AF_INET6) < 0)
@@ -2320,10 +2304,8 @@ fail:
 }
 
 
-TESTCASE(xcm, tcp_keepalive_attr)
+TESTCASE_F(xcm, tcp_keepalive_attr, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_keepalive_attr("tcp", AF_INET) < 0)
 	return UTEST_FAIL;
 
@@ -2334,10 +2316,8 @@ TESTCASE(xcm, tcp_keepalive_attr)
 }
 
 #ifdef XCM_TLS
-TESTCASE(xcm, tls_keepalive_attr)
+TESTCASE_F(xcm, tls_keepalive_attr, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_keepalive_attr("tls", AF_INET) < 0)
 	return UTEST_FAIL;
 
@@ -2469,11 +2449,9 @@ static int run_net_hiccup(const char *proto, sa_family_t ip_version)
     return UTEST_SUCCESS;
 }
 
-TESTCASE_TIMEOUT(xcm, tcp_net_hiccup, 120.0)
+TESTCASE_TIMEOUT_F(xcm, tcp_net_hiccup, 120.0,
+		   REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_ROOT;
-    REQUIRE_NOT_IN_VALGRIND;
-
     if (run_net_hiccup("tcp", AF_INET) < 0)
 	return UTEST_FAIL;
     if (run_net_hiccup("tcp", AF_INET6) < 0)
@@ -2483,11 +2461,9 @@ TESTCASE_TIMEOUT(xcm, tcp_net_hiccup, 120.0)
 
 #ifdef XCM_TLS
 
-TESTCASE_TIMEOUT(xcm, tls_net_hiccup, 120.0)
+TESTCASE_TIMEOUT_F(xcm, tls_net_hiccup, 120.0,
+		   REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_ROOT;
-    REQUIRE_NOT_IN_VALGRIND;
-
     if (run_net_hiccup("tls", AF_INET) < 0)
 	return UTEST_FAIL;
     if (run_net_hiccup("tls", AF_INET6) < 0)
@@ -2546,19 +2522,15 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
     return UTEST_SUCCESS;
 }
 
-TESTCASE_TIMEOUT(xcm, tcp_connect_timeout, 60.0)
+TESTCASE_TIMEOUT_F(xcm, tcp_connect_timeout, 60.0, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     return run_connect_timeout("tcp", AF_INET6, false);
 }
 
 #ifdef XCM_TLS
 
-TESTCASE_TIMEOUT(xcm, tls_connect_timeout, 120.0)
+TESTCASE_TIMEOUT_F(xcm, tls_connect_timeout, 120.0, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_connect_timeout("tls", AF_INET, false) < 0)
 	return UTEST_FAIL;
     if (run_connect_timeout("tls", AF_INET6, false) < 0)
@@ -2627,10 +2599,8 @@ static int run_dscp_marking(const char *proto, sa_family_t ip_version)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, dscp_marking)
+TESTCASE_F(xcm, dscp_marking, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_dscp_marking("tcp", AF_INET) < 0)
 	return UTEST_FAIL;
     if (run_dscp_marking("tcp", AF_INET6) < 0)
@@ -3082,10 +3052,8 @@ static int run_ipv6_link_local(const char *proto)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, ipv6_link_local)
+TESTCASE_F(xcm, ipv6_link_local, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     int rc;
 
     if ((rc = run_ipv6_link_local("tcp")) < 0)
@@ -3124,10 +3092,8 @@ static int run_disallow_link_local_on_ipv4(const char *proto)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, disallow_link_local_on_ipv4)
+TESTCASE_F(xcm, disallow_link_local_on_ipv4, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     int rc;
 
     if ((rc = run_disallow_link_local_on_ipv4("tcp")) < 0)
@@ -4327,10 +4293,8 @@ TESTCASE(xcm, tls_big_bundle)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, tls_name_verification)
+TESTCASE_SERIALIZED_F(xcm, tls_name_verification, REQUIRE_PUBLIC_DNS)
 {
-    REQUIRE_NOT_IN_PRIVATE_NS;
-
     CHKNOERR(
 	gen_certs(
 	    "\n"
@@ -4614,11 +4578,9 @@ TESTCASE(xcm, tls_extended_key_usage)
 
 #ifdef XCM_TLS
 
-TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
+TESTCASE_SERIALIZED_F(xcm, serialized_utls_unique_ux_names_with_ns,
+		      REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_ROOT;
-    REQUIRE_NOT_IN_VALGRIND;
-
     struct tnet *net = tnet_create_one_ns(TEST_NS0);
     CHK(net != NULL);
 
@@ -4644,11 +4606,9 @@ TESTCASE_SERIALIZED(xcm, serialized_utls_unique_ux_names_with_ns)
 }
 #endif
 
-TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert)
+TESTCASE_SERIALIZED_F(xcm, tls_per_namespace_cert,
+		      REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_ROOT;
-    REQUIRE_NOT_IN_VALGRIND;
-
     struct tnet *net = tnet_create_two_linked_ns(TEST_NS0, TEST_NS0_IP,
 						 TEST_NS1, TEST_NS1_IP);
     CHK(net != NULL);
@@ -4721,10 +4681,9 @@ TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert)
 
 /* make sure certificate etc can be found also from threads != main
    thread */
-TESTCASE_SERIALIZED(xcm, tls_per_namespace_cert_thread)
+TESTCASE_SERIALIZED_F(xcm, tls_per_namespace_cert_thread,
+		      REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_ROOT;
-    REQUIRE_NOT_IN_VALGRIND;
 
     CHKNOERR(
 	gen_certs(
@@ -5021,10 +4980,9 @@ static pid_t symlinker(const char *target0, const char *target1,
     exit(EXIT_SUCCESS);
 }
 
-TESTCASE_SERIALIZED(xcm, tls_change_cert_files_like_crazy)
+TESTCASE_SERIALIZED_F(xcm, tls_change_cert_files_like_crazy,
+		      REQUIRE_NOT_IN_VALGRIND)
 {
-    REQUIRE_NOT_IN_VALGRIND;
-
     char *tls_addr = gen_tls_addr();
 
     char client_path[PATH_MAX];
@@ -5607,10 +5565,8 @@ static int run_lossy(const char *proto)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, lossy_network)
+TESTCASE_F(xcm, lossy_network, REQUIRE_ROOT)
 {
-    REQUIRE_ROOT;
-
     if (run_lossy("tcp") < 0)
 	return UTEST_FAIL;
 

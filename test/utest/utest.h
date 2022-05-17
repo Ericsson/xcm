@@ -120,18 +120,12 @@
 	}                                                               \
     } while(0)
 
-typedef int (*utest_setup_fun)(void);
-typedef int (*utest_teardown_fun)(void);
+typedef int (*utest_setup_fun)(unsigned flags);
+typedef int (*utest_teardown_fun)(unsigned flags);
 typedef int (*utest_test_fun)(void);
 
 void testsuite_register(const char *name,
 			utest_setup_fun setup, utest_teardown_fun teardown);
-
-void testcase_register(const char *suite_name, const char *name,
-		       utest_test_fun fun, bool serialized,
-		       double timeout);
-
-#define TESTCASE_DEFAULT_TIMEOUT (30.0)
 
 #define TESTSUITE(suite_name, suite_setup, suite_teardown)              \
     static __attribute__ ((constructor))                                \
@@ -140,28 +134,49 @@ void testcase_register(const char *suite_name, const char *name,
 	testsuite_register(#suite_name, suite_setup, suite_teardown);   \
     }                                                                   \
 
-#define _TESTCASE(tc_suite, tc_name, tc_serialized, tc_tmo)             \
+void testcase_register(const char *suite_name, const char *name,
+		       utest_test_fun fun, bool serialized, double timeout,
+		       unsigned setup_flags);
+
+#define TESTCASE_DEFAULT_TIMEOUT (30.0)
+
+#define _TESTCASE(tc_suite, tc_name, tc_serialized, tc_tmo, tc_setup_flags) \
     static int testcase_ ## tc_suite ## _ ## tc_name(void);             \
     static __attribute__ ((constructor))                                \
     void testcase_ ## tc_suite ## _ ## tc_name ## _reg(void)            \
 									\
     {                                                                   \
 	testcase_register(#tc_suite, #tc_name,                          \
-			  testcase_ ## tc_suite ## _ ## tc_name, \
-			  tc_serialized, tc_tmo);                              \
+			  testcase_ ## tc_suite ## _ ## tc_name,	\
+			  tc_serialized, tc_tmo, tc_setup_flags);	\
     }                                                                   \
     static int testcase_ ## tc_suite ## _ ## tc_name(void)
 
-#define TESTCASE(tc_suite, tc_name)             \
-    _TESTCASE(tc_suite, tc_name, false, TESTCASE_DEFAULT_TIMEOUT)
+#define TESTCASE_F(tc_suite, tc_name, tc_setup_flags)		  \
+    _TESTCASE(tc_suite, tc_name, false, TESTCASE_DEFAULT_TIMEOUT, \
+	      tc_setup_flags)
 
-#define TESTCASE_SERIALIZED(tc_suite, tc_name)  \
-    _TESTCASE(tc_suite, tc_name, true, TESTCASE_DEFAULT_TIMEOUT)
+#define TESTCASE(tc_suite, tc_name)				\
+    TESTCASE_F(tc_suite, tc_name, 0)
 
-#define TESTCASE_TIMEOUT(tc_suite, tc_name, tc_tmo)    \
-    _TESTCASE(tc_suite, tc_name, false, tc_tmo)
+#define TESTCASE_SERIALIZED_F(tc_suite, tc_name, tc_setup_flags)	\
+    _TESTCASE(tc_suite, tc_name, true, TESTCASE_DEFAULT_TIMEOUT,	\
+	      tc_setup_flags)
+
+#define TESTCASE_SERIALIZED(tc_suite, tc_name)				\
+    TESTCASE_SERIALIZED_F(tc_suite, tc_name, 0)
+
+#define TESTCASE_TIMEOUT_F(tc_suite, tc_name, tc_tmo, tc_setup_flags)	\
+    _TESTCASE(tc_suite, tc_name, false, tc_tmo, tc_setup_flags)
+
+#define TESTCASE_TIMEOUT(tc_suite, tc_name, tc_tmo)		\
+    TESTCASE_TIMEOUT_F(tc_suite, tc_name, tc_tmo, 0)
+
+#define TESTCASE_SERIALIZED_TIMEOUT_F(tc_suite, tc_name, tc_tmo, \
+				      tc_setup_flags)		 \
+    _TESTCASE(tc_suite, tc_name, false, tc_tmo, tc_setup_flags)
 
 #define TESTCASE_SERIALIZED_TIMEOUT(tc_suite, tc_name, tc_tmo)		\
-    _TESTCASE(tc_suite, tc_name, false, tc_tmo)
+    TESTCASE_SERIALIZED_TIMEOUT_F(tc_suite, tc_name, tc_tmo, 0)
 
 #endif

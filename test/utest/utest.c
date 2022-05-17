@@ -52,21 +52,28 @@ static struct testcase tcs[MAX_NUM_TCS];
 static size_t tcs_len = 0;
 
 void testcase_register(const char *suite_name, const char *name,
-		       int (*fun)(void), bool serialized, double timeout)
+		       int (*fun)(void), bool serialized, double timeout,
+		       unsigned setup_flags)
 {
     struct testsuite *suite = lookup_suite(suite_name);
     if (!suite) {
-	fprintf(stderr, "Testcase \"%s\" is said to belong to non-existing "
-		"suite \"%s\".", name, suite_name);
+	fprintf(stderr, "Testcase \"%s\" is configured to belong to "
+		"non-existing suite \"%s\".", name, suite_name);
 	abort();
     }
     struct testcase *tc = &tcs[tcs_len];
-    tc->suite = suite;
-    tc->name = name;
-    tc->fun = fun;
-    tc->serialized = serialized;
-    tc->timeout = timeout;
+
+    *tc = (struct testcase) {
+	.suite = suite,
+	.name = name,
+	.fun = fun,
+	.serialized = serialized,
+	.timeout = timeout,
+	.setup_flags = setup_flags
+    };
+
     tcs_len++;
+
     assert(tcs_len <= MAX_NUM_TCS);
 }
 
@@ -116,14 +123,19 @@ static int worst_code(int a_rc, int b_rc)
 
 static int exec_tc(struct testcase *tc)
 {
-    int setup_rc = tc->suite->setup ? tc->suite->setup() : UTEST_SUCCESS;
-    if (setup_rc != UTEST_SUCCESS)
-	return setup_rc;
+    if (tc->suite->setup != NULL) {
+	int setup_rc = tc->suite->setup(tc->setup_flags);
+
+	if (setup_rc != UTEST_SUCCESS)
+	    return setup_rc;
+    }
 
     int tc_rc = tc->fun();
 
-    int teardown_rc =
-	tc->suite->teardown ? tc->suite->teardown() : UTEST_SUCCESS;
+    int teardown_rc = UTEST_SUCCESS;
+
+    if (tc->suite->teardown != NULL)
+	teardown_rc = tc->suite->teardown(tc->setup_flags);
 
     return worst_code(tc_rc, teardown_rc);
 }
