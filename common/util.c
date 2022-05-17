@@ -86,6 +86,17 @@ void ut_free(void *ptr)
     free(ptr);
 }
 
+void ut_close(int fd)
+{
+    UT_PROTECT_ERRNO(close(fd));
+}
+
+void ut_close_if_valid(int fd)
+{
+    if (fd >= 0)
+	ut_close(fd);
+}
+
 int ut_send_all(int fd, void* buf, size_t count, int flags) {
     ssize_t offset = 0;
     do {

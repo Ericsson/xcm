@@ -18,6 +18,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
@@ -475,7 +476,6 @@ static int count_fd(void)
 {
     /* OpenSSL 1.1 leaves /dev/urandom and /dev/random open */
     int rc = tu_executef_es("exit `ls -l /proc/self/fd | grep -v random | wc -l`");
-
     return -rc;
 }
 
@@ -1139,6 +1139,73 @@ TESTCASE_SERIALIZED_F(xcm, dns, REQUIRE_PUBLIC_DNS)
     int i;
     for (i=0; i<dns_supporting_transports_len; i++) {
 	int rc = run_dns_test(dns_supporting_transports[i]);
+	if (rc != UTEST_SUCCESS)
+	    return rc;
+    }
+
+    return UTEST_SUCCESS;
+}
+
+static int run_ns_switch_test(const char *proto)
+{
+    struct tnet *net = tnet_create();
+    CHK(net != NULL);
+
+    struct tnet_ns *ns = tnet_add_ns(net, NULL);
+    CHK(ns != NULL);
+
+    char addr[512];
+    /* public DNS name that resolves to localhost */
+    snprintf(addr, sizeof(addr), "%s:localhost.ericsson.com:%d",
+	     proto, gen_tcp_port());
+
+    struct xcm_socket *server_socket = xcm_server(addr);
+    CHK(server_socket != NULL);
+    CHKNOERR(set_blocking(server_socket, false));
+
+    struct xcm_socket *conn_socket = xcm_connect(addr, XCM_NONBLOCK);
+    CHK(conn_socket != NULL);
+    xcm_finish(conn_socket);
+
+    int old_ns_fd = tu_enter_ns(tnet_ns_name(ns));
+    CHKNOERR(old_ns_fd);
+
+    struct xcm_socket *accepted_socket = NULL;
+
+    int finish_rc;
+
+    for (;;) {
+	finish_rc = xcm_finish(conn_socket);
+
+	if (finish_rc == 0 || (finish_rc < 0 && errno != EAGAIN))
+	    break;
+
+	if (accepted_socket == NULL)
+	    accepted_socket = xcm_accept(server_socket);
+	else {
+	    xcm_finish(server_socket);
+	    xcm_finish(accepted_socket);
+	}
+    }
+
+    CHKNOERR(tu_leave_ns(old_ns_fd));
+    tnet_destroy(net);
+
+    CHK(finish_rc == 0);
+
+    CHKNOERR(xcm_close(server_socket));
+    CHKNOERR(xcm_close(accepted_socket));
+    CHKNOERR(xcm_close(conn_socket));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE_F(xcm, net_ns_switch,
+	   REQUIRE_ROOT|REQUIRE_PUBLIC_DNS|REQUIRE_NOT_IN_VALGRIND)
+{
+    int i;
+    for (i=0; i<dns_supporting_transports_len; i++) {
+	int rc = run_ns_switch_test(dns_supporting_transports[i]);
 	if (rc != UTEST_SUCCESS)
 	    return rc;
     }

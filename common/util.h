@@ -30,6 +30,9 @@ char *ut_strdup(const char *str);
 void *ut_memdup(const char *ptr, size_t size);
 void ut_free(void *ptr);
 
+void ut_close(int fd);
+void ut_close_if_valid(int fd);
+
 int ut_send_all(int fd, void* buf, size_t count, int flags);
 
 int ut_snprintf(char *buf, size_t capacity, const char *format, ...)

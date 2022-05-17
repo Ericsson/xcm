@@ -50,6 +50,10 @@ struct sctp_socket
 	struct {
 	    enum conn_state state;
 
+	    /* only used during DNS resolution */
+	    int fd4;
+	    int fd6;
+
 	    int badness_reason;
 
 	    struct epoll_reg active_fd_reg;
@@ -146,13 +150,20 @@ static void assert_conn_socket(struct xcm_socket *s)
 	break;
     case conn_state_initialized:
 	ut_assert(ss->fd == -1);
+	ut_assert(ss->conn.fd4 == -1);
+	ut_assert(ss->conn.fd6 == -1);
 	break;
     case conn_state_resolving:
-	ut_assert(ss->conn.query);
+	ut_assert(ss->conn.fd4 >= 0);
+	ut_assert(ss->conn.fd6 >= 0);
+	ut_assert(ss->conn.query != NULL);
 	break;
     case conn_state_connecting:
     case conn_state_ready:
     case conn_state_closed:
+	ut_assert(ss->fd >= 0);
+	ut_assert(ss->conn.fd4 == -1);
+	ut_assert(ss->conn.fd6 == -1);
 	break;
     case conn_state_bad:
 	ut_assert(ss->conn.badness_reason != 0);
@@ -189,6 +200,9 @@ static int sctp_init(struct xcm_socket *s, struct xcm_socket *parent)
     if (s->type == xcm_socket_type_conn) {
 	ss->conn.state = conn_state_initialized;
 
+	ss->conn.fd4 = -1;
+	ss->conn.fd6 = -1;
+
 	int active_fd = active_fd_get();
 	if (active_fd < 0)
 	    return -1;
@@ -200,36 +214,50 @@ static int sctp_init(struct xcm_socket *s, struct xcm_socket *parent)
 
 static void deinit(struct xcm_socket *s)
 {
+    struct sctp_socket *ss = TOSCTP(s);
+
+    epoll_reg_reset(&ss->fd_reg);
+
     if (s->type == xcm_socket_type_conn) {
-	struct sctp_socket *ss = TOSCTP(s);
 	int active_fd = ss->conn.active_fd_reg.fd;
 	epoll_reg_reset(&ss->conn.active_fd_reg);
 	active_fd_put(active_fd);
+
 	xcm_dns_query_free(TOSCTP(s)->conn.query);
+
+        ut_close_if_valid(ss->conn.fd4);
+	ut_close_if_valid(ss->conn.fd6);
     }
+
+    ut_close_if_valid(ss->fd);
 }
 
-static int create_socket(struct xcm_socket *s, sa_family_t family)
+static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
 {
-    int fd = socket(family, SOCK_STREAM, IPPROTO_SCTP);
-    if (fd < 0) {
+    *fd = socket(family, SOCK_STREAM, IPPROTO_SCTP);
+
+    if (*fd < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
-	goto err;
+	return -1;
     }
 
-    if (ut_set_blocking(fd, false) < 0) {
+    if (ut_set_blocking(*fd, false) < 0) {
 	LOG_SET_BLOCKING_FAILED_FD(NULL, errno);
-	goto err_close;
+	*fd = -1;
+	ut_close(*fd);
+	return -1;
     }
-
-    TOSCTP(s)->fd = fd;
 
     return 0;
+}
 
- err_close:
-    UT_PROTECT_ERRNO(close(fd));
- err:
-    return -1;
+static int create_conn_socket(struct xcm_socket *s, sa_family_t family)
+{
+    struct sctp_socket *ss = TOSCTP(s);
+
+    int *fd = family == AF_INET ? &ss->conn.fd4 : &ss->conn.fd6;
+
+    return create_socket(s, fd, family);
 }
 
 static int disable_sctp_nagle(int fd)
@@ -302,16 +330,41 @@ static int set_sctp_conn_opts(int fd)
     return 0;
 }
 
+static void conn_select_fd(struct xcm_socket *s, sa_family_t family)
+{
+    struct sctp_socket *ss = TOSCTP(s);
+    int used;
+    int unused;
+
+    ut_assert(ss->fd == -1);
+
+    if (family == AF_INET) {
+	used = ss->conn.fd4;
+	unused = ss->conn.fd6;
+    } else { /* AF_INET6 */
+	used = ss->conn.fd6;
+	unused = ss->conn.fd4;
+    }
+
+    ut_assert(used >= 0);
+
+    ss->fd = used;
+
+    ut_close_if_valid(unused);
+
+    ss->conn.fd4 = -1;
+    ss->conn.fd6 = -1;
+}
+
 static void begin_connect(struct xcm_socket *s)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
     ut_assert(ss->conn.remote_host.type == xcm_addr_type_ip);
 
-    UT_SAVE_ERRNO;
+    conn_select_fd(s, ss->conn.remote_host.ip.family);
 
-    if (create_socket(s, ss->conn.remote_host.ip.family) < 0)
-	goto err;
+    UT_SAVE_ERRNO;
 
     if (set_sctp_conn_opts(ss->fd) < 0)
 	goto err;
@@ -322,7 +375,7 @@ static void begin_connect(struct xcm_socket *s)
     tp_ip_to_sockaddr(&ss->conn.remote_host.ip, ss->conn.remote_port, 0,
 		      (struct sockaddr*)&servaddr);
 
-    if (connect(ss->fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+    if (connect(ss->fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
 	    LOG_CONN_FAILED(s, errno);
 	    goto err;
@@ -421,16 +474,26 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
      if (xcm_addr_parse_sctp(remote_addr, &ss->conn.remote_host,
 			    &ss->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err_deinit;
+	goto err;
     }
 
     if (ss->conn.remote_host.type == xcm_addr_type_name) {
+	/* see the BTLS transport for a discussion on why two sockets
+	   are needed, and why they need to be created already at this
+	   point */
+	if (create_conn_socket(s, AF_INET) < 0 ||
+	    create_conn_socket(s, AF_INET6) < 0)
+	    goto err;
+
 	SCTP_SET_STATE(s, conn_state_resolving);
 	ss->conn.query =
 	    xcm_dns_resolve(ss->conn.remote_host.name, s->epoll_fd, s);
 	if (!ss->conn.query)
-	    goto err_deinit;
+	    goto err;
     } else {
+	if (create_conn_socket(s, ss->conn.remote_host.ip.family) < 0)
+	    goto err;
+
 	SCTP_SET_STATE(s, conn_state_connecting);
 	begin_connect(s);
     }
@@ -439,15 +502,12 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 
     if (ss->conn.state == conn_state_bad) {
 	errno = ss->conn.badness_reason;
-	goto err_close;
+	goto err;
     }
 
     return 0;
 
-err_close:
-    if (ss->fd >= 0)
-	UT_PROTECT_ERRNO(close(ss->fd));
-err_deinit:
+err:
     deinit(s);
 
     return -1;
@@ -464,21 +524,21 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 
     if (xcm_addr_parse_sctp(local_addr, &host, &port) < 0) {
 	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err_deinit;
+	goto err;
     }
 
     struct sctp_socket *ss = TOSCTP(s);
 
     if (xcm_dns_resolve_sync(&host, s) < 0)
-	goto err_deinit;
+	goto err;
 
-    if (create_socket(s, host.ip.family) < 0)
-	goto err_deinit;
+    if (create_socket(s, &ss->fd, host.ip.family) < 0)
+	goto err;
 
     int on = 1;
     if (setsockopt(ss->fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
 	LOG_SERVER_REUSEADDR_FAILED(errno);
-	goto err_close;
+	goto err;
     }
 
     struct sockaddr_storage addr;
@@ -486,17 +546,17 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 
     if (bind(ss->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
-	goto err_close;
+	goto err;
     }
 
     if (listen(ss->fd, SCTP_CONN_BACKLOG) < 0) {
 	LOG_SERVER_LISTEN_FAILED(errno);
-	goto err_close;
+	goto err;
     }
 
     if (ut_set_blocking(ss->fd, false) < 0) {
 	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err_close;
+	goto err;
     }
 
     epoll_reg_set_fd(&ss->fd_reg, ss->fd);
@@ -505,46 +565,31 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 
     return 0;
 
-err_close:
-    UT_PROTECT_ERRNO(close(ss->fd));
-err_deinit:
+err:
     deinit(s);
 
     return -1;
 }
 
-static int do_close(struct xcm_socket *s)
-{
-    int rc = 0;
-
-    if (s != NULL) {
-	assert_socket(s);
-
-	struct sctp_socket *ss = TOSCTP(s);
-
-	int fd = ss->fd;
-
-	epoll_reg_reset(&ss->fd_reg);
-
-	deinit(s);
-
-	if (fd >= 0)
-	    rc = close(fd);
-    }
-
-    return rc;
-}
-
 static int sctp_close(struct xcm_socket *s)
 {
-    LOG_CLOSING(s);
-    return do_close(s);
+    if (s != NULL) {
+	LOG_CLOSING(s);
+
+	assert_socket(s);
+	deinit(s);
+    }
+    return 0;
 }
 
 static void sctp_cleanup(struct xcm_socket *s)
 {
-    LOG_CLEANING_UP(s);
-    (void)do_close(s);
+    if (s != NULL) {
+	LOG_CLEANING_UP(s);
+
+	assert_socket(s);
+	deinit(s);
+    }
 }
 
 static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
@@ -582,7 +627,7 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return 0;
 
  err_close:
-    UT_PROTECT_ERRNO(close(conn_fd));
+    ut_close(conn_fd);
  err_deinit:
     deinit(conn_s);
 

@@ -98,6 +98,10 @@ struct btls_socket
 	    SSL *ssl;
 	    enum conn_state state;
 
+	    /* only used during DNS resolution */
+	    int fd4;
+	    int fd6;
+
 	    struct epoll_reg active_fd_reg;
 
 	    /* DNS resolution */
@@ -206,11 +210,18 @@ static void assert_conn_socket(struct xcm_socket *s)
 	ut_assert(0);
 	break;
     case conn_state_initialized:
+	ut_assert(bts->conn.fd4 == -1);
+	ut_assert(bts->conn.fd6 == -1);
 	break;
     case conn_state_resolving:
+	ut_assert(bts->conn.fd4 >= 0);
+	ut_assert(bts->conn.fd6 >= 0);
 	ut_assert(bts->conn.query != NULL);
 	break;
     case conn_state_ready:
+	ut_assert(bts->conn.fd4 == -1);
+	ut_assert(bts->conn.fd6 == -1);
+
 	if (bts->conn.ssl_condition != 0) {
 	    ut_assert(bts->conn.ssl_condition == XCM_SO_RECEIVABLE ||
 		      bts->conn.ssl_condition == XCM_SO_SENDABLE);
@@ -302,6 +313,9 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 
 	bts->conn.state = conn_state_initialized;
 
+	bts->conn.fd4 = -1;
+	bts->conn.fd6 = -1;
+
 	epoll_reg_init(&bts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
 
 	tcp_opts_init(&bts->conn.tcp_opts);
@@ -329,8 +343,8 @@ static int conn_deinit(struct xcm_socket *s, bool owner)
 
     if (bts->conn.ssl != NULL) {
 	int fd = SSL_get_fd(bts->conn.ssl);
-	if (fd >= 0)
-	    rc = close(fd);
+
+	ut_close_if_valid(fd);
 
 	SSL_free(bts->conn.ssl);
 	/* to have socket_fd() still callable (i.e. for logging) */
@@ -340,42 +354,40 @@ static int conn_deinit(struct xcm_socket *s, bool owner)
     int active_fd = bts->conn.active_fd_reg.fd;
     epoll_reg_reset(&bts->conn.active_fd_reg);
     active_fd_put(active_fd);
+
     xcm_dns_query_free(bts->conn.query);
 
+    ut_close_if_valid(bts->conn.fd4);
+    ut_close_if_valid(bts->conn.fd6);
+
     return rc;
 }
 
-static int server_deinit(struct xcm_socket *s, bool owner)
+static void server_deinit(struct xcm_socket *s, bool owner)
 {
-    int fd = TOBTLS(s)->server.fd;
+    struct btls_socket *bts = TOBTLS(s);
 
-    if (fd >= 0)
-	return close(fd);
-
-    return 0;
+    ut_close_if_valid(bts->server.fd);
 }
 
-static int deinit(struct xcm_socket *s, bool owner)
+static void deinit(struct xcm_socket *s, bool owner)
 {
-    int rc = 0;
-    if (s != NULL) {
-	struct btls_socket *bts = TOBTLS(s);
+    struct btls_socket *bts = TOBTLS(s);
 
-	if (s->type == xcm_socket_type_conn)
-	    rc = conn_deinit(s, owner);
-	else
-	    rc = server_deinit(s, owner);
+    epoll_reg_reset(&bts->fd_reg);
 
-	ut_free(bts->cert_file);
-	ut_free(bts->key_file);
-	ut_free(bts->tc_file);
-	slist_destroy(bts->valid_peer_names);
+    if (s->type == xcm_socket_type_conn)
+	conn_deinit(s, owner);
+    else
+	server_deinit(s, owner);
 
-	if (bts->ssl_ctx)
-	    ctx_store_put(bts->ssl_ctx);
-    }
+    ut_free(bts->cert_file);
+    ut_free(bts->key_file);
+    ut_free(bts->tc_file);
+    slist_destroy(bts->valid_peer_names);
 
-    return rc;
+    if (bts->ssl_ctx)
+	ctx_store_put(bts->ssl_ctx);
 }
 
 static const char *state_name(enum conn_state state)
@@ -592,6 +604,35 @@ static int conf_scope(struct xcm_socket *s, int64_t *scope,
     return 0;
 }
 
+static int conn_select_fd(struct xcm_socket *s, sa_family_t family)
+{
+    struct btls_socket *bts = TOBTLS(s);
+    int used;
+    int unused;
+
+    ut_assert(SSL_get_fd(bts->conn.ssl) == -1);
+
+    if (family == AF_INET) {
+	used = bts->conn.fd4;
+	unused = bts->conn.fd6;
+    } else { /* AF_INET6 */
+	used = bts->conn.fd6;
+	unused = bts->conn.fd4;
+    }
+
+    ut_assert(used >= 0);
+
+    if (SSL_set_fd(bts->conn.ssl, used) != 1)
+	return -1;
+
+    ut_close_if_valid(unused);
+
+    bts->conn.fd4 = -1;
+    bts->conn.fd6 = -1;
+
+    return 0;
+}
+
 static void begin_connect(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
@@ -599,26 +640,13 @@ static void begin_connect(struct xcm_socket *s)
 
     UT_SAVE_ERRNO;
 
-    int conn_fd;
-
-    if ((conn_fd = socket(bts->conn.remote_host.ip.family, SOCK_STREAM,
-			  IPPROTO_TCP)) < 0) {
-	LOG_SOCKET_CREATION_FAILED(errno);
+    if (conn_select_fd(s, bts->conn.remote_host.ip.family) < 0)
 	goto err;
-    }
-
-    if (SSL_set_fd(bts->conn.ssl, conn_fd) != 1)
-	goto err_close;
 
     if (bind_local_addr(s) < 0)
 	goto err;
 
-    if (ut_set_blocking(conn_fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err;
-    }
-
-    if (tcp_opts_effectuate(&bts->conn.tcp_opts, conn_fd) <  0)
+    if (tcp_opts_effectuate(&bts->conn.tcp_opts, socket_fd(s)) <  0)
 	goto err;
 
     if (conf_scope(s, &bts->scope, &bts->conn.remote_host.ip) < 0)
@@ -628,7 +656,8 @@ static void begin_connect(struct xcm_socket *s)
     tp_ip_to_sockaddr(&bts->conn.remote_host.ip, bts->conn.remote_port,
 		      bts->scope, (struct sockaddr*)&servaddr);
 
-    if (connect(conn_fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+    if (connect(socket_fd(s), (struct sockaddr*)&servaddr,
+		sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
 	    LOG_CONN_FAILED(s, errno);
 	    goto err;
@@ -641,14 +670,12 @@ static void begin_connect(struct xcm_socket *s)
 
     assert_socket(s);
 
-    epoll_reg_set_fd(&bts->fd_reg, conn_fd);
+    epoll_reg_set_fd(&bts->fd_reg, socket_fd(s));
 
     try_finish_connect(s);
 
     return;
 
- err_close:
-    close(conn_fd);
  err:
     BTLS_SET_STATE(s, conn_state_bad);
     UT_RESTORE_ERRNO(bad_errno);
@@ -863,6 +890,34 @@ static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
     SSL_set_verify(ssl, mode, NULL);
 }
 
+static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
+{
+    *fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
+
+    if (*fd < 0) {
+	LOG_SOCKET_CREATION_FAILED(errno);
+	return -1;
+    }
+
+    if (ut_set_blocking(*fd, false) < 0) {
+	LOG_SET_BLOCKING_FAILED_FD(s, errno);
+	*fd = -1;
+	ut_close(*fd);
+	return -1;
+    }
+
+    return 0;
+}
+
+static int create_conn_socket(struct xcm_socket *s, sa_family_t family)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    int *fd = family == AF_INET ? &bts->conn.fd4 : &bts->conn.fd6;
+
+    return create_socket(s, fd, family);
+}
+
 static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 {
     struct btls_socket *bts = TOBTLS(s);
@@ -870,12 +925,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
     LOG_CONN_REQ(s, remote_addr);
 
     if (finalize_tls_conf(s) < 0)
-	goto err_deinit;
+	goto err;
 
     if (xcm_addr_parse_btls(remote_addr, &bts->conn.remote_host,
 			   &bts->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err_deinit;
+	goto err;
     }
 
     ut_assert(bts->tls_auth == (bts->tc_file != NULL));
@@ -886,12 +941,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	ctx_store_get_ctx(bts->cert_file, bts->key_file, bts->tc_file, s);
 
     if (!bts->ssl_ctx)
-	goto err_deinit;
+	goto err;
 
     bts->conn.ssl = SSL_new(bts->ssl_ctx);
     if (bts->conn.ssl == NULL) {
 	errno = ENOMEM;
-	goto err_deinit;
+	goto err;
     }
 
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
@@ -908,20 +963,40 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	}
 
 	if (enable_hostname_validation(s) < 0)
-	    goto err_deinit;
+	    goto err;
     }
 
     if (bts->conn.remote_host.type == xcm_addr_type_name) {
+	/* The XCM API call (e.g., xcm_finish()) completing the DNS
+	   resolution process may be made from a different network
+	   namespace than the original xcm_connect() call, and thus
+	   socket creation cannot be deferred. The API promises that
+	   the network namespace of the thread calling xcm_connect()
+	   will be used for the outgoing connection. An alternative
+	   method would be to track the identity (inode) of the
+	   calling thread's network namespace (at both xcm_connect()
+	   and the next XCM API call), but that's more complicated and
+	   likely also more costly than just creating both a IPv4 and
+	   IPv6 socket, already at this point. Both an AF_INET and an
+	   AF_INET6 socket is needed since the IP protocol version to
+	   actually be used is not yet known. */
+	if (create_conn_socket(s, AF_INET) < 0 ||
+	    create_conn_socket(s, AF_INET6) < 0)
+	    goto err;
+
 	BTLS_SET_STATE(s, conn_state_resolving);
 	bts->conn.query = xcm_dns_resolve(bts->conn.remote_host.name,
-					 s->epoll_fd, s);
+					  s->epoll_fd, s);
 	if (bts->conn.query == NULL)
-	    goto err_deinit;
+	    goto err;
     } else {
+	if (create_conn_socket(s, bts->conn.remote_host.ip.family) < 0)
+	    goto err;
+
 	if (bts->verify_peer_name && bts->valid_peer_names == NULL) {
 	    LOG_TLS_VERIFY_MISSING_HOSTNAME(s);
 	    errno = EINVAL;
-	    goto err_deinit;
+	    goto err;
 	}
 	BTLS_SET_STATE(s, conn_state_tcp_connecting);
 	begin_connect(s);
@@ -931,12 +1006,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 
     if (bts->conn.state == conn_state_bad) {
 	errno = bts->conn.badness_reason;
-	goto err_deinit;
+	goto err;
     }
 
     return 0;
 
- err_deinit:
+ err:
     deinit(s, true);
     return -1;
 }
@@ -953,11 +1028,11 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
     uint16_t port;
     if (xcm_addr_parse_btls(local_addr, &host, &port) < 0) {
 	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err_deinit;
+	goto err;
     }
 
     if (finalize_tls_conf(s) < 0)
-	goto err_deinit;
+	goto err;
     
     /*
      * A SSL_CTX is kept with the server socket, even though it's not
@@ -975,48 +1050,40 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
     bts->ssl_ctx =
 	ctx_store_get_ctx(bts->cert_file, bts->key_file, bts->tc_file, s);
     if (bts->ssl_ctx == NULL)
-	goto err_deinit;
+	goto err;
 
     ut_assert(bts->tls_auth == (bts->tc_file != NULL));
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
 
     if (xcm_dns_resolve_sync(&host, s) < 0)
-	goto err_deinit;
+	goto err;
 
-    if ((bts->server.fd = socket(host.ip.family, SOCK_STREAM,
-				IPPROTO_TCP)) < 0) {
-	LOG_SOCKET_CREATION_FAILED(errno);
-	goto err_deinit;
-    }
+    if (create_socket(s, &bts->server.fd, host.ip.family) < 0)
+	goto err;
 
     if (port > 0 && tcp_effectuate_reuse_addr(bts->server.fd) < 0) {
 	LOG_SERVER_REUSEADDR_FAILED(errno);
-	goto err_deinit;
+	goto err;
     }
 
     if (tcp_effectuate_dscp(bts->server.fd) < 0)
-	goto err_deinit;
+	goto err;
 
     if (conf_scope(s, &bts->scope, &host.ip) < 0)
-	goto err_deinit;
+	goto err;
 
     struct sockaddr_storage addr;
     tp_ip_to_sockaddr(&host.ip, port, bts->scope, (struct sockaddr *)&addr);
 
     if (bind(bts->server.fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
-	goto err_deinit;
+	goto err;
     }
 
     if (listen(bts->server.fd, TCP_CONN_BACKLOG) < 0) {
 	LOG_SERVER_LISTEN_FAILED(errno);
-	goto err_deinit;
-    }
-
-    if (ut_set_blocking(bts->server.fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err_deinit;
+	goto err;
     }
 
     epoll_reg_set_fd(&bts->fd_reg, bts->server.fd);
@@ -1027,23 +1094,28 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
 
     return 0;
  
- err_deinit:
+ err:
     deinit(s, true);
     return -1;
 }
 
 static int btls_close(struct xcm_socket *s)
 {
-    assert_socket(s);
-    LOG_CLOSING(s);
-    return deinit(s, true);
+    if (s != NULL) {
+	assert_socket(s);
+	LOG_CLOSING(s);
+	deinit(s, true);
+    }
+    return 0;
 }
 
 static void btls_cleanup(struct xcm_socket *s)
 {
-    assert_socket(s);
-    LOG_CLEANING_UP(s);
-    deinit(s, false);
+    if (s != NULL) {
+	assert_socket(s);
+	LOG_CLEANING_UP(s);
+	deinit(s, false);
+    }
 }
 
 static void try_finish_accept(struct xcm_socket *s)
