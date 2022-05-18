@@ -319,7 +319,7 @@ static void begin_connect(struct xcm_socket *s)
     epoll_reg_set_fd(&ss->fd_reg, ss->fd);
 
     struct sockaddr_storage servaddr;
-    tp_ip_to_sockaddr(&ss->conn.remote_host.ip, ss->conn.remote_port,
+    tp_ip_to_sockaddr(&ss->conn.remote_host.ip, ss->conn.remote_port, 0,
 		      (struct sockaddr*)&servaddr);
 
     if (connect(ss->fd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
@@ -482,7 +482,7 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
     }
 
     struct sockaddr_storage addr;
-    tp_ip_to_sockaddr(&host.ip, port, (struct sockaddr*)&addr);
+    tp_ip_to_sockaddr(&host.ip, port, 0, (struct sockaddr*)&addr);
 
     if (bind(ss->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 	LOG_SERVER_BIND_FAILED(errno);
