@@ -18,6 +18,10 @@ from functools import total_ordering
 
 def usage(name):
     print("%s [-c <cmd>] <release-sha|release-tag>" % name)
+    print("Options:")
+    print("  -c <cmd>  Run command <cmd>. Default is to run all.")
+    print("  -m        Enable valgrind in the test suite.")
+    print("  -h        Print this text.")
     print("Commands:")
     print("  meta     Only check release meta data.")
     print("  changes  Only list changes with previous release.")
@@ -288,8 +292,11 @@ make -j; \\
     run(cmd)
 
 
-def run_test(repo, conf, release_commit):
+def run_test(repo, conf, release_commit, use_valgrind):
     release_tag = get_commit_release_tag(repo, release_commit)
+
+    if use_valgrind:
+        conf += " --enable-valgrind"
 
     print("Running test ", end="")
     if conf == "":
@@ -316,13 +323,13 @@ sudo make check \\
     run(cmd)
 
 
-def run_tests(repo, release_commit):
+def run_tests(repo, release_commit, use_valgrind):
     assure_sudo()
 
     test_build_separate_build_dir(repo, release_commit)
 
     for conf in ("", "--disable-tls --disable-ctl --disable-lttng"):
-        run_test(repo, conf, release_commit)
+        run_test(repo, conf, release_commit, use_valgrind)
 
 
 def check_repo(repo):
@@ -330,9 +337,10 @@ def check_repo(repo):
         fail("Repository contains modifications.")
 
 
-optlist, args = getopt.getopt(sys.argv[1:], 'c:h')
+optlist, args = getopt.getopt(sys.argv[1:], 'c:mh')
 
 cmd = None
+use_valgrind = False
 
 for opt, optval in optlist:
     if opt == '-h':
@@ -340,6 +348,8 @@ for opt, optval in optlist:
         sys.exit(0)
     if opt == '-c':
         cmd = optval
+    if opt == '-m':
+        use_valgrind = True
 
 if len(args) != 1:
     usage(sys.argv[0])
@@ -373,4 +383,4 @@ if meta:
 if changes:
     check_changes(repo, release_commit)
 if test:
-    run_tests(repo, release_commit)
+    run_tests(repo, release_commit, use_valgrind)
