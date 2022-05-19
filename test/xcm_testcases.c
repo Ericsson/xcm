@@ -3119,7 +3119,7 @@ static int run_ipv6_link_local(const char *proto)
     return UTEST_SUCCESS;
 }
 
-TESTCASE_F(xcm, ipv6_link_local, REQUIRE_ROOT)
+TESTCASE_F(xcm, ipv6_link_local, REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
     int rc;
 
