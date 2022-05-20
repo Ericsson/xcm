@@ -316,6 +316,7 @@ def run_test(repo, conf, release_commit, use_valgrind):
     conf += (" CFLAGS=\"%s\"" % cflags)
 
     cmd = """
+set -e
 tmpdir=`mktemp -d`; \\
 xcmdir=xcm-%s; \\
 tarfile=$tmpdir/$xcmdir.tar; \\
