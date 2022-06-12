@@ -29,10 +29,8 @@ struct xcm_socket;
 #define log_debug_sock(sock, ...)                                       \
     log_event(log_type_debug, sock, __VA_ARGS__)
 
-#define LOG_MESSAGE_APP_TO_XCM "Application -> XCM"
-#define LOG_MESSAGE_XCM_TO_LOWER "XCM -> Lower"
-#define LOG_MESSAGE_LOWER_TO_XCM "Lower -> XCM"
-#define LOG_MESSAGE_XCM_TO_APP "XCM -> Application"
+#define LOG_LIBRARY_VERSION(impl_version, api_version)			\
+    log_debug("XCM library version %s (API %s).", impl_version, api_version)
 
 void log_console_conf(bool enabled);
 

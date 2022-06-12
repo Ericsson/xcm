@@ -9,6 +9,7 @@
 #include "util.h"
 #include "xcm_attr_names.h"
 #include "xcm_tp.h"
+#include "xcm_version.h"
 
 #include <poll.h>
 #include <stdint.h>
@@ -26,6 +27,24 @@ static void init(void)
     char *debug = getenv(XCM_ENV_DEBUG);
     if (debug && (strcmp(debug, "1") == 0 || strcmp(debug, "true") == 0))
 	log_console_conf(true);
+}
+
+static bool version_logged = false;
+
+static void assure_library_version_logged(void)
+{
+    /* A natural place for this kind of functionality would be the
+       library's init constructor function, but this method doesn't
+       play well with how LTTng UST works, seemingly. */
+
+    if (!__atomic_load_n(&version_logged, __ATOMIC_RELAXED)) {
+	/* Reading this flag is a race, since more than one thread may
+	   call the functions (e.g., xcm_connect_a()) that in turn
+	   call this function. However, the effect is only that > 1
+	   log entry being produced. */
+	LOG_LIBRARY_VERSION(xcm_version(), xcm_version_api());
+	__atomic_store_n(&version_logged, true, __ATOMIC_RELAXED);
+    }
 }
 
 static void await(struct xcm_socket *s, int condition)
@@ -176,6 +195,8 @@ void socket_destroy(struct xcm_socket *s)
 struct xcm_socket *xcm_connect_a(const char *remote_addr,
 				 const struct xcm_attr_map *attrs)
 {
+    assure_library_version_logged();
+
     const struct xcm_tp_proto *proto = xcm_tp_proto_by_addr(remote_addr);
     if (!proto)
 	return NULL;
@@ -219,6 +240,8 @@ struct xcm_socket *xcm_server(const char *local_addr)
 struct xcm_socket *xcm_server_a(const char *local_addr,
 				const struct xcm_attr_map *attrs)
 {
+    assure_library_version_logged();
+
     const struct xcm_tp_proto *proto = xcm_tp_proto_by_addr(local_addr);
     if (!proto)
 	goto err;

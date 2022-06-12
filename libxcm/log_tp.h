@@ -16,6 +16,11 @@
 
 #include "common_tp.h"
 
+#define LOG_MESSAGE_APP_TO_XCM "Application -> XCM"
+#define LOG_MESSAGE_XCM_TO_LOWER "XCM -> Lower"
+#define LOG_MESSAGE_LOWER_TO_XCM "Lower -> XCM"
+#define LOG_MESSAGE_XCM_TO_APP "XCM -> Application"
+
 #define LOG_STATE_CHANGE(s, from_state, to_state) \
     log_debug_sock(s, "Connection going from state \"%s\" to \"%s\"",	\
 		   state_name(from_state), state_name(to_state))
