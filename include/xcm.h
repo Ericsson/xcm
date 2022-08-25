@@ -1251,6 +1251,23 @@ extern "C" {
  * In case the system follows the iproute2 conventions in regards to
  * network namespace naming, the TLS and UTLS transports support
  * per-network namespace TLS certificates and private keys.
+ *
+ * @section tracing Tracing
+ *
+ * In case XCM is built with LTTng support, the XCM library will
+ * register two tracepoints: @c com_ericsson_xcm:xcm_debug and @c
+ * com_ericsson_xcm:xcm_error. The @c xcm_debug is verbose indeed,
+ * while messages on @c xcm_error are rare indeed. The latter is
+ * mostly due to the fact there are very few conditions that the
+ * library reliable can classify as errors, since many "errors" [e.g.,
+ * connection refused] may well be the expected result).
+ *
+ * If the XCM_DEBUG environment variable is set, the same trace
+ * messages that are routed via the LTTng tracepoints, are printed to
+ * stderr of the process linked to the library.
+ *
+ * The tracepoint names and the format of the messages are subject to
+ * change, and not to be considered a part of the XCM API.
  */
 
 /*!
