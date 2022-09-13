@@ -5480,6 +5480,223 @@ TESTCASE(xcm, garbled_tcp_input)
 /* max length for UNIX domain socket names */
 #define UX_NAME_MAX (107)
 
+#ifdef XCM_TLS
+
+static int do_tls_spam(const char *tls_addr, int record_size, int buf_size)
+{
+    char btls_addr[strlen(tls_addr) + 2];
+    snprintf(btls_addr, sizeof(btls_addr), "b%s", tls_addr);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "bytestream");
+
+    struct xcm_socket *conn = xcm_connect_a(btls_addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
+    if (conn == NULL)
+	return -1;
+
+    char *buf = ut_malloc(buf_size);
+    tu_randblk(buf, buf_size);
+    size_t sent;
+
+    for (sent = 0; sent < buf_size; ) {
+	size_t left = buf_size - sent;
+	size_t write_size = UT_MIN(record_size, left);
+
+	int rc = xcm_send(conn, buf + sent, write_size);
+	if (rc <= 0)
+	    break;
+
+	sent += rc;
+    }
+
+    tu_msleep(1);
+
+    xcm_close(conn);
+
+    ut_free(buf);
+
+    return 0;
+}
+
+#define TLS_MAX_BUF_SIZE (1024)
+#define TLS_SPAM_ITERATIONS (1000)
+
+static void *tls_spammer(void *arg)
+{
+    const char *tls_addr = arg;
+
+    if (do_tls_spam(tls_addr, 1, 16) < 0)
+	return (void *)(intptr_t)-1;
+
+    if (do_tls_spam(tls_addr, 3, 16) < 0)
+	return (void *)((intptr_t)-1);
+
+    if (do_tls_spam(tls_addr, 128*1024, 16*1024*1024) < 0)
+	return (void *)((intptr_t)-1);
+
+    int i;
+    for (i = 0; i < TLS_SPAM_ITERATIONS; i++) {
+	size_t buf_size = tu_randint(1, TLS_MAX_BUF_SIZE);
+	size_t record_size = tu_randint(1, buf_size);
+
+	if (do_tls_spam(tls_addr, record_size, buf_size) < 0)
+	    return (void *)((intptr_t)-1);
+    }
+
+    return (void *)((intptr_t)0);
+}
+
+TESTCASE(xcm, garbled_tls_input)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_socket *server = xcm_server(tls_addr);
+    CHK(server != NULL);
+
+    CHKNOERR(xcm_set_blocking(server, false));
+
+    pthread_t spammer_thread;
+    CHK(pthread_create(&spammer_thread, NULL, tls_spammer, tls_addr)
+	== 0);
+
+    for (;;) {
+	void *rc;
+	if (pthread_tryjoin_np(spammer_thread, &rc) == 0) {
+	    CHK((intptr_t)rc == 0);
+	    break;
+	}
+
+	struct xcm_socket *conn = xcm_accept(server);
+
+	if (conn == NULL) {
+	    CHK(errno == EPROTO || errno == EAGAIN);
+	    continue;
+	}
+
+	for (;;) {
+	    char buf[65535];
+	    int rc = xcm_receive(conn, buf, sizeof(buf));
+
+	    if (rc < 0 && errno == EAGAIN)
+		continue;
+	    else if (rc <= 0)
+		break;
+	}
+
+	CHKNOERR(xcm_close(conn));
+    }
+
+    CHKNOERR(xcm_close(server));
+
+    return UTEST_SUCCESS;
+}
+
+static int send_multi_record_messages(struct xcm_socket *source,
+				      struct xcm_socket *destination)
+{
+    const char *messages[] = { "123", "45678", "9" };
+
+    char wire_data[1024];
+    size_t wire_data_len = 0;
+
+    int i;
+    for (i = 0; i < UT_ARRAY_LEN(messages); i++) {
+	uint32_t len = strlen(messages[i]) + 1;
+	uint32_t nlen = ntohl(len);
+	memcpy(wire_data + wire_data_len, &nlen, sizeof(nlen));
+	wire_data_len += sizeof(nlen);
+
+	memcpy(wire_data + wire_data_len, messages[i], len);
+	wire_data_len += len;
+    }
+
+    size_t sent = 0;
+    size_t received = 0;
+
+    for (;;) {
+	size_t left = wire_data_len - sent;
+
+	if (left > 0) {
+	    size_t next_chunk = tu_randint(1, left);
+
+	    int rc = xcm_send(source, wire_data + sent, next_chunk);
+
+	    if (rc > 0)
+		sent += rc;
+	    else
+		CHKERRNOEQ(EAGAIN);
+	}
+
+	char buf[65535];
+	int rc = xcm_receive(destination, buf, sizeof(buf));
+
+	if (rc > 0) {
+	    CHKINTEQ(rc, strlen(messages[received]) + 1);
+	    CHK(strcmp(buf, messages[received]) == 0);
+
+	    received++;
+	    if (received == UT_ARRAY_LEN(messages))
+		return UTEST_SUCCESS;
+	} else
+	    CHKERRNOEQ(EAGAIN);
+    }
+
+}
+
+#define NUM_MULTI_RECORD_MESSAGES (1000)
+
+TESTCASE(xcm, tls_multi_record_message)
+{
+    char *tls_addr = gen_tls_addr();
+    char btls_addr[strlen(tls_addr) + 2];
+    snprintf(btls_addr, sizeof(btls_addr), "b%s", tls_addr);
+
+    struct xcm_socket *server_sock = xcm_server(tls_addr);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(xcm_set_blocking(server_sock, false));
+
+    struct xcm_socket *connect_sock = NULL;
+    struct xcm_socket *accepted_sock = NULL;
+
+    for (;;) {
+	int connect_rc = connect_sock != NULL ?
+	    xcm_finish(connect_sock) : -1;
+	int accepted_rc = accepted_sock != NULL ?
+	    xcm_finish(accepted_sock) : -1;
+
+	if (connect_rc == 0 && accepted_rc == 0)
+	    break;
+
+	if (connect_sock == NULL) {
+	    connect_sock = tu_connect(btls_addr, XCM_NONBLOCK);
+	    if (connect_sock == NULL)
+		CHK(errno == EAGAIN && errno == ECONNREFUSED);
+	}
+
+	if (accepted_sock == NULL) {
+	    accepted_sock = xcm_accept(server_sock);
+	    if (accepted_sock == NULL)
+		CHKERRNOEQ(EAGAIN);
+	}
+    }
+
+    int i;
+    for (i = 0; i < NUM_MULTI_RECORD_MESSAGES; i++)
+	CHKNOERR(send_multi_record_messages(connect_sock, accepted_sock));
+
+    CHKNOERR(xcm_close(connect_sock));
+    CHKNOERR(xcm_close(accepted_sock));
+    CHKNOERR(xcm_close(server_sock));
+
+    return UTEST_SUCCESS;
+}
+
+#endif
+
 static void append_char(char *s, char c)
 {
     size_t len = strlen(s);

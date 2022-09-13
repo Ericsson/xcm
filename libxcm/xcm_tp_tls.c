@@ -339,6 +339,11 @@ static int buffer_receive(struct xcm_socket *s, int len)
     LOG_BUFFERED(s, rc);
     mbuf_wire_appended(&ts->conn.receive_mbuf, rc);
 
+    if (rc < len) {
+	errno = EAGAIN;
+	return -1;
+    }
+
     return 1;
 }
 
