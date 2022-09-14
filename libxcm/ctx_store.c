@@ -56,12 +56,14 @@
      SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION|		\
      SSL_OP_LEGACY_SERVER_CONNECT)
 
+#define HASH_LEN (256 / 8) /* SHA256 */
+
 struct cache_entry
 {
     char *cert_file;
     char *key_file;
     char *tc_file;
-    uint8_t hash[SHA256_DIGEST_LENGTH];
+    uint8_t hash[HASH_LEN];
     SSL_CTX *ssl_ctx;
     int use_cnt;
 
@@ -79,7 +81,7 @@ static struct cache_entry *cache_entry_create(const char *cert_file,
     entry->cert_file = ut_strdup(cert_file);
     entry->key_file = ut_strdup(key_file);
     entry->tc_file = tc_file != NULL ? ut_strdup(tc_file) : NULL;
-    memcpy(entry->hash, hash, SHA256_DIGEST_LENGTH);
+    memcpy(entry->hash, hash, HASH_LEN);
     entry->ssl_ctx = ssl_ctx;
     entry->use_cnt = 1;
 
@@ -215,7 +217,7 @@ void ctx_store_init(void)
     cache_init(&cache);
 }
 
-static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow,
+static int do_hash_file_meta(const char *file, EVP_MD_CTX *ctx, bool follow,
 			     void *log_ref)
 {
     struct stat statbuf;
@@ -228,13 +230,13 @@ static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow,
 	return -1;
     }
 
-    SHA256_Update(ctx, &statbuf.st_dev, sizeof(statbuf.st_dev));
-    SHA256_Update(ctx, &statbuf.st_ino, sizeof(statbuf.st_ino));
-    SHA256_Update(ctx, &statbuf.st_size, sizeof(statbuf.st_size));
-    SHA256_Update(ctx, &statbuf.st_mtim.tv_sec,
-		  sizeof(statbuf.st_mtim.tv_sec));
-    SHA256_Update(ctx, &statbuf.st_mtim.tv_nsec,
-		  sizeof(statbuf.st_mtim.tv_nsec));
+    EVP_DigestUpdate(ctx, &statbuf.st_dev, sizeof(statbuf.st_dev));
+    EVP_DigestUpdate(ctx, &statbuf.st_ino, sizeof(statbuf.st_ino));
+    EVP_DigestUpdate(ctx, &statbuf.st_size, sizeof(statbuf.st_size));
+    EVP_DigestUpdate(ctx, &statbuf.st_mtim.tv_sec,
+		     sizeof(statbuf.st_mtim.tv_sec));
+    EVP_DigestUpdate(ctx, &statbuf.st_mtim.tv_nsec,
+		     sizeof(statbuf.st_mtim.tv_nsec));
 
     if (!follow && (statbuf.st_mode & S_IFMT) == S_IFLNK)
 	return do_hash_file_meta(file, ctx, true, log_ref);
@@ -242,7 +244,7 @@ static int do_hash_file_meta(const char *file, SHA256_CTX *ctx, bool follow,
     return 0;
 }
 
-static int hash_file_meta(const char *file, SHA256_CTX *ctx, void *log_ref)
+static int hash_file_meta(const char *file, EVP_MD_CTX *ctx, void *log_ref)
 {
     return do_hash_file_meta(file, ctx, false, log_ref);
 }
@@ -251,19 +253,32 @@ static int get_cert_files_hash(const char *cert_file, const char *key_file,
 			       const char *tc_file, uint8_t *hash,
 			       void *log_ref)
 {
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
 
-    if (hash_file_meta(cert_file, &ctx, log_ref) < 0)
-	return -1;
-    if (hash_file_meta(key_file, &ctx, log_ref) < 0)
-	return -1;
-    if (tc_file != NULL && hash_file_meta(tc_file, &ctx, log_ref) < 0)
-	return -1;
+    if (ctx == NULL)
+	abort();
 
-    SHA256_Final(hash, &ctx);
+    int rc = EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+    ut_assert(rc == 1);
 
+    if (hash_file_meta(cert_file, ctx, log_ref) < 0)
+	goto err;
+    if (hash_file_meta(key_file, ctx, log_ref) < 0)
+	goto err;
+    if (tc_file != NULL && hash_file_meta(tc_file, ctx, log_ref) < 0)
+	goto err;
+
+    unsigned int len = HASH_LEN;
+    rc = EVP_DigestFinal_ex(ctx, hash, &len);
+    ut_assert (rc == 1);
+    ut_assert (len == HASH_LEN);
+
+    EVP_MD_CTX_free(ctx);
     return 0;
+
+err:
+    EVP_MD_CTX_free(ctx);
+    return -1;
 }
 
 static bool hash_equal(const uint8_t *hash_a, const uint8_t *hash_b)

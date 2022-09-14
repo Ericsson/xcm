@@ -46,7 +46,7 @@ pid_t ut_gettid(void)
 void *ut_malloc(size_t size)
 {
     void *ptr = malloc(size);
-    if (!ptr)
+    if (ptr == NULL)
 	abort();
     return ptr;
 }
@@ -54,7 +54,7 @@ void *ut_malloc(size_t size)
 void *ut_realloc(void *ptr, size_t size)
 {
     ptr = realloc(ptr, size);
-    if (!ptr)
+    if (ptr == NULL)
 	abort();
     return ptr;
 }
@@ -69,7 +69,7 @@ void *ut_calloc(size_t size)
 char *ut_strdup(const char *str)
 {
     char *copy = strdup(str);
-    if (!copy)
+    if (copy == NULL)
 	abort();
     return copy;
 }
