@@ -5522,7 +5522,7 @@ static int do_tls_spam(const char *tls_addr, int record_size, int buf_size)
 }
 
 #define TLS_MAX_BUF_SIZE (1024)
-#define TLS_SPAM_ITERATIONS (1000)
+#define TLS_SPAM_ITERATIONS (is_in_valgrind()? 10 : 1000)
 
 static void *tls_spammer(void *arg)
 {
@@ -5590,6 +5590,8 @@ TESTCASE(xcm, garbled_tls_input)
     }
 
     CHKNOERR(xcm_close(server));
+
+    ut_free(tls_addr);
 
     return UTEST_SUCCESS;
 }
