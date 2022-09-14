@@ -5692,6 +5692,8 @@ TESTCASE(xcm, tls_multi_record_message)
     CHKNOERR(xcm_close(accepted_sock));
     CHKNOERR(xcm_close(server_sock));
 
+    ut_free(tls_addr);
+
     return UTEST_SUCCESS;
 }
 
