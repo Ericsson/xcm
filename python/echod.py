@@ -59,7 +59,7 @@ class EchoServer:
                 raise e
 
 def run(addr):
-    event_loop = asyncio.get_event_loop()
+    event_loop = asyncio.new_event_loop()
     server = EchoServer(event_loop, addr)
     event_loop.run_forever()
 
