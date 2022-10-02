@@ -1672,9 +1672,10 @@ int xcm_fd(struct xcm_socket *socket);
 /** Attempts to finish an ongoing non-blocking background operation.
  *
  * This call is used by an application having issued xcm_connect()
- * with the XCM_NONBLOCK flag set, xcm_accept() or xcm_send() call on
- * a connection socket in non-blocking mode, wishing to finish
- * outstanding processing related to that operation, to know if it
+ * with the XCM_NONBLOCK flag set (or xcm_connect_a() with the
+ * "xcm.blocking" attribute set to false), xcm_accept() or xcm_send()
+ * call on a connection socket in non-blocking mode, wishing to finish
+ * outstanding processing related to that operation, and to know if it
  * succeeded or not.
  *
  * In addition, xcm_finish() must be called if the conditions on a
