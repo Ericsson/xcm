@@ -22,6 +22,7 @@ conn = xcm.connect(raddr, 0)
 
 for i in range(0, n):
     conn.send(msg.encode('utf-8'))
+
     res = conn.receive()
 
-print(res.decode('utf-8'))
+    print(res.decode('utf-8'))
