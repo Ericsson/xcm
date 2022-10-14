@@ -47,7 +47,8 @@ class Client:
 class EchoServer:
     def __init__(self, event_loop, addr):
         self.event_loop = event_loop
-        self.sock = xcm.server(addr, attrs={"xcm.blocking": False})
+        attrs = {"xcm.blocking": False, "xcm.service": "any"}
+        self.sock = xcm.server(addr, attrs=attrs)
         self.sock.set_target(xcm.SO_ACCEPTABLE)
         self.event_loop.add_reader(self.sock, self.activate)
     def activate(self):

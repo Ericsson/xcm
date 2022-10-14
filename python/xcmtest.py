@@ -27,7 +27,8 @@ TEST_ADDRS = [
 if config.has_tls():
     TEST_ADDRS.extend([
         "tls:127.0.0.1:%d" % random.randint(10000, 12000),
-        "utls:127.0.0.1:%d" % random.randint(10000, 12000)
+        "utls:127.0.0.1:%d" % random.randint(10000, 12000),
+        "btls:127.0.0.1:%d" % random.randint(10000, 12000)
     ])
 
 if config.has_sctp():
@@ -64,6 +65,19 @@ files:
     path: tc.pem
 """ % CERT_DIR
 
+
+def is_bytestream(addr):
+    return addr.startswith("btls")
+
+
+def is_tcp_based(addr):
+    return addr.startswith("tcp") or is_tls_based(addr)
+
+
+def is_tls_based(addr):
+    return addr.startswith("btls") or addr.startswith("tls")
+
+
 class TestXcm(unittest.TestCase):
     def setUp(self):
         os.system("echo '%s' | ./test/gencert.py" % CERT_CONF)
@@ -88,6 +102,10 @@ class TestXcm(unittest.TestCase):
         server_process.join()
     def test_connect_flags(self):
         for addr in TEST_ADDRS:
+            # bytestreams cannot be used in combination with flags
+            if is_bytestream(addr):
+                continue
+
             server_process = echo_server(addr)
             time.sleep(0.5)
 
@@ -111,13 +129,20 @@ class TestXcm(unittest.TestCase):
             server_process = echo_server(addr)
             time.sleep(0.5)
 
-            conn = xcm.connect(addr, 0)
+            if is_bytestream(addr):
+                attrs = {
+                    "xcm.blocking": True,
+                    "xcm.service": "bytestream"
+                }
+                conn = xcm.connect(addr, attrs=attrs)
+            else:
+                conn = xcm.connect(addr, 0)
 
             conn.set_blocking(False)
             conn.finish()
             conn.set_blocking(True)
 
-            if addr.startswith("tls") or addr.startswith("tcp"):
+            if is_tcp_based(addr):
                 conn.set_attr("tcp.keepalive_count", 99)
                 self.assertEqual(conn.get_attr("tcp.keepalive_count"), 99)
             else:
@@ -129,10 +154,10 @@ class TestXcm(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 conn.set_attr("xcm.remote_addr", "ux:foo")
 
-            if addr.startswith("tls") or addr.startswith("tcp"):
+            if is_tcp_based(addr):
                 self.assertGreater(conn.get_attr("tcp.rtt"), 0)
 
-            if addr.startswith("tls"):
+            if is_tls_based(addr):
                 with open("%s/ski" % CERT_DIR, "rb") as f:
                     key_id = f.read()
                     self.assertEqual(conn.get_attr("tls.peer_subject_key_id"),
@@ -140,7 +165,20 @@ class TestXcm(unittest.TestCase):
 
             orig_msg = b'\x01\x02\x00\x03\x09\x02\x00\x04'
             conn.send(orig_msg)
-            ret_msg = conn.receive()
+
+            if is_bytestream(addr):
+                ret_msg = conn.receive()
+            else:
+                conn.set_blocking(False)
+                ret_msg = bytes()
+                deadline = time.time() + 1
+                while time.time() < deadline:
+                    try:
+                        ret_msg += conn.receive()
+                    except BlockingIOError:
+                        time.sleep(0.1)
+                conn.set_blocking(True)
+
             self.assertEqual(ret_msg, orig_msg)
 
             conn.close()
@@ -149,7 +187,10 @@ class TestXcm(unittest.TestCase):
             server_process.join()
     def test_server_attr(self):
         for addr in TEST_ADDRS:
-            sock = xcm.server(addr)
+            if is_bytestream(addr):
+                sock = xcm.server(addr, attrs={"xcm.service": "bytestream"})
+            else:
+                sock = xcm.server(addr)
 
             self.assertEqual(sock.get_attr("xcm.type"), "server")
 
