@@ -4360,6 +4360,56 @@ TESTCASE(xcm, tls_big_bundle)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, tls_multiple_ca_same_subject)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root0:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  root1:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  leaf0:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root0\n"
+	    "  leaf1:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root0\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: leaf0\n"
+	    "    path: ep-x/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: leaf0\n"
+	    "    path: ep-x/key.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: leaf1\n"
+	    "    path: ep-y/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: leaf1\n"
+	    "    path: ep-y/key.pem\n"
+	    "\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root1\n"
+	    "      - root0\n"
+	    "    paths:\n"
+	    "      - ep-x/tc.pem\n"
+	    "      - ep-y/tc.pem\n"
+            )
+	);
+
+    CHKNOERR(handshake("ep-x", "ep-y", false));
+    CHKNOERR(handshake("ep-y", "ep-x", false));
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE_SERIALIZED_F(xcm, tls_name_verification, REQUIRE_PUBLIC_DNS)
 {
     CHKNOERR(
