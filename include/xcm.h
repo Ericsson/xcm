@@ -1015,7 +1015,9 @@ extern "C" {
  * tc_<ns>.pem
  * @endcode
  *
- * For the default namespace (or any other network namespace not named
+ * @paragraph default_certs Default Namespace Certificates
+ *
+ * For the default namespace (or rather, any network namespace not named
  * according to iproute2 standards), the certificate need to be stored
  * in a file "cert.pem", the private key in "key.pem" and the trusted
  * CA certificates in "tc.pem".
