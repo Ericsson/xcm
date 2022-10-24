@@ -4404,8 +4404,8 @@ TESTCASE(xcm, tls_multiple_ca_same_subject)
             )
 	);
 
-    CHKNOERR(handshake("ep-x", "ep-y", false));
-    CHKNOERR(handshake("ep-y", "ep-x", false));
+    CHKNOERR(handshake("ep-x", "ep-y", true));
+    CHKNOERR(handshake("ep-y", "ep-x", true));
 
     return UTEST_SUCCESS;
 }

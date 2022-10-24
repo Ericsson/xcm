@@ -84,6 +84,16 @@ def create_cert(subject_names, ca, issuer_key, issuer_cert, usage, validity):
         builder = builder.add_extension(x509.ExtendedKeyUsage(l),
                                         critical=True)
 
+    if issuer_cert is not None:
+        issuer_ski = issuer_cert.extensions.\
+            get_extension_for_class(x509.SubjectKeyIdentifier)
+        aki = x509.AuthorityKeyIdentifier.\
+            from_issuer_subject_key_identifier(issuer_ski.value)
+        builder = builder.add_extension(aki, critical=False)
+    else:
+        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(public_key)
+        builder = builder.add_extension(aki, critical=False)
+
     cert = builder.sign(private_key=sign_key, algorithm=hashes.SHA256(),
                         backend=default_backend())
 
