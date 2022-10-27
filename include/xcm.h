@@ -1519,7 +1519,7 @@ struct xcm_socket *xcm_accept_a(struct xcm_socket *server_socket,
  *
  * @return For messaging transports, 0 is returned on success. For byte
  *         stream transports, the number of bytes accepted into the XCM
- *         layer is returned (which may be shorter than @ref len, but
+ *         layer is returned (which may be shorter than @p len, but
  *         which is always greater than zero). In case of an error, -1
  *         is returned (and errno is set).
  *
@@ -1630,8 +1630,8 @@ int xcm_await(struct xcm_socket *socket, int condition);
 
 /** Returns XCM socket fd.
  *
- * This call retrieves the XCM socket fd for a XCM socket non-blocking
- * mode.
+ * This call retrieves a XCM socket's file descriptor, for a XCM
+ * socket in non-blocking mode.
  *
  * When this fd becomes readable, the XCM socket is ready to make
  * progress.
@@ -1640,7 +1640,7 @@ int xcm_await(struct xcm_socket *socket, int condition);
  * application's desired socket condition (see xcm_await() for
  * details), or finishing any outstanding task the XCM socket has.
  *
- * Please note that the XCM socket fd is @b only ever marked readable
+ * Note that the XCM socket fd is @e only ever marked readable
  * (as opposed to writable). This is true even if the application is
  * waiting to send a message on the socket. Marked readable means that
  * the fd is, for example, marked with EPOLLIN, in case epoll_wait()
@@ -1657,10 +1657,16 @@ int xcm_await(struct xcm_socket *socket, int condition);
  * make progress on its background tasks. See @ref outstanding_tasks
  * for details.
  *
+ * The fd is owned by the XCM socket, and must not be closed or
+ * otherwise manipulated by the application, other than used in
+ * select() (or the equivalent). It is no longer valid, when the
+ * corresponding XCM socket is closed.
+ *
  * @param[in] socket The connection or server socket.
  *
- * @return Returns 0 on success, or -1 if an error occured (in
- *         which case errno is set).
+ * @return Returns a fd in the form of a non-negative integer on
+ *         success, or -1 if an error occured (in which case errno is
+ *         set).
  *
  * errno        | Description
  * -------------|------------

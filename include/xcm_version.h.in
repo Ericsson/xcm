@@ -16,6 +16,11 @@ extern "C" {
  *        uses the semver convention.
  */
 
+/**
+ * @defgroup lib_version Library Version
+ * @{
+ */
+
 /** The XCM library major version. */
 #define XCM_VERSION_MAJOR @XCM_MAJOR_VERSION@
 
@@ -30,6 +35,11 @@ extern "C" {
 
 /** @} */
 
+/**
+ * @defgroup api_version API Version
+ * @{
+ */
+
 /** The XCM API/ABI major version this library version implements. */
 #define XCM_VERSION_API_MAJOR @XCM_ABI_MAJOR_VERSION@
 
@@ -38,6 +48,8 @@ extern "C" {
 
 /** The complete XCM API version in string format. */
 #define XCM_VERSION_API "@XCM_ABI_VERSION@"
+
+/** @} */
 
 /** Retrieves the library major version.
  *
