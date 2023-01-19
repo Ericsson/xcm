@@ -176,7 +176,7 @@ extern "C" {
  * interfaces).  '[*]' is the IPv6 equivalent, creating a server
  * socket accepting connections on all IPv4 and IPv6 addresses.
  *
- * Some examples addresses:
+ * Some example addresses:
  * @code
  * tcp:*:4711
  * tls:192.168.1.42:4711
@@ -194,9 +194,9 @@ extern "C" {
  * @subsubsection dns DNS Resolution
  *
  * For transports allowing a DNS domain name as a part of the address,
- * the transport will attempt resoĺv the name to an IP address. A DNS
- * domain name may resolv to zero or more IPv4 addresses and/or zero
- * or more IPv6 addresses. XCM relies on the operating system to
+ * the transport will attempt to resoĺv the name to an IP address. A
+ * DNS domain name may resolv to zero or more IPv4 addresses and/or
+ * zero or more IPv6 addresses. XCM relies on the operating system to
  * prioritize between IPv4 and IPv6.
  *
  * @subsubsection ip_addr_format IPv4 Address Format
