@@ -399,7 +399,7 @@ struct search
     const char *name;
     bool found;
     enum xcm_attr_type actual_type;
-    char actual_value[256];
+    char actual_value[65536];
     size_t actual_len;
 };
 
@@ -433,7 +433,7 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
     }
 
     if (rc < 0 || type != xcm_attr_type_str ||
-	strcmp(expected_value, actual_value) ||
+	strcmp(expected_value, actual_value) != 0 ||
 	(strlen(actual_value)+1) != rc) {
 	return -1;
     }
@@ -525,6 +525,39 @@ int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 
     memcpy(&actual_value, search.actual_value, sizeof(int64_t));
     if (cmp_type == cmp_type_greater_than && actual_value <= cmp_value)
+	return -1;
+
+    return 0;
+}
+
+int tu_assure_bin_attr(struct xcm_socket *s, const char *attr_name,
+		       const void *expected_value, size_t len)
+{
+    char actual_value[65536] = { 0 };
+
+    int rc;
+    if (tu_randbool()) {
+	enum xcm_attr_type type = 4711;
+	rc = xcm_attr_get(s, attr_name, &type, actual_value,
+			  sizeof(actual_value));
+	if (type != xcm_attr_type_bin)
+	    return -1;
+    } else
+	rc = xcm_attr_get_bin(s, attr_name, actual_value,
+			      sizeof(actual_value));
+
+    if (rc != len || memcmp(expected_value, actual_value, len) != 0)
+	return -1;
+
+    struct search search = {
+	.name = attr_name,
+	.found = false
+    };
+    xcm_attr_get_all(s, search_cb, &search);
+
+    if (!search.found || search.actual_type != xcm_attr_type_bin ||
+	search.actual_len != len ||
+	memcmp(search.actual_value, expected_value, len) != 0)
 	return -1;
 
     return 0;

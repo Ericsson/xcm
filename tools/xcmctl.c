@@ -28,7 +28,6 @@ static void attr_get_str(struct xcmc_session *session,
 	/* errors are expected to happen from time to time, since sockets
 	   can be closed by any time by the various applications, and thus
 	   we might be interrupted in the middle of retrieving their state */
-	//fprintf(stderr, "Unable to retrieve %s: %s.\n", name, strerror(errno));
 	strcpy(value, "<not available>");
     }
 }
@@ -42,10 +41,10 @@ static void print_sock_cb(pid_t creator_pid, int64_t sock_ref, void *data)
 	char type[64];
 	attr_get_str(session, XCM_ATTR_XCM_TYPE, type, sizeof(type));
 
-	char laddr[XCM_ATTR_STR_VALUE_MAX];
+	char laddr[256];
 	attr_get_str(session, XCM_ATTR_XCM_LOCAL_ADDR, laddr, sizeof(laddr));
 
-	char raddr[XCM_ATTR_STR_VALUE_MAX];
+	char raddr[256];
 	if (strcmp(type, "connection") == 0) {
 	    attr_get_str(session, XCM_ATTR_XCM_REMOTE_ADDR, raddr,
 			 sizeof(raddr));

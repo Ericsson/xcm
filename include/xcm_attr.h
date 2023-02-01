@@ -175,6 +175,26 @@ int xcm_attr_get_int64(struct xcm_socket *socket, const char *name,
 int xcm_attr_get_str(struct xcm_socket *socket, const char *name,
 		     char *value, size_t capacity);
 
+/** Retrieves the value of a binary socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[out] value A user-supplied buffer where the value of the attribute will be stored.
+ * @param[in] capacity The length of the buffer (in bytes).
+ *
+ * @return Returns the length of the binary value on success, or -1 if an error
+ *         occured (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENOENT       | The attribute does not exist, or is not of the binary type.
+ *
+ * See xcm_attr_get() for other possible errno values.
+ */
+
+int xcm_attr_get_bin(struct xcm_socket *socket, const char *name,
+		     void *value, size_t capacity);
+
 /** The signature of the user-supplied callback used in xcm_attr_get_all(). */
 typedef void (*xcm_attr_cb)(const char *attr_name, enum xcm_attr_type type,
 			    void *value, size_t value_len, void *cb_data);

@@ -12,6 +12,7 @@
 #include "util.h"
 #include "xcm.h"
 #include "xcm_attr.h"
+#include "xcm_attr_names.h"
 #include "xcm_tp.h"
 
 #include <linux/un.h>
@@ -159,6 +160,16 @@ void ctl_destroy(struct ctl *ctl, bool owner)
     }
 }
 
+static bool is_sensitive(const char *attr_name)
+{
+    return false;
+}
+
+static void clear_attr(struct ctl_proto_attr *attr)
+{
+    memset(attr->any_value, 0, CTL_ATTR_VALUE_MAX);
+}
+
 static void process_get_attr(struct xcm_socket *socket,
 			     struct ctl_proto_get_attr_req *req,
 			     struct ctl_proto_msg *response)
@@ -174,7 +185,11 @@ static void process_get_attr(struct xcm_socket *socket,
 
     if (rc >= 0) {
 	response->type = ctl_proto_type_get_attr_cfm;
-	cfm->attr.value_len = rc;
+	if (is_sensitive(req->attr_name)) {
+	    clear_attr(&cfm->attr);
+	    cfm->attr.value_len = 0;
+	} else
+	    cfm->attr.value_len = rc;
     } else {
 	response->type = ctl_proto_type_get_attr_rej;
 	response->get_attr_rej.rej_errno = attr_errno;
@@ -230,7 +245,7 @@ static int process_client(struct client *client, struct ctl *ctl)
 
 	epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLIN);
     } else {
-	struct ctl_proto_msg req;
+	struct ctl_proto_msg req = {};
 
 	UT_SAVE_ERRNO;
 	int rc = recv(client->fd, &req, sizeof(req), 0);

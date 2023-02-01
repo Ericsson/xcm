@@ -680,20 +680,51 @@ int xcm_attr_get_str(struct xcm_socket *s, const char *name,
     return rc;
 }
 
+int xcm_attr_get_bin(struct xcm_socket *s, const char *name,
+		     void *value, size_t capacity)
+{
+    enum xcm_attr_type type;
+
+    int rc = xcm_attr_get(s, name, &type, value, capacity);
+
+    if (rc < 0)
+	return -1;
+
+    if (type != xcm_attr_type_bin) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return rc;
+}
+
 static void get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data,
 		    const struct xcm_tp_attr *attrs,
 		    size_t attrs_len)
 {
+    size_t value_capacity = 256;
+    char *value = ut_malloc(value_capacity);
+
     size_t i;
     for (i = 0; i < attrs_len; i++) {
 	const struct xcm_tp_attr *attr = &attrs[i];
-	char value[XCM_ATTR_VALUE_MAX];
 
-	int rc = attr->get(s, attr->context, value, sizeof(value));
-	if (rc >= 0)
-	    cb(attr->name, attr->type, value, rc, cb_data);
+	int rc;
+	for (;;) {
+	    rc = attr->get(s, attr->context, value, value_capacity);
+
+	    if (rc < 0 && errno == EOVERFLOW) {
+		value_capacity *= 2;
+		value = ut_realloc(value, value_capacity);
+	    } else {
+		if (rc >= 0)
+		    cb(attr->name, attr->type, value, rc, cb_data);
+		break;
+	    }
+	}
 	/* XXX: should we report errors back to the application? */
     }
+    ut_free(value);
 }
 
 void xcm_attr_get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data)

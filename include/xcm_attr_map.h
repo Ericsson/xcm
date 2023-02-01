@@ -77,8 +77,7 @@ void xcm_attr_map_add(struct xcm_attr_map *attr_map, const char *attr_name,
  * @see xcm_attr_map_add
  */
 void xcm_attr_map_add_bool(struct xcm_attr_map *attr_map,
-			   const char *attr_name,
-			   bool attr_value);
+			   const char *attr_name, bool attr_value);
 
 
 /**
@@ -91,8 +90,7 @@ void xcm_attr_map_add_bool(struct xcm_attr_map *attr_map,
  * @see xcm_attr_map_add
  */
 void xcm_attr_map_add_int64(struct xcm_attr_map *attr_map,
-			    const char *attr_name,
-			    int64_t attr_value);
+			    const char *attr_name, int64_t attr_value);
 
 
 /**
@@ -105,8 +103,21 @@ void xcm_attr_map_add_int64(struct xcm_attr_map *attr_map,
  * @see xcm_attr_map_add
  */
 void xcm_attr_map_add_str(struct xcm_attr_map *attr_map,
-			  const char *attr_name,
-			  const char *attr_value);
+			  const char *attr_name, const char *attr_value);
+
+
+/**
+ * Associate a key with a byte buffer.
+ *
+ * @param[in] attr_map The attribute map instance.
+ * @param[in] attr_name The name of the attribute to be added.
+ * @param[in] attr_value The value of the attribute to be added.
+ *
+ * @see xcm_attr_map_add
+ */
+void xcm_attr_map_add_bin(struct xcm_attr_map *attr_map,
+			  const char *attr_name, const void *attr_value,
+			  size_t attr_value_len);
 
 
 /**
@@ -195,6 +206,23 @@ const int64_t *xcm_attr_map_get_int64(const struct xcm_attr_map *attr_map,
  * @return A pointer to the attribute's string, or NULL if the attribute does not exist or is of a non-string type.
  */
 const char *xcm_attr_map_get_str(const struct xcm_attr_map *attr_map,
+				 const char *attr_name);
+
+/**
+ * Retrieve the binary value associated with a particular key.
+ *
+ * This function retrieves the attribute value, in the form of a sequence
+ * of bytes, of the attribute @p attr_name, in case it exists and is of
+ * type @ref xcm_attr_type_bin.
+ *
+ * The value pointer returned is valid as long as the key is not
+ * removed, its value is changed, or the map is destroyed.
+ *
+ * @param[in] attr_map The attribute map instance.
+ * @param[in] attr_name The name of the attribute to be retrieved.
+ * @return A pointer to the attribute's value, or NULL if the attribute does not exist or is of a non-binary type.
+ */
+const char *xcm_attr_map_get_bin(const struct xcm_attr_map *attr_map,
 				 const char *attr_name);
 
 /**

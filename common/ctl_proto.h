@@ -13,6 +13,8 @@
 #include "xcm_attr_limits.h"
 #include "xcm_attr_types.h"
 
+#define CTL_ATTR_VALUE_MAX 512
+
 #include <inttypes.h>
 #include <stdbool.h>
 
@@ -33,8 +35,8 @@ struct ctl_proto_attr
     union {
 	bool bool_value;
 	int64_t int64_value;
-	char str_value[XCM_ATTR_STR_VALUE_MAX];
-	uint8_t any_value[XCM_ATTR_VALUE_MAX];
+	char str_value[CTL_ATTR_VALUE_MAX];
+	uint8_t any_value[CTL_ATTR_VALUE_MAX];
     };
     size_t value_len;
 };

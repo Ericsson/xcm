@@ -117,7 +117,7 @@ const void *lookup_value_with_type(const struct xcm_attr_map *attr_map,
     const struct attr *attr =
 	lookup_attr_with_type(attr_map, attr_name, type);
 
-    if (!attr)
+    if (attr == NULL)
 	return NULL;
 
     return attr->value;
@@ -161,8 +161,16 @@ void xcm_attr_map_add_str(struct xcm_attr_map *attr_map,
 		     strlen(attr_value) + 1);
 }
 
+void xcm_attr_map_add_bin(struct xcm_attr_map *attr_map,
+			  const char *attr_name, const void *attr_value,
+			  size_t attr_value_len)
+{
+    xcm_attr_map_add(attr_map, attr_name, xcm_attr_type_bin, attr_value,
+		     attr_value_len);
+}
+
 void xcm_attr_map_add_all(struct xcm_attr_map *dst_map,
-			 const struct xcm_attr_map *src_map)
+			  const struct xcm_attr_map *src_map)
 {
     if (dst_map != src_map)
 	xcm_attr_map_foreach(src_map, copy_attr_cb, dst_map);
@@ -175,7 +183,7 @@ const void *xcm_attr_map_get(const struct xcm_attr_map *attr_map,
 {
     struct attr *attr = lookup_attr(attr_map, attr_name);
 
-    if (!attr)
+    if (attr == NULL)
 	return NULL;
 
     if (attr_type != NULL)
@@ -203,6 +211,12 @@ const char *xcm_attr_map_get_str(const struct xcm_attr_map *attr_map,
 				 const char *attr_name)
 {
     return lookup_value_with_type(attr_map, attr_name, xcm_attr_type_str);
+}
+
+const char *xcm_attr_map_get_bin(const struct xcm_attr_map *attr_map,
+				 const char *attr_name)
+{
+    return lookup_value_with_type(attr_map, attr_name, xcm_attr_type_bin);
 }
 
 bool xcm_attr_map_exists(const struct xcm_attr_map *attr_map,

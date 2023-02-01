@@ -164,17 +164,29 @@ TESTCASE(attr_map, access_bin)
 
     size_t data_len = 1000001;
     void *data = ut_malloc(data_len);
-
     tu_randblk(data, data_len);
 
-    xcm_attr_map_add(attr_map, "bin", xcm_attr_type_bin, data, data_len);
+    size_t data2_len = 1;
+    void *data2 = ut_malloc(data_len);
+    tu_randblk(data2, data2_len);
 
-    CHKNOERR(verify_value(attr_map, "bin", xcm_attr_type_bin, data, data_len));
+
+    xcm_attr_map_add(attr_map, "bin", xcm_attr_type_bin, data, data_len);
+    xcm_attr_map_add_bin(attr_map, "bin2", data2, data2_len);
+
+    CHKNOERR(verify_value(attr_map, "bin", xcm_attr_type_bin, data,
+			  data_len));
+    CHKNOERR(verify_value(attr_map, "bin2", xcm_attr_type_bin, data2,
+			  data2_len));
 
     const void *internal = xcm_attr_map_get(attr_map, "bin", NULL, NULL);
 
     /* make sure a copy is made */
     CHK(data != internal);
+
+    const void *value = xcm_attr_map_get_bin(attr_map, "bin");
+
+    CHK(value != NULL);
 
     ut_free(data);
     xcm_attr_map_destroy(attr_map);

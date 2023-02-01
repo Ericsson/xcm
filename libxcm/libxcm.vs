@@ -34,6 +34,7 @@
     xcm_attr_get_bool;
     xcm_attr_get_int64;
     xcm_attr_get_str;
+    xcm_attr_get_bin;
     xcm_attr_get_all;
     xcm_attr_map_create;
     xcm_attr_map_clone;
@@ -41,11 +42,13 @@
     xcm_attr_map_add_bool;
     xcm_attr_map_add_int64;
     xcm_attr_map_add_str;
+    xcm_attr_map_add_bin;
     xcm_attr_map_add_all;
     xcm_attr_map_get;
     xcm_attr_map_get_bool;
     xcm_attr_map_get_int64;
     xcm_attr_map_get_str;
+    xcm_attr_map_get_bin;
     xcm_attr_map_exists;
     xcm_attr_map_del;
     xcm_attr_map_size;

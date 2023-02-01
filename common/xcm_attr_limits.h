@@ -7,7 +7,5 @@
 #define XCM_ATTR_LIMITS_H
 
 #define XCM_ATTR_NAME_MAX (64)
-#define XCM_ATTR_STR_VALUE_MAX (256)
-#define XCM_ATTR_VALUE_MAX XCM_ATTR_STR_VALUE_MAX
 
 #endif
