@@ -315,10 +315,11 @@ int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 #define READSIZE 256
 
-int ut_load_text_file(const char *filename, char **data)
+static ssize_t load_file(const char *filename, char **data,
+			 size_t spare_capacity)
 {
     size_t capacity = 0;
-    size_t len = 0;
+    ssize_t len = 0;
 
     FILE *f = fopen(filename, "r");
 
@@ -329,7 +330,7 @@ int ut_load_text_file(const char *filename, char **data)
 
     for (;;) {
 	capacity += READSIZE;
-	*data = ut_realloc(*data, capacity + 1);
+	*data = ut_realloc(*data, capacity + spare_capacity);
 
 	size_t b = fread(*data + len, 1, READSIZE, f);
 
@@ -338,15 +339,13 @@ int ut_load_text_file(const char *filename, char **data)
 	if (b < READSIZE) {
 	    if (ferror(f))
 		goto err_free;
-
-	    (*data)[len] = '\0';
 	    break;
 	}
     }
 
     fclose(f);
 
-    return 0;
+    return len;
 
 err_free:
     ut_free(*data);
@@ -356,8 +355,33 @@ err:
     return -1;
 }
 
-void ut_die(const char *msg)
+ssize_t ut_load_file(const char *filename, char **data)
 {
-    fprintf(stderr, "FATAL: %s: %s.\n", msg, strerror(errno));
+    return load_file(filename, data, 0);
+}
+
+ssize_t ut_load_text_file(const char *filename, char **data)
+{
+    ssize_t rc = load_file(filename, data, 1);
+
+    if (rc >= 0) {
+	(*data)[rc] = '\0';
+	rc++;
+    }
+
+    return rc;
+}
+
+void ut_die(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+
+    fprintf(stderr, "FATAL: ");
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, ": %s.\n", strerror(errno));
+
+    va_end(ap);
+
     exit(EXIT_FAILURE);
 }

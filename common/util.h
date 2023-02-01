@@ -59,9 +59,10 @@ int ut_self_net_ns(char *name);
 
 int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 
-int ut_load_text_file(const char *filename, char **data);
+ssize_t ut_load_file(const char *filename, char **data);
+ssize_t ut_load_text_file(const char *filename, char **data);
 
-void ut_die(const char *msg) __attribute__ ((__noreturn__));
+void ut_die(const char *fmt, ...) __attribute__ ((__noreturn__));
 
 extern bool ut_dprint_enabled;
 

@@ -27,9 +27,12 @@ static void usage(const char *name)
     printf(" -b <name>=(true|false)  Set boolean connection attribute\n");
     printf(" -i <name>=<value>       Set integer connection attribute.\n");
     printf(" -s <name>=<value>       Set string connection attribute.\n");
-    printf(" -x                      One subsequent -b, -i or -s switch "
-	   "configure a server\n"
-	   "                         (rather than a connection) socket "
+    printf(" -f <name>=<filename>    Set binary connection attribute to the "
+	   "contents of\n"
+	   "                         <filename>.\n");
+    printf(" -x                      One subsequent -b, -i, -s, or -f switch "
+	   "configures a\n"
+	   "                         server (rather than a connection) socket "
 	   "attribute.\n");
     printf(" -v                      Prints XCM library version "
 	   "information.\n");
@@ -263,6 +266,18 @@ static void run_server(const char *addr,
 	ut_die("Error closing server socket");
 }
 
+static void load_bin_attr(struct xcm_attr_map *attrs, const char *attr_name,
+			  const char *value_filename)
+{
+    char *value;
+    ssize_t rc = ut_load_file(value_filename, &value);
+
+    if (rc < 0)
+	ut_die("Error reading \"%s\"", value_filename);
+
+    xcm_attr_map_add_bin(attrs, attr_name, value, rc);
+}
+
 int main(int argc, char **argv)
 {
     int c;
@@ -275,7 +290,7 @@ int main(int argc, char **argv)
     int64_t attr_int64_value;
     char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
-    while ((c = getopt(argc, argv, "lb:i:s:xvh")) != -1)
+    while ((c = getopt(argc, argv, "lb:i:s:f:xvh")) != -1)
     switch (c) {
     case 'l':
 	client = false;
@@ -293,6 +308,11 @@ int main(int argc, char **argv)
     case 's':
 	parse_str_attr(optarg, attr_name, attr_str_value);
 	xcm_attr_map_add_str(attrs, attr_name, attr_str_value);
+	attrs = conn_attrs;
+	break;
+    case 'f':
+	parse_str_attr(optarg, attr_name, attr_str_value);
+	load_bin_attr(attrs, attr_name, attr_str_value);
 	attrs = conn_attrs;
 	break;
     case 'x':
