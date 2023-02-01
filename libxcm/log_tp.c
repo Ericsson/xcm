@@ -62,7 +62,7 @@ void log_attr_str_value(enum xcm_attr_type type, const void *value, size_t len,
 	for (i = 0; i < len; i++) {
 	    size_t left = capacity - offset;
 	    if (left < 4) {
-		strcpy(buf, "<%zd bytes of data>");
+		ut_snprintf(buf, capacity, "<%zd bytes of data>", len);
 		break;
 	    }
 	    if (i != 0) {
