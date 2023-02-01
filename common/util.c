@@ -74,6 +74,14 @@ char *ut_strdup(const char *str)
     return copy;
 }
 
+char *ut_strndup(const char *str, size_t n)
+{
+    char *copy = strndup(str, n);
+    if (copy == NULL)
+	abort();
+    return copy;
+}
+
 void *ut_memdup(const char *ptr, size_t size)
 {
     void *copy = ut_malloc(size);
@@ -109,16 +117,23 @@ int ut_send_all(int fd, void* buf, size_t count, int flags) {
     return count;
 }
 
-int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
+int ut_vsnprintf(char *buf, size_t capacity, const char *format, va_list ap)
 {
-    va_list ap;
-    va_start(ap, format);
-
     int rc = vsnprintf(buf, capacity, format, ap);
 
     /* guarantee NUL-terminated strings */
     if (rc >= capacity)
 	buf[capacity-1] = '\0';
+
+    return rc;
+}
+
+int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+
+    int rc = ut_vsnprintf(buf, capacity, format, ap);
 
     va_end(ap);
 
@@ -296,6 +311,49 @@ int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 	errno = EAGAIN;
 
     return rc;
+}
+
+#define READSIZE 256
+
+int ut_load_text_file(const char *filename, char **data)
+{
+    size_t capacity = 0;
+    size_t len = 0;
+
+    FILE *f = fopen(filename, "r");
+
+    if (f == NULL)
+	goto err;
+
+    *data = NULL;
+
+    for (;;) {
+	capacity += READSIZE;
+	*data = ut_realloc(*data, capacity + 1);
+
+	size_t b = fread(*data + len, 1, READSIZE, f);
+
+	len += b;
+
+	if (b < READSIZE) {
+	    if (ferror(f))
+		goto err_free;
+
+	    (*data)[len] = '\0';
+	    break;
+	}
+    }
+
+    fclose(f);
+
+    return 0;
+
+err_free:
+    ut_free(*data);
+    *data = NULL;
+    fclose(f);
+err:
+    return -1;
 }
 
 void ut_die(const char *msg)

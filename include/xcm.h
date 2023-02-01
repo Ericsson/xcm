@@ -26,8 +26,8 @@ extern "C" {
  * * Obsolete, but still available, functions: xcm_compat.h.
  *
  * @author Mattias Rönnblom
- * @version 0.21 [API]
- * @version 1.6.2 [Implementation]
+ * @version 0.22 [API]
+ * @version 1.7.0 [Implementation]
  *
  * The low API/ABI version number is a result of all XCM releases
  * being backward compatible, and thus left the major version at 0.
@@ -970,11 +970,12 @@ extern "C" {
  *
  * The TLS cipher lists are neither build- nor run-time configurable.
  *
- * @subsubsection tls_certificates Certificate and Key Storage
+ * @subsubsection tls_certificates Certificate and Key Handling
  *
- * The TLS transport reads the leaf certificate and its private key
- * from the file system, as well as a file containing all trusted CA
- * certificates. Default paths are configured at build-time.
+ * By default, the TLS transport reads the leaf certificate and the
+ * corresponding private key from the file system, as well as a file
+ * containing all trusted CA certificates. The default file system
+ * paths are configured at build-time.
  *
  * @ref tls_attr may be used to override one or more of the default
  * paths, on a per-socket basis. Paths set on server sockets are
@@ -982,9 +983,20 @@ extern "C" {
  * at the time of a xcm_accept_a() call, using the proper attributes.
  *
  * The default paths may also be overriden on a per-process basis by
- * means of a UNIX environment variable. The current value of @c
- * XCM_TLS_CERT (at the time of xcm_connect() or xcm_accept())
+ * means of setting a UNIX environment variable. The current value of
+ * @c XCM_TLS_CERT (at the time of xcm_connect() or xcm_accept())
  * determines the certificate directory used for that connection.
+ *
+ * An application may also choose to configure TLS socket credentials
+ * by-value, rather than by-file-system-reference. For a particular
+ * piece of information, an application must use either supply a file
+ * system path (e.g., by setting @c tls.cert_file) or the actual data
+ * (e.g., by passing the certificate data as the value of the @c
+ * tls.cert attribute).
+ *
+ * Setting a credentials by-value attribute in the @c xcm_attr_map
+ * passed to xcm_accept_a() will override the corresponding
+ * by-reference attribute in the server socket, and vice versa.
  *
  * @paragraph per_ns_certs Per-network Namespace Certificates
  *
@@ -1154,6 +1166,9 @@ extern "C" {
  * tls.cert_file            | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
  * tls.key_file             | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
  * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
+ * tls.cert                 | All         | Binary      | RW   | The leaf certificate to be used. For connection sockets, writable only at socket creation.
+ * tls.key                  | All         | Binary      | RW   | The leaf certificate private key to be used. For connection sockets, writable only at socket creation. For security reasons, the value of this attribute is not available over the XCM control interface.
+ * tls.tc                   | All         | Binary      | RW   | The trusted CA certificates bundle to be used. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
  * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
  * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation. Default value is true.
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. For connection sockets, writable only at socket creation. Default is true.

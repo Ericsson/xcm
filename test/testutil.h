@@ -60,6 +60,9 @@ int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
 		       const char *expected_value);
 
+int tu_assure_bin_attr(struct xcm_socket *s, const char *attr_name,
+		       const void *expected_value, size_t len);
+
 ssize_t tu_read_file(const char *filename, char *buf, size_t capacity);
 
 #endif

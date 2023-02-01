@@ -51,6 +51,10 @@
 #define XCM_ATTR_TLS_KEY_FILE "tls.key_file"
 #define XCM_ATTR_TLS_TC_FILE "tls.tc_file"
 
+#define XCM_ATTR_TLS_CERT "tls.cert"
+#define XCM_ATTR_TLS_KEY "tls.key"
+#define XCM_ATTR_TLS_TC "tls.tc"
+
 #define XCM_ATTR_TLS_CLIENT "tls.client"
 #define XCM_ATTR_TLS_AUTH "tls.auth"
 #define XCM_ATTR_TLS_CHECK_TIME "tls.check_time"

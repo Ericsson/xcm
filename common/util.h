@@ -27,6 +27,7 @@ void *ut_malloc(size_t size);
 void *ut_realloc(void *ptr, size_t size);
 void *ut_calloc(size_t size);
 char *ut_strdup(const char *str);
+char *ut_strndup(const char *str, size_t n);
 void *ut_memdup(const char *ptr, size_t size);
 void ut_free(void *ptr);
 
@@ -37,6 +38,8 @@ int ut_send_all(int fd, void* buf, size_t count, int flags);
 
 int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
     __attribute__ ((format (printf, 3, 4)));
+int ut_vsnprintf(char *buf, size_t capacity, const char *format, va_list ap)
+    __attribute__ ((format (printf, 3, 0)));
 void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
     __attribute__ ((format (printf, 3, 0)));
 void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
@@ -55,6 +58,8 @@ bool ut_is_readable(int fd);
 int ut_self_net_ns(char *name);
 
 int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+
+int ut_load_text_file(const char *filename, char **data);
 
 void ut_die(const char *msg) __attribute__ ((__noreturn__));
 

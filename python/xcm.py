@@ -96,6 +96,10 @@ xcm_attr_map_destroy_c = xcm_c.xcm_attr_map_destroy
 xcm_attr_map_destroy_c.restype = None
 xcm_attr_map_destroy_c.argtypes = [c_void_p]
 
+xcm_attr_map_add_bin_c = xcm_c.xcm_attr_map_add_bin
+xcm_attr_map_add_bin_c.restype = None
+xcm_attr_map_add_bin_c.argtypes = [c_void_p, c_char_p, c_void_p, c_long]
+
 xcm_attr_map_add_bool_c = xcm_c.xcm_attr_map_add_bool
 xcm_attr_map_add_bool_c.restype = None
 xcm_attr_map_add_bool_c.argtypes = [c_void_p, c_char_p, c_bool]
@@ -137,16 +141,21 @@ def _attr_to_py(attr_type, attr_value, attr_len):
 
 
 def _attr_map_add(attr_map, attr_name, attr_value):
-    if isinstance(attr_value, bool):
-        add_fun = xcm_attr_map_add_bool_c
-    elif isinstance(attr_value, int):
-        add_fun = xcm_attr_map_add_int64_c
-    elif isinstance(attr_value, str):
-        add_fun = xcm_attr_map_add_str_c
-        attr_value = attr_value.encode('utf-8')
+    if isinstance(attr_value, bytes):
+        xcm_attr_map_add_bin_c(attr_map, attr_name.encode('utf-8'), attr_value,
+                               len(attr_value))
     else:
-        raise TypeError("invalid value type: '%s'" % type(attr_value))
-    add_fun(attr_map, attr_name.encode('utf-8'), attr_value)
+        if isinstance(attr_value, bool):
+            add_fun = xcm_attr_map_add_bool_c
+        elif isinstance(attr_value, int):
+            add_fun = xcm_attr_map_add_int64_c
+        elif isinstance(attr_value, str):
+            add_fun = xcm_attr_map_add_str_c
+            attr_value = attr_value.encode('utf-8')
+        else:
+            raise TypeError("invalid value type: '%s'" % type(attr_value))
+
+        add_fun(attr_map, attr_name.encode('utf-8'), attr_value)
 
 
 def _attr_map_create(attrs):
@@ -305,6 +314,7 @@ def connect(addr, flags=0, attrs={}):
 
 
 def server(addr, attrs={}):
+    attr_map = None
     try:
         attr_map = _attr_map_create(attrs)
         xcm_socket = xcm_server_a_c(addr.encode('utf-8'), attr_map)
@@ -313,7 +323,8 @@ def server(addr, attrs={}):
         else:
             _raise_io_err()
     finally:
-        xcm_attr_map_destroy_c(attr_map)
+        if attr_map is not None:
+            xcm_attr_map_destroy_c(attr_map)
 
 
 def version():

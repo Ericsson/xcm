@@ -134,6 +134,10 @@ class TestXcm(unittest.TestCase):
                     "xcm.blocking": True,
                     "xcm.service": "bytestream"
                 }
+                if is_tls_based(addr):
+                    with open("%s/%s" % (CERT_DIR, "cert.pem"), "rb") as f:
+                        cert = f.read()
+                        attrs["tls.cert"] = cert
                 conn = xcm.connect(addr, attrs=attrs)
             else:
                 conn = xcm.connect(addr, 0)

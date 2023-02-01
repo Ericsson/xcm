@@ -162,7 +162,7 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 
 static bool is_sensitive(const char *attr_name)
 {
-    return false;
+    return strcmp(attr_name, XCM_ATTR_TLS_KEY) == 0;
 }
 
 static void clear_attr(struct ctl_proto_attr *attr)

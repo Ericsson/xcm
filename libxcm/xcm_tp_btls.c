@@ -7,6 +7,7 @@
 #include "common_tp.h"
 #include "ctx_store.h"
 #include "epoll_reg.h"
+#include "item.h"
 #include "log_tls.h"
 #include "log_tp.h"
 #include "slist.h"
@@ -85,9 +86,9 @@ struct btls_socket
 
     struct slist *valid_peer_names;
 
-    char *cert_file;
-    char *key_file;
-    char *tc_file;
+    struct item cert;
+    struct item key;
+    struct item tc;
 
     struct epoll_reg fd_reg;
 
@@ -271,10 +272,9 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
     struct btls_socket *bts = TOBTLS(s);
     struct btls_socket *parent_bts = TOBTLS(parent_s);
 
-    bts->cert_file = ut_strdup(parent_bts->cert_file);
-    bts->key_file = ut_strdup(parent_bts->key_file);
-    bts->tc_file =
-	parent_bts->tc_file != NULL ? ut_strdup(parent_bts->tc_file) : NULL;
+    item_copy(&parent_bts->cert, &bts->cert);
+    item_copy(&parent_bts->key, &bts->key);
+    item_copy(&parent_bts->tc, &bts->tc);
 
     bts->tls_auth = parent_bts->tls_auth;
 
@@ -299,6 +299,10 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 
     bts->tls_auth = true;
     bts->check_time = true;
+
+    item_init(&bts->cert);
+    item_init(&bts->key);
+    item_init(&bts->tc);
 
     switch (s->type) {
     case xcm_socket_type_server:
@@ -381,9 +385,10 @@ static void deinit(struct xcm_socket *s, bool owner)
     else
 	server_deinit(s, owner);
 
-    ut_free(bts->cert_file);
-    ut_free(bts->key_file);
-    ut_free(bts->tc_file);
+    item_deinit(&bts->cert);
+    item_deinit(&bts->key);
+    item_deinit(&bts->tc);
+
     slist_destroy(bts->valid_peer_names);
 
     if (bts->ssl_ctx)
@@ -786,42 +791,47 @@ static const char *get_cert_dir(void)
     return cert_dir != NULL ? cert_dir : DEFAULT_CERT_DIR;
 }
 
-static char *get_file(const char *default_tmpl, const char *ns_tmpl,
-		      const char *ns, const char *cert_dir)
+void get_file(const char *default_tmpl, const char *ns_tmpl,
+	      const char *ns, const char *cert_dir, struct item *item)
 {
+    char *path;
+
     if (strlen(ns) == 0)
-	return ut_asprintf(default_tmpl, cert_dir);
+	path = ut_asprintf(default_tmpl, cert_dir);
     else
-	return ut_asprintf(ns_tmpl, cert_dir, ns);
+	path = ut_asprintf(ns_tmpl, cert_dir, ns);
+
+    item_set_file(item, path, false);
+
+    ut_free(path);
 }
 
-static char *get_cert_file(const char *ns, const char *cert_dir)
+void get_cert_file(const char *ns, const char *cert_dir, struct item *cert)
 {
-    return get_file(DEFAULT_CERT_FILE, NS_CERT_FILE, ns, cert_dir);
+    get_file(DEFAULT_CERT_FILE, NS_CERT_FILE, ns, cert_dir, cert);
 }
 
-static char *get_key_file(const char *ns, const char *cert_dir)
+void get_key_file(const char *ns, const char *cert_dir, struct item *key)
 {
-    return get_file(DEFAULT_KEY_FILE, NS_KEY_FILE, ns, cert_dir);
+    get_file(DEFAULT_KEY_FILE, NS_KEY_FILE, ns, cert_dir, key);
 }
 
-static char *get_tc_file(const char *ns, const char *cert_dir)
+void get_tc_file(const char *ns, const char *cert_dir, struct item *tc)
 {
-    return get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir);
+    get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir, tc);
 }
 
 static int finalize_tls_conf(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    if (!bts->tls_auth && bts->tc_file != NULL) {
+    if (!bts->tls_auth && item_is_set(&bts->tc)) {
 	if (bts->tc_file_set) {
-	    LOG_TLS_TRUSTED_CA_SET_BUT_NO_AUTH(s, bts->tc_file);
+	    LOG_TLS_TRUSTED_CA_SET_BUT_NO_AUTH(s, &bts->tc);
 	    goto err_inval;
 	}
 	/* trusted CAs inherited from parent socket, but not needed */
-	ut_free(bts->tc_file);
-	bts->tc_file = NULL;
+	item_deinit(&bts->tc);
     }
 
     if (!bts->verify_peer_name && bts->valid_peer_names != NULL) {
@@ -834,8 +844,8 @@ static int finalize_tls_conf(struct xcm_socket *s)
 	bts->valid_peer_names = NULL;
     }
 
-    if (bts->cert_file != NULL && bts->key_file != NULL &&
-	(!bts->tls_auth || bts->tc_file != NULL))
+    if (item_is_set(&bts->cert) && item_is_set(&bts->key) &&
+	(!bts->tls_auth || item_is_set(&bts->tc)))
 	return 0;
 
     /* The reason this is not done in the socket init function, is to
@@ -851,12 +861,12 @@ static int finalize_tls_conf(struct xcm_socket *s)
 
     const char *cert_dir = get_cert_dir();
 
-    if (bts->cert_file == NULL)
-	bts->cert_file = get_cert_file(ns, cert_dir);
-    if (bts->key_file == NULL)
-	bts->key_file = get_key_file(ns, cert_dir);
-    if (bts->tc_file == NULL && bts->tls_auth)
-	bts->tc_file = get_tc_file(ns, cert_dir);
+    if (!item_is_set(&bts->cert))
+	get_cert_file(ns, cert_dir, &bts->cert);
+    if (!item_is_set(&bts->key))
+	get_key_file(ns, cert_dir, &bts->key);
+    if (!item_is_set(&bts->tc))
+	get_tc_file(ns, cert_dir, &bts->tc);
 
     return 0;
 
@@ -933,12 +943,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	goto err;
     }
 
-    ut_assert(bts->tls_auth == (bts->tc_file != NULL));
+    ut_assert(bts->tls_auth == item_is_set(&bts->tc));
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
 
     bts->ssl_ctx =
-	ctx_store_get_ctx(bts->cert_file, bts->key_file, bts->tc_file, s);
+	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, s);
 
     if (!bts->ssl_ctx)
 	goto err;
@@ -1048,11 +1058,11 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
      * changes XCM_TLS_CERT during runtime.
      */
     bts->ssl_ctx =
-	ctx_store_get_ctx(bts->cert_file, bts->key_file, bts->tc_file, s);
+	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, s);
     if (bts->ssl_ctx == NULL)
 	goto err;
 
-    ut_assert(bts->tls_auth == (bts->tc_file != NULL));
+    ut_assert(bts->tls_auth == item_is_set(&bts->tc));
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
 
@@ -1159,8 +1169,8 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 	goto err_close;
 
     conn_bts->ssl_ctx =
-	ctx_store_get_ctx(conn_bts->cert_file, conn_bts->key_file,
-			  conn_bts->tc_file, conn_s);
+	ctx_store_get_ctx(&conn_bts->cert, &conn_bts->key,
+			  &conn_bts->tc, conn_s);
     if (conn_bts->ssl_ctx == NULL) {
 	errno = EPROTO;
 	goto err_close;
@@ -1175,7 +1185,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     SSL_set_mode(conn_bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-    ut_assert(conn_bts->tls_auth == (conn_bts->tc_file != NULL));
+    ut_assert(conn_bts->tls_auth == item_is_set(&conn_bts->tc));
     if (!conn_bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(conn_s);
 
@@ -1670,9 +1680,8 @@ static int get_scope_attr(struct xcm_socket *s, void *context,
     }
 }
 
-static int set_file_attr(struct xcm_socket *s, void *context,
-			 const void *value, size_t len,
-			 char **target, bool *mark)
+static int set_file_attr(struct xcm_socket *s, const void *filename,
+			 size_t len, struct item *target, bool *mark)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1682,9 +1691,9 @@ static int set_file_attr(struct xcm_socket *s, void *context,
 	    return -1;
 	}
 
-    ut_free(*target);
+    item_deinit(target);
 
-    *target = ut_strdup(value);
+    item_set_file(target, filename, false);
 
     if (mark != NULL)
 	*mark = true;
@@ -1693,48 +1702,140 @@ static int set_file_attr(struct xcm_socket *s, void *context,
 }
 
 static int set_cert_file_attr(struct xcm_socket *s, void *context,
-			      const void *value, size_t len)
+			      const void *filename, size_t len)
 {
-    return set_file_attr(s, context, value, len,
-			 &(TOBTLS(s)->cert_file), NULL);
+    return set_file_attr(s, filename, len, &(TOBTLS(s)->cert), NULL);
 }
 
-static int get_cert_file_attr(struct xcm_socket *s, void *context,
-			      void *value, size_t capacity)
+static int get_file_attr(const struct item *item, void *filename,
+			 size_t capacity)
 {
-    return xcm_tp_get_str_attr(TOBTLS(s)->cert_file, value, capacity);
-}
-
-static int set_key_file_attr(struct xcm_socket *s, void *context,
-			      const void *value, size_t len)
-{
-    return set_file_attr(s, context, value, len,
-			 &(TOBTLS(s)->key_file), NULL);
-}
-
-static int get_key_file_attr(struct xcm_socket *s, void *context,
-			     void *value, size_t capacity)
-{
-    return xcm_tp_get_str_attr(TOBTLS(s)->key_file, value, capacity);
-}
-
-static int set_tc_file_attr(struct xcm_socket *s, void *context,
-			    const void *value, size_t len)
-{
-    return set_file_attr(s, context, value, len,
-			 &(TOBTLS(s)->tc_file), &(TOBTLS(s)->tc_file_set));
-}
-
-static int get_tc_file_attr(struct xcm_socket *s, void *context,
-			    void *value, size_t capacity)
-{
-    const char *tc_file = TOBTLS(s)->tc_file;
-    if (tc_file != NULL)
-	return xcm_tp_get_str_attr(tc_file, value, capacity);
-    else {
+    if (item->type != item_type_file) {
 	errno = ENOENT;
 	return -1;
     }
+
+    return xcm_tp_get_str_attr(item->data, filename, capacity);
+}
+
+static int get_cert_file_attr(struct xcm_socket *s, void *context,
+			      void *filename, size_t capacity)
+{
+    return get_file_attr(&TOBTLS(s)->cert, filename, capacity);
+}
+
+static int set_key_file_attr(struct xcm_socket *s, void *context,
+			      const void *filename, size_t len)
+{
+    return set_file_attr(s, filename, len, &(TOBTLS(s)->key), NULL);
+}
+
+static int get_key_file_attr(struct xcm_socket *s, void *context,
+			     void *filename, size_t capacity)
+{
+    return get_file_attr(&TOBTLS(s)->key, filename, capacity);
+}
+
+static int set_tc_file_attr(struct xcm_socket *s, void *context,
+			    const void *filename, size_t len)
+{
+    return set_file_attr(s, filename, len, &(TOBTLS(s)->tc),
+			 &(TOBTLS(s)->tc_file_set));
+}
+
+static int get_tc_file_attr(struct xcm_socket *s, void *context,
+			    void *filename, size_t capacity)
+{
+    return get_file_attr(&TOBTLS(s)->tc, filename, capacity);
+}
+
+static bool has_nul(const char *s, size_t len)
+{
+    size_t i;
+    for (i = 0; i < len; i++)
+	if (s[i] == '\0')
+	    return true;
+    return false;
+}
+
+static int set_value_attr(struct xcm_socket *s, const void *value, size_t len,
+			  struct item *target, bool sensitive, bool *mark)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if (s->type == xcm_socket_type_conn &&
+	    bts->conn.state != conn_state_initialized) {
+	    errno = EACCES;
+	    return -1;
+	}
+
+    /* Even though the certificate, key, and trust chain socket
+       attributes are of the binary type, the values are printable
+       strings (in PEM format), and should not contain NUL. */
+
+    if (has_nul(value, len)) {
+	LOG_TLS_CREDENTIALS_CONTAIN_NUL(s);
+	errno = EINVAL;
+	return -1;
+    }
+
+    item_deinit(target);
+
+    item_set_value_n(target, value, len, sensitive);
+
+    if (mark != NULL)
+	*mark = true;
+
+    return 0;
+}
+
+static int set_cert_attr(struct xcm_socket *s, void *context,
+			 const void *value, size_t len)
+{
+    return set_value_attr(s, value, len, &(TOBTLS(s)->cert), false, NULL);
+}
+
+static int get_value_attr(const struct item *item, void *value,
+			  size_t capacity)
+{
+    if (item->type != item_type_value) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return xcm_tp_get_bin_attr(item->data, strlen(item->data),
+			       value, capacity);
+}
+
+static int get_cert_attr(struct xcm_socket *s, void *context, void *value,
+			 size_t capacity)
+{
+    return get_value_attr(&TOBTLS(s)->cert, value, capacity);
+}
+
+static int set_key_attr(struct xcm_socket *s, void *context,
+			const void *value, size_t len)
+{
+    return set_value_attr(s, value, len, &(TOBTLS(s)->key), true, NULL);
+}
+
+static int get_key_attr(struct xcm_socket *s, void *context, void *value,
+			size_t capacity)
+{
+    return get_value_attr(&TOBTLS(s)->key, value, capacity);
+}
+
+static int set_tc_attr(struct xcm_socket *s, void *context,
+		       const void *value, size_t len)
+{
+    return set_value_attr(s, value, len, &(TOBTLS(s)->tc), false,
+			  &(TOBTLS(s)->tc_file_set));
+}
+
+static int get_tc_attr(struct xcm_socket *s, void *context, void *value,
+		       size_t capacity)
+{
+    return get_value_attr(&TOBTLS(s)->tc, value, capacity);
 }
 
 static int set_verify_peer_name_attr(struct xcm_socket *s, void *context,
@@ -1960,7 +2061,7 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
 
 /* The common attributes are split in two to maintain some order when the
    attributes are listed over the control interface */
-#define XCM_COMMON_ATTRS							\
+#define XCM_COMMON_ATTRS						\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CLIENT, xcm_attr_type_bool,	\
 			set_client_attr, get_client_attr),		\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
@@ -1968,7 +2069,8 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CHECK_TIME, xcm_attr_type_bool,	\
 			set_check_time_attr, get_check_time_attr),	\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
-			set_verify_peer_name_attr, get_verify_peer_name_attr), \
+			set_verify_peer_name_attr, \
+			get_verify_peer_name_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_PEER_NAMES, xcm_attr_type_str, \
 			set_peer_names_attr, get_peer_names_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str, \
@@ -1976,7 +2078,13 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str, \
 			set_key_file_attr, get_key_file_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str, \
-			set_tc_file_attr, get_tc_file_attr)
+			set_tc_file_attr, get_tc_file_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT, xcm_attr_type_bin, \
+			set_cert_attr, get_cert_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY, xcm_attr_type_bin, \
+			set_key_attr, get_key_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC, xcm_attr_type_bin, \
+			set_tc_attr, get_tc_attr)
 
 #define IP_COMMON_ATTRS							\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_IPV6_SCOPE, xcm_attr_type_int64,	\

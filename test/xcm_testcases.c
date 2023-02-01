@@ -182,6 +182,53 @@ static void determine_path(char *path, const char *file_type,
 	snprintf(path, PATH_MAX, "%s/%s.pem", cert_dir, file_type);
 }
 
+static int assure_cred_attr(struct xcm_socket *s, const char *ns,
+			    const char *cert_dir,
+			    const char *cred_name,
+			    const struct xcm_attr_map *parent_attrs,
+			    const struct xcm_attr_map *attrs)
+{
+    char file_attr_name[1024];
+    char value_attr_name[1024];
+
+    ut_snprintf(file_attr_name, sizeof(file_attr_name), "tls.%s_file",
+		cred_name);
+    ut_snprintf(value_attr_name, sizeof(value_attr_name), "tls.%s",
+		cred_name);
+
+    bool by_value =
+	(attrs != NULL && xcm_attr_map_exists(attrs, value_attr_name))
+	||
+	((parent_attrs != NULL &&
+	  xcm_attr_map_exists(parent_attrs, value_attr_name) &&
+	  !xcm_attr_map_exists(attrs, file_attr_name)));
+
+    if (by_value) {
+	enum xcm_attr_type type;
+	size_t len;
+	const void *map_value;
+
+	map_value = xcm_attr_map_get(attrs, value_attr_name, &type, &len);
+
+	if (map_value == NULL)
+	    map_value = xcm_attr_map_get(parent_attrs, value_attr_name, &type,
+					 &len);
+
+	CHK(map_value != NULL);
+
+	if (tu_assure_bin_attr(s, value_attr_name, map_value, len) < 0)
+	    return -1;
+    } else {
+	char filename[PATH_MAX];
+	determine_path(filename, cred_name, ns, cert_dir, parent_attrs, attrs);
+
+	if (tu_assure_str_attr(s, file_attr_name, filename) < 0)
+	    return -1;
+    }
+
+    return 0;
+}
+
 static int check_cert_attrs(struct xcm_socket *s, const char *ns,
 			    const char *cert_dir,
 			    const struct xcm_attr_map *parent_attrs,
@@ -190,34 +237,25 @@ static int check_cert_attrs(struct xcm_socket *s, const char *ns,
     if (cert_dir == NULL)
 	cert_dir = getenv("XCM_TLS_CERT");
 
-    char cert_file[PATH_MAX];
-    char key_file[PATH_MAX];
-    char tc_file[PATH_MAX];
-
-    determine_path(cert_file, "cert", ns, cert_dir, parent_attrs, attrs);
-    determine_path(key_file, "key", ns, cert_dir, parent_attrs, attrs);
-    determine_path(tc_file, "tc", ns, cert_dir, parent_attrs, attrs);
+    if (assure_cred_attr(s, ns, cert_dir, "cert", parent_attrs, attrs) < 0)
+	return UTEST_FAIL;
+    if (assure_cred_attr(s, ns, cert_dir, "key", parent_attrs, attrs) < 0)
+	return UTEST_FAIL;
 
     bool tls_auth;
     CHKNOERR(xcm_attr_get_bool(s, "tls.auth", &tls_auth));
 
-    if (tu_assure_str_attr(s, "tls.cert_file", cert_file) < 0)
-	return -1;
-    if (tu_assure_str_attr(s, "tls.key_file", key_file) < 0)
-	return -1;
-
-    int rc = tu_assure_str_attr(s, "tls.tc_file", tc_file);
-
-    if (tls_auth) {
-	if (rc != 0)
-	    return -1;
-    } else {
-	if (rc >= 0)
-	    return -1;
-	if (errno != ENOENT)
-	    return -1;
+    if (tls_auth)
+	CHKNOERR(assure_cred_attr(s, ns, cert_dir, "tc", parent_attrs,
+				  attrs));
+    else {
+	enum xcm_attr_type type;
+	char value[1024];
+	CHKERRNO(xcm_attr_get(s, "tls.tc", &type, value, sizeof(value)),
+		 ENOENT);
     }
-    return 0;
+
+    return UTEST_SUCCESS;
 }
 
 static int check_bool_attr(struct xcm_socket *s,
@@ -2803,9 +2841,18 @@ TESTCASE(xcm, bind_to_source_addr)
 
 static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
 {
+    CHKERRNO(xcm_attr_set(conn, "tls.cert", xcm_attr_type_bin,
+			  "foo", 3), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.cert_file", "cert.pem"), EACCES);
+
+    CHKERRNO(xcm_attr_set(conn, "tls.key", xcm_attr_type_bin,
+			  "foo", 3), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.key_file", "cert.pem"), EACCES);
+
+    CHKERRNO(xcm_attr_set(conn, "tls.tc", xcm_attr_type_bin,
+			  "foo", 3), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
+
     CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
@@ -2839,6 +2886,10 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 	return -1; /* NS-related failures should never be expected */
 
     struct xcm_socket *server_sock = tu_server_a(server_addr, server_attrs);
+
+    if (server_sock == NULL)
+	return success_expected ? -1 : 0;
+
     struct xcm_socket *connect_sock = NULL;
     struct xcm_socket *accepted_sock = NULL;
 
@@ -2849,9 +2900,6 @@ static int establish_ns(const char *server_ns, const char *server_addr,
     }
 
     bool success = false;
-
-    if (server_sock == NULL)
-	goto out;
 
     bool connect_done = false;
     bool accept_done = false;
@@ -5400,6 +5448,145 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 
     kill(server_pid, SIGTERM);
     tu_wait(server_pid);
+
+    return UTEST_SUCCESS;
+}
+
+int load_cred(const char *file, char **data)
+{
+    char cdir[PATH_MAX];
+    get_cert_path(cdir, "default");
+
+    char path[PATH_MAX];
+    ut_snprintf(path, sizeof(path), "%s/%s", cdir, file);
+
+    return ut_load_text_file(path, data);
+}
+
+static int run_credentials_by_value(bool override_on_accept)
+{
+    char *tls_addr = gen_tls_addr();
+
+    char *cert;
+    CHKNOERR(load_cred("cert.pem", &cert));
+
+    char *key;
+    CHKNOERR(load_cred("key.pem", &key));
+
+    char *tc;
+    CHKNOERR(load_cred("tc.pem", &tc));
+
+    CHK(cert != NULL && key != NULL && tc != NULL);
+
+    struct xcm_attr_map *connect_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bin(connect_attrs, "tls.cert", cert, strlen(cert));
+    xcm_attr_map_add_bin(connect_attrs, "tls.key", key, strlen(key));
+    xcm_attr_map_add_bin(connect_attrs, "tls.tc", tc, strlen(tc));
+
+    struct xcm_attr_map *server_attrs;
+    struct xcm_attr_map *accept_attrs;
+
+    if (override_on_accept) {
+	server_attrs = xcm_attr_map_create();
+	accept_attrs = xcm_attr_map_clone(connect_attrs);
+    } else {
+	/* The file system certificate need to be kept in the
+	 * override-on-accept case, since otherwise the server socket
+	 * cannot be created. */
+	CHKNOERR(remove_certs());
+
+	server_attrs = xcm_attr_map_clone(connect_attrs);
+	accept_attrs = xcm_attr_map_create();
+    }
+
+    CHKNOERR(establish_xtls(tls_addr, server_attrs, accept_attrs,
+			    connect_attrs, true));
+
+    xcm_attr_map_destroy(connect_attrs);
+    xcm_attr_map_destroy(server_attrs);
+    xcm_attr_map_destroy(accept_attrs);
+
+    ut_free(cert);
+    ut_free(key);
+    ut_free(tc);
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_credentials_by_value)
+{
+    int rc;
+
+    if ((rc = run_credentials_by_value(true)) < 0)
+	return rc;
+    if ((rc = run_credentials_by_value(false)) < 0)
+	return rc;
+
+    return UTEST_SUCCESS;
+}
+
+static int run_invalid_credential_value(const char *attr_name)
+{
+    size_t data_len = tu_randint(1000, 100000);
+    char data[data_len];
+
+    /* OK, so this random string may end up being a valid PEM file,
+       and even one that with the correct key/certificate/CA
+       bundle. If it does, you should take it as a strong indication
+       you live in a simulation. */
+    tu_randblk(data, data_len);
+
+    struct xcm_attr_map *empty_attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *invalid_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bin(invalid_attrs, attr_name, data, data_len);
+
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *server_attrs = empty_attrs;
+    struct xcm_attr_map *accept_attrs = empty_attrs;
+    struct xcm_attr_map *connect_attrs = empty_attrs;
+
+    unsigned int variant = tu_randint(0, 3);
+    switch (variant) {
+    case 0:
+	accept_attrs = invalid_attrs;
+	break;
+    case 1:
+	accept_attrs = invalid_attrs;
+	break;
+    case 2:
+	connect_attrs = invalid_attrs;
+	break;
+    }
+
+    CHKNOERR(establish_xtls(tls_addr, server_attrs, accept_attrs,
+			    connect_attrs, false));
+    CHKERRNOEQ(EINVAL);
+
+    xcm_attr_map_destroy(empty_attrs);
+    xcm_attr_map_destroy(invalid_attrs);
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+#define INVALID_ITERATIONS (16)
+
+TESTCASE(xcm, tls_invalid_credential_values)
+{
+    int i;
+    for (i = 0; i < INVALID_ITERATIONS; i++) {
+	int rc;
+
+	if ((rc = run_invalid_credential_value("tls.cert")) != UTEST_SUCCESS)
+	    return rc;
+	if ((rc = run_invalid_credential_value("tls.key")) != UTEST_SUCCESS)
+	    return rc;
+	if ((rc = run_invalid_credential_value("tls.tc")) != UTEST_SUCCESS)
+	    return rc;
+    }
 
     return UTEST_SUCCESS;
 }

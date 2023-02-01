@@ -21,7 +21,7 @@
 #include "xcm_lttng.h"
 #endif
 
-#define BUFSZ (1024)
+#define BUFSZ (8*1024)
 
 #ifdef XCM_LTTNG
 #define UT_LOG_LTTNG(type, file, line, function, sock, format, ap)	\
@@ -69,19 +69,19 @@ static void format_msg(char *buf, size_t capacity, const char *file, int line,
 		       const char *function, struct xcm_socket *s,
 		       const char *format, va_list ap)
 {
-    char sref[32];
+    char sref[64];
     if (s != NULL)
-	snprintf(sref, sizeof(sref), " <%" PRId64 ">", s->sock_id);
+	ut_snprintf(sref, sizeof(sref), " <%" PRId64 ">", s->sock_id);
     else
 	sref[0] = '\0';
 
     char bname[NAME_MAX+1];
     strcpy(bname, file);
 
-    snprintf(buf, capacity, "TID %d: %s [%s:%d]%s: ", ut_gettid(),
-	     function, basename(bname), line, sref);
-    vsnprintf(buf+strlen(buf), capacity-strlen(buf), format, ap);
-    snprintf(buf+strlen(buf), capacity-strlen(buf), "\n");
+    ut_snprintf(buf, capacity, "TID %d: %s [%s:%d]%s: ", ut_gettid(),
+		function, basename(bname), line, sref);
+    ut_vaprintf(buf, capacity, format, ap);
+    ut_aprintf(buf, capacity, "\n");
 }
 
 static bool console_enabled = false;

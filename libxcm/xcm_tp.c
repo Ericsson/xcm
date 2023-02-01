@@ -303,6 +303,19 @@ int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity)
     return sizeof(bool);
 }
 
+int xcm_tp_get_bin_attr(const char *value, size_t len, void *buf,
+			size_t capacity)
+{
+    if (len > capacity) {
+	errno = EOVERFLOW;
+	return -1;
+    }
+
+    memcpy(buf, value, len);
+
+    return len;
+}
+
 static int get_type_attr(struct xcm_socket *s, void *context, 
 			 void *value, size_t capacity)
 {
