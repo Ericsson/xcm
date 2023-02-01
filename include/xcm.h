@@ -998,6 +998,12 @@ extern "C" {
  * passed to xcm_accept_a() will override the corresponding
  * by-reference attribute in the server socket, and vice versa.
  *
+ * @paragraph credentials_format Certificate and Key Format
+ *
+ * Certificates and private keys provided to XCM (either via files or
+ * by attribute value) must be in the Privacy-Enhanced Mail (PEM)
+ * format (RFC 7468).
+ *
  * @paragraph per_ns_certs Per-network Namespace Certificates
  *
  * The TLS transport will, at the time of xcm_connect() or
