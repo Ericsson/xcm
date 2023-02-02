@@ -133,11 +133,11 @@ endif
 
 doxygen: .doxygenerated
 
+doxygen-pdf:
+	make -C doc/latex
+
 .doxygenerated: $(include_HEADERS)
 	doxygen doc/doxygen.conf && touch .doxygenerated
-	if [ -n "`command -v pdflatex`" ]; then \
-		make -C doc/latex; \
-	fi
 
 clean-local:
 	rm -rf doc/html
