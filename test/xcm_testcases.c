@@ -336,72 +336,76 @@ static pid_t simple_server(const char *ns, const char *addr,
 
     prctl(PR_SET_PDEATHSIG, SIGKILL);
 
+    struct xcm_socket *conn = NULL;
+    struct xcm_socket *server_sock = NULL;
+
+    errno = 0;
+
     if (server_cert_dir)
 	if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
-	    exit(EXIT_FAILURE);
+	    goto err;
 
     if (ns) {
 	int old_fd = tu_enter_ns(ns);
 	if (old_fd < 0)
-	    exit(ERRNO_TO_STATUS(errno));
+	    goto err;
 	close(old_fd);
     }
 
-    struct xcm_socket *server_sock = tu_server_a(addr, attrs);
+    server_sock = tu_server_a(addr, attrs);
 
     if (server_sock == NULL)
-	exit(ERRNO_TO_STATUS(errno));
+	goto err;
 
     if (is_tls_or_utls(addr) &&
 	check_tls_attrs(server_sock, ns, server_cert_dir, NULL, attrs) < 0)
-	exit(ERRNO_TO_STATUS(errno));
+	goto err;
 
     if (!is_wildcard_addr(addr) && !has_domain_name(addr) &&
 	strcmp(xcm_local_addr(server_sock), addr) != 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
     if (tu_assure_str_attr(server_sock, "xcm.type", "server") < 0)
-	exit(ERRNO_TO_STATUS(errno));
+	goto err;
 
     char test_proto[64];
     xcm_addr_parse_proto(addr, test_proto, sizeof(test_proto));
     if (tu_assure_str_attr(server_sock, "xcm.transport", test_proto) < 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
     if (!is_wildcard_addr(addr) && !has_domain_name(addr) &&
 	tu_assure_str_attr(server_sock, "xcm.local_addr", addr) < 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
-    if (polling_accept)
-	CHKNOERR(xcm_set_blocking(server_sock, false));
+    if (polling_accept && xcm_set_blocking(server_sock, false) < 0)
+	goto err;
 
-    struct xcm_socket *conn;
     do {
 	conn = xcm_accept(server_sock);
     } while (polling_accept && conn == NULL && errno == EAGAIN);
 
     if (conn == NULL)
-	exit(ERRNO_TO_STATUS(errno));
+	goto err;
 
     if (is_tls(xcm_local_addr(conn)))
 	check_tls_attrs(conn, ns, server_cert_dir, NULL, attrs);
 
-    if (polling_accept)
-	CHKNOERR(xcm_set_blocking(server_sock, true));
+    if (polling_accept && xcm_set_blocking(server_sock, true) < 0)
+	goto err;
 
     if (tu_assure_str_attr(conn, "xcm.type", "connection") < 0)
 	exit(EXIT_FAILURE);
 
     char conn_tp[64];
     if (xcm_attr_get_str(conn, "xcm.transport", conn_tp, sizeof(conn_tp)) < 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
     if (is_tls_or_utls(conn_tp) && check_keepalive_conf(conn) < 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
     char service[64];
     if (xcm_attr_get_str(conn, "xcm.service", service, sizeof(service)) < 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
     bool bytestream;
     if (strcmp(service, "bytestream") == 0)
@@ -409,28 +413,37 @@ static pid_t simple_server(const char *ns, const char *addr,
     else if (strcmp(service, "messaging") == 0)
 	bytestream = false;
     else
-	exit(EXIT_FAILURE);
+	goto err;
 
     char buf[1024];
     int rc = xcm_receive(conn, buf, sizeof(buf));
 
-    if (rc == 0)
-	exit(ERRNO_TO_STATUS(EPIPE));
-    else if (rc != strlen(in_msg))
-	exit(ERRNO_TO_STATUS(errno));
+    if (rc == 0) {
+	errno = EPIPE;
+	goto err;
+    } else if (rc != strlen(in_msg))
+	goto err;
 
     if (strncmp(buf, in_msg, rc) != 0)
-	exit(EXIT_FAILURE);
+	goto err;
 
     rc = xcm_send(conn, out_msg, strlen(out_msg));
 
     if (bytestream ? rc != strlen(out_msg) : rc != 0)
-	exit(ERRNO_TO_STATUS(errno));
+	goto err;
 
     if (xcm_close(conn) < 0 || xcm_close(server_sock) < 0)
-	exit(ERRNO_TO_STATUS(errno));
+	goto err;
 
     exit(EXIT_SUCCESS);
+
+err:
+    xcm_close(conn);
+    xcm_close(server_sock);
+    if (errno != 0)
+	exit(ERRNO_TO_STATUS(errno));
+    else
+	exit(EXIT_FAILURE);
 }
 
 static char **test_all_addrs = NULL;
@@ -1166,6 +1179,7 @@ static int run_dns_test(const char *proto)
 
     CHKNOERR(xcm_close(client_conn));
 
+    sleep(1);
     kill(server_pid, SIGTERM);
     tu_wait(server_pid);
 
@@ -2073,6 +2087,7 @@ TESTCASE(xcm, zerosized_send)
     int i;
     for (i = 0; i < test_all_addrs_len; i++) {
 	const char *test_addr = test_all_addrs[i];
+	puts(test_addr);
 	bool bytestream = tu_is_bytestream_addr(test_addr);
 
 	pid_t server_pid = simple_server(NULL, test_addr, "none", "none",
@@ -2091,6 +2106,10 @@ TESTCASE(xcm, zerosized_send)
 	}
 
 	CHKNOERR(xcm_close(client_conn));
+
+	/* Sleep a while to allow the simple server process to notice
+	   the closed connection, and clean up properly. */
+	tu_msleep(250);
 
 	CHKNOERR(kill(server_pid, SIGTERM));
 	(void)tu_wait(server_pid);
