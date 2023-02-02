@@ -2087,7 +2087,6 @@ TESTCASE(xcm, zerosized_send)
     int i;
     for (i = 0; i < test_all_addrs_len; i++) {
 	const char *test_addr = test_all_addrs[i];
-	puts(test_addr);
 	bool bytestream = tu_is_bytestream_addr(test_addr);
 
 	pid_t server_pid = simple_server(NULL, test_addr, "none", "none",
