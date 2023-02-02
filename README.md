@@ -39,8 +39,9 @@ libevent, or the glib event loop (besides using XCM in blocking mode).
 ## User Manual
 
 API documentation and a user manual are available in xcm.h. `make
-doxygen` will create HTML version. If the `pdflatex` tool is
-installed, a PDF version will also be produced.
+doxygen` will create HTML version. Provided the `pdflatex` tool is
+installed, `make doxygen-pdf` will produce a PDF version of the
+document.
 
 An online copy of this API version's documentation can be found here:
 https://ericsson.github.io/xcm/api/0.22/
