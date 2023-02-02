@@ -728,6 +728,9 @@ extern "C" {
  * the appropriate permissions), and access to their attributes (see
  * @ref attributes).
  *
+ * Security-sensitive attributes (e.g., @c tls.key) cannot be
+ * accessed.
+ *
  * The control interface is optional by means of build-time
  * configuration.
  *

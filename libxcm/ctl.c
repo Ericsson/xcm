@@ -183,13 +183,15 @@ static void process_get_attr(struct xcm_socket *socket,
 			  &cfm->attr.any_value, sizeof(cfm->attr.any_value));
     UT_RESTORE_ERRNO(attr_errno);
 
+    if (is_sensitive(req->attr_name)) {
+	clear_attr(&cfm->attr);
+	rc = -1;
+	attr_errno = EACCES;
+    }
+
     if (rc >= 0) {
 	response->type = ctl_proto_type_get_attr_cfm;
-	if (is_sensitive(req->attr_name)) {
-	    clear_attr(&cfm->attr);
-	    cfm->attr.value_len = 0;
-	} else
-	    cfm->attr.value_len = rc;
+	cfm->attr.value_len = rc;
     } else {
 	response->type = ctl_proto_type_get_attr_rej;
 	response->get_attr_rej.rej_errno = attr_errno;
@@ -199,8 +201,10 @@ static void process_get_attr(struct xcm_socket *socket,
 static void add_attr(const char *attr_name, enum xcm_attr_type type,
 		     void *value, size_t len, void *data)
 {
-    struct ctl_proto_get_all_attr_cfm *cfm = data;
+    if (is_sensitive(attr_name))
+	return;
 
+    struct ctl_proto_get_all_attr_cfm *cfm = data;
     struct ctl_proto_attr *attr = &cfm->attrs[cfm->attrs_len];
 
     cfm->attrs_len++;
