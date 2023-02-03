@@ -2198,7 +2198,8 @@ TESTCASE_F(xcm, non_established_non_blocking_connect, REQUIRE_ROOT)
     return rc;
 }
 
-static void manage_tcp_filter(sa_family_t ip_version, int tcp_port, bool install)
+static void manage_tcp_filter(sa_family_t ip_version, int tcp_port,
+			      bool install)
 {
     const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
 
@@ -2379,6 +2380,8 @@ static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
     bool keepalive_disabled_done = false;
     bool client_done = false;
     bool accepted_done = false;
+
+    tu_msleep(250);
 
     manage_tcp_filter(ip_version, tcp_port, true);
 
