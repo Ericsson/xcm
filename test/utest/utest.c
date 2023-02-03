@@ -98,7 +98,7 @@ static bool valid_ret_code(int code)
     case UTEST_SUCCESS:
     case UTEST_NOT_RUN:
     case UTEST_TIMED_OUT:
-    case UTEST_FAIL:
+    case UTEST_FAILED:
     case UTEST_CRASHED:
 	return true;
     default:
@@ -181,7 +181,7 @@ static void forked_start_exec(struct testcase *tc, struct testexec *te)
 	if (!valid_ret_code(rc)) {
 	    fprintf(stderr, "Warning: testcase %s provided invalid "
 		    "return code.\n", tc->name);
-	    rc = UTEST_FAIL;
+	    rc = UTEST_FAILED;
 	}
 	exit(ret_code_to_exit_code(rc));
     } else {

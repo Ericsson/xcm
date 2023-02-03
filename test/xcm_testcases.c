@@ -141,19 +141,19 @@ static bool is_wildcard_addr(const char *addr)
 static int check_keepalive_conf(struct xcm_socket *s)
 {
     if (tu_assure_bool_attr(s, "tcp.keepalive", true) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (tu_assure_int64_attr(s, "tcp.keepalive_time",
 			     cmp_type_equal, 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (tu_assure_int64_attr(s, "tcp.keepalive_interval",
 			     cmp_type_equal, 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (tu_assure_int64_attr(s, "tcp.keepalive_count",
 			     cmp_type_equal, 3) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (tu_assure_int64_attr(s, "tcp.user_timeout",
 			     cmp_type_equal, 1 * 3) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -238,9 +238,9 @@ static int check_cert_attrs(struct xcm_socket *s, const char *ns,
 	cert_dir = getenv("XCM_TLS_CERT");
 
     if (assure_cred_attr(s, ns, cert_dir, "cert", parent_attrs, attrs) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (assure_cred_attr(s, ns, cert_dir, "key", parent_attrs, attrs) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     bool tls_auth;
     CHKNOERR(xcm_attr_get_bool(s, "tls.auth", &tls_auth));
@@ -548,7 +548,7 @@ static int check_lingering_ctl_files(const char *ctl_dir)
     DIR *d = opendir(ctl_dir);
 
     if (d == NULL)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     char proc_prefix[NAME_MAX];
     snprintf(proc_prefix, sizeof(proc_prefix), "%s%d-", CTL_PREFIX, getpid());
@@ -560,7 +560,7 @@ static int check_lingering_ctl_files(const char *ctl_dir)
 
 	if (strlen(ent->d_name) > strlen(proc_prefix) &&
 	    strncmp(ent->d_name, proc_prefix, strlen(proc_prefix)) == 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 
 	/* clean up unix domain socket names laying around */
 	if (strlen(ent->d_name) > strlen(CTL_PREFIX) &&
@@ -685,20 +685,20 @@ static int setup_xcm(unsigned setup_flags)
 
     char cdir[PATH_MAX];
     if (setenv("XCM_TLS_CERT", get_cert_path(cdir, "default"), 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     if (tu_executef_es("mkdir -p %s", TEST_UXF_DIR) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
 #ifdef XCM_CTL
     char ctl_dir[64];
     test_ctl_dir(ctl_dir);
     if (tu_executef_es("mkdir -p %s", ctl_dir) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (setenv("XCM_CTL", ctl_dir, 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     setup_test_addrs();
@@ -764,23 +764,23 @@ static int set_blocking(struct xcm_socket *s, bool value)
 static int check_blocking(struct xcm_socket *s, bool expected)
 {
     if (xcm_is_blocking(s) != expected)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     bool actual = !expected;
     if (random() % 1) {
 	enum xcm_attr_type type;
 	if (xcm_attr_get(s, "xcm.blocking", &type, &actual,
 			 sizeof(actual)) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 	if (type != xcm_attr_type_bool)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
     } else {
 	if (xcm_attr_get_bool(s, "xcm.blocking", &actual) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
     }
 
     if (actual != expected)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -1082,7 +1082,7 @@ TESTCASE_TIMEOUT(xcm, async_server, 160.0)
     int i;
     for (i = 0; i < test_m_addrs_len; i++)
 	if (async_ping_pong_proto(test_m_addrs[i]) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -1134,10 +1134,10 @@ static int run_dns_immediate_close(const char *proto)
     struct xcm_socket *conn = xcm_connect(addr, XCM_NONBLOCK);
 
     if (conn == NULL)
-	return errno == ENOENT ? UTEST_SUCCESS : UTEST_FAIL;
+	return errno == ENOENT ? UTEST_SUCCESS : UTEST_FAILED;
 
     if (xcm_close(conn) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -1666,9 +1666,9 @@ static int run_ops_on_closed_connections(bool blocking)
 TESTCASE(xcm, ops_on_closed_connections)
 {
     if (run_ops_on_closed_connections(true) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_ops_on_closed_connections(false) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     return UTEST_SUCCESS;
 }
 
@@ -1721,11 +1721,11 @@ static int run_via_tcp_relay(const char *proto)
 TESTCASE(xcm, relay)
 {
     if (run_via_tcp_relay("tcp") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
 #ifdef XCM_TLS
     if (run_via_tcp_relay("tls") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     return UTEST_SUCCESS;
@@ -2315,9 +2315,9 @@ static int run_dead_peer_detection(const char *proto, sa_family_t ip_version)
 TESTCASE_TIMEOUT_F(xcm, tcp_dead_peer_detection, 60.0, REQUIRE_ROOT)
 {
     if (run_dead_peer_detection("tcp", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_dead_peer_detection("tcp", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     return UTEST_SUCCESS;
 }
 
@@ -2326,14 +2326,14 @@ TESTCASE_TIMEOUT_F(xcm, tcp_dead_peer_detection, 60.0, REQUIRE_ROOT)
 TESTCASE_TIMEOUT_F(xcm, tls_dead_peer_detection, 120.0, REQUIRE_ROOT)
 {
     if (run_dead_peer_detection("tls", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_dead_peer_detection("tls", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (run_dead_peer_detection("btls", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_dead_peer_detection("btls", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -2433,10 +2433,10 @@ fail:
 TESTCASE_F(xcm, tcp_keepalive_attr, REQUIRE_ROOT)
 {
     if (run_keepalive_attr("tcp", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (run_keepalive_attr("tcp", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -2445,16 +2445,16 @@ TESTCASE_F(xcm, tcp_keepalive_attr, REQUIRE_ROOT)
 TESTCASE_F(xcm, tls_keepalive_attr, REQUIRE_ROOT)
 {
     if (run_keepalive_attr("tls", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (run_keepalive_attr("tls", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (run_keepalive_attr("btls", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (run_keepalive_attr("btls", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -2579,9 +2579,9 @@ TESTCASE_TIMEOUT_F(xcm, tcp_net_hiccup, 120.0,
 		   REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
     if (run_net_hiccup("tcp", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_net_hiccup("tcp", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     return UTEST_SUCCESS;
 }
 
@@ -2591,9 +2591,9 @@ TESTCASE_TIMEOUT_F(xcm, tls_net_hiccup, 120.0,
 		   REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
 {
     if (run_net_hiccup("tls", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_net_hiccup("tls", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     return UTEST_SUCCESS;
 }
 
@@ -2658,11 +2658,11 @@ TESTCASE_TIMEOUT_F(xcm, tcp_connect_timeout, 60.0, REQUIRE_ROOT)
 TESTCASE_TIMEOUT_F(xcm, tls_connect_timeout, 120.0, REQUIRE_ROOT)
 {
     if (run_connect_timeout("tls", AF_INET, false) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_connect_timeout("tls", AF_INET6, false) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_connect_timeout("tls", AF_INET6, true) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     return UTEST_SUCCESS;
 }
 
@@ -2728,15 +2728,15 @@ static int run_dscp_marking(const char *proto, sa_family_t ip_version)
 TESTCASE_F(xcm, dscp_marking, REQUIRE_ROOT)
 {
     if (run_dscp_marking("tcp", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_dscp_marking("tcp", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
 #ifdef XCM_TLS
     if (run_dscp_marking("tls", AF_INET) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_dscp_marking("tls", AF_INET6) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     return UTEST_SUCCESS;
@@ -2782,7 +2782,7 @@ static int run_bind_addr(sa_family_t ip_version, const char *client_proto,
 	    break;
 	if (errno == EAGAIN)
 	    continue;
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     }
 
     char expected_addr[512];
@@ -2827,10 +2827,10 @@ static int run_bind_addr_ver(sa_family_t ip_version, const char *client_proto,
 
     if (run_bind_addr(ip_version, client_proto, client_ip, 0,
 		      server_proto, server_ip, gen_tcp_port()) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_bind_addr(ip_version, client_proto, client_ip, gen_tcp_port(),
 		      server_proto, server_ip, gen_tcp_port()) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -2839,22 +2839,22 @@ static int run_bind_addr_proto(const char *client_proto,
 			       const char *server_proto)
 {
     if (run_bind_addr_ver(AF_INET, client_proto, server_proto) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_bind_addr_ver(AF_INET6, client_proto, server_proto) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     return UTEST_SUCCESS;
 }
 
 TESTCASE(xcm, bind_to_source_addr)
 {
     if (run_bind_addr_proto("tcp", "tcp") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
 #ifdef XCM_TLS
     if (run_bind_addr_proto("tls", "tls") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_bind_addr_proto("utls", "tls") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     return UTEST_SUCCESS;
@@ -2966,14 +2966,14 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 
 	if (check_tls_attrs(accepted_sock, NULL, NULL, server_attrs,
 			    accept_attrs) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 	if (check_setting_now_ro_tls_attrs(accepted_sock) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 	if (check_tls_attrs(connect_sock, NULL, NULL, NULL,
 			    connect_attrs) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 	if (check_setting_now_ro_tls_attrs(connect_sock) < 0)
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
     }
 
     char m = 42;
@@ -2991,7 +2991,7 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 	if ((bytestream && rc == 1) || (!bytestream && rc == 0))
 	    break;
 
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     }
 
     for (;;) {
@@ -3007,7 +3007,7 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 	if (rc == 1 && m2 == m)
 	    break;
 
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     }
 
     success = true;
@@ -3024,7 +3024,7 @@ out:
     CHKNOERR(xcm_close(accepted_sock));
     CHKNOERR(xcm_close(connect_sock));
 
-    return success == success_expected ? UTEST_SUCCESS : UTEST_FAIL;
+    return success == success_expected ? UTEST_SUCCESS : UTEST_FAILED;
 }
 
 #ifdef XCM_TLS
@@ -3048,7 +3048,7 @@ static int establish_xtls(const char *tls_addr,
 {
     if (establish(tls_addr, server_attrs, accept_attrs,
 		  tls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     struct xcm_addr_host host;
     uint16_t port;
@@ -3062,18 +3062,18 @@ static int establish_xtls(const char *tls_addr,
        other */
     if (establish(tls_addr, server_attrs, accept_attrs,
 		  utls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     if (establish(utls_addr, server_attrs, accept_attrs,
 		  tls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     char btls_addr[128];
     CHKNOERR(xcm_addr_make_btls(&host, port, btls_addr, sizeof(btls_addr)));
 
     if (establish(btls_addr, server_attrs, accept_attrs,
 		  btls_addr, connect_attrs, success_expected) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
 }
@@ -3294,13 +3294,13 @@ static int run_disallow_bind_on_accept(const char *client_proto,
 TESTCASE(xcm, disallow_bind_on_accept)
 {
     if (run_disallow_bind_on_accept("tcp", "tcp") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
 #ifdef XCM_TLS
     if (run_disallow_bind_on_accept("tls", "tls") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
     if (run_disallow_bind_on_accept("tls", "utls") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     return UTEST_SUCCESS;
@@ -3505,7 +3505,7 @@ static int do_handshake(struct xcm_attr_map *server_attrs,
 
     if (establish(tls_addr, server_attrs, accept_attrs, tls_addr,
 		  client_attrs, success_expected) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     xcm_attr_map_destroy(server_attrs);
     xcm_attr_map_destroy(accept_attrs);
@@ -4921,7 +4921,7 @@ TESTCASE_SERIALIZED_F(xcm, tls_per_namespace_cert_thread,
 
     char path[PATH_MAX];
     if (setenv("XCM_TLS_CERT", get_cert_path(path, "ep"), 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     struct tnet *net = tnet_create_one_ns(TEST_NS0);
     CHK(net != NULL);
@@ -5447,7 +5447,7 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 		      NULL, false);
 
     if (setenv("XCM_TLS_CERT", get_cert_path(path, "client"), 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     tu_wait_for_server_port_binding(ip, tcp_port);
 
@@ -5689,7 +5689,7 @@ static int tcp_spammer(int dport, int max_writes, int write_max_size,
 	    break;
 	if (++retries > max_retries) {
 	    close(sock);
-	    return UTEST_FAIL;
+	    return UTEST_FAILED;
 	}
 	tu_msleep(1);
     }
@@ -5740,10 +5740,10 @@ TESTCASE(xcm, garbled_tcp_input)
 {
     const int garbled_iter = is_in_valgrind() ? 25 : 1000;
     if (run_garbled_tcp_input("tcp", garbled_iter) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #ifdef XCM_TLS
     if (run_garbled_tcp_input("tls", garbled_iter) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
     return UTEST_SUCCESS;
 }
@@ -6127,11 +6127,11 @@ static int run_lossy(const char *proto)
 TESTCASE_F(xcm, lossy_network, REQUIRE_ROOT)
 {
     if (run_lossy("tcp") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
 #ifdef XCM_TLS
     if (run_lossy("tls") < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 #endif
 
     return UTEST_SUCCESS;
@@ -6148,7 +6148,7 @@ TESTCASE(xcm, null_close)
 TESTCASE(xcm, basic_with_incorrect_ctl_dir)
 {
     if (setenv("XCM_CTL", "/does/not/exist", 1) < 0)
-	return UTEST_FAIL;
+	return UTEST_FAILED;
 
     return testcase_xcm_basic();
 }

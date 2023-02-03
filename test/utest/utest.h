@@ -13,7 +13,7 @@
 #define UTEST_SUCCESS (0)
 #define UTEST_NOT_RUN (-1)
 #define UTEST_TIMED_OUT (-2)
-#define UTEST_FAIL (-3)
+#define UTEST_FAILED (-3)
 #define UTEST_CRASHED (-4)
 
 #include <errno.h>
@@ -25,7 +25,7 @@
 	    fprintf(stderr, "\n%s:%d: Unexpected error code: %d "       \
 		    "(errno %d [%s])\n", __FILE__, __LINE__, err, errno, \
 		    strerror(errno));                                   \
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
     } while(0)
 
@@ -34,7 +34,7 @@
 	if ((x) >= 0) {                                       \
 	    fprintf(stderr, "\n%s:%d: Unexpected success.\n", \
 		    __FILE__, __LINE__);                      \
-	    return UTEST_FAIL;                                \
+	    return UTEST_FAILED;                                \
 	}                                                     \
     } while(0)
 
@@ -44,7 +44,7 @@
 	    fprintf(stderr, "\n%s:%d: Expected errno %s (%d), was %s (%d).\n", \
 		    __FILE__, __LINE__, strerror(x), x, strerror(errno), \
 		    errno);						\
-	    return UTEST_FAIL;						\
+	    return UTEST_FAILED;						\
 	}								\
     } while(0)
 
@@ -55,7 +55,7 @@
 	if ((x) >= 0) {                                                 \
 	    fprintf(stderr, "\n%s:%d: Unexpected success.\n", __FILE__, \
 		    __LINE__);                                          \
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
 	CHKERRNOEQ(e2);                                                 \
     } while(0)
@@ -66,7 +66,7 @@
 	if ((x) != NULL) {                                              \
 	    fprintf(stderr, "\n%s:%d: Unexpected success.\n", __FILE__, \
 		    __LINE__);                                          \
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
 	CHKERRNOEQ(e);                                                  \
     } while(0)
@@ -76,7 +76,7 @@
 	if (!(x)) {                                                     \
 	    fprintf(stderr, "\n%s:%d: %s \"%s\" not true.\n", __FILE__, \
 		    __LINE__, __func__, __STRING(x));                   \
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
     } while(0)
 
@@ -86,7 +86,7 @@
 	    fprintf(stderr, "\n%s:%d: %s \"%s\" not true.\n" msgfmt "\n", \
 		    __FILE__, __LINE__, __func__, __STRING(x),          \
 		    ## __VA_ARGS__);			       \
-	    return UTEST_FAIL; \
+	    return UTEST_FAILED; \
 	} \
     } while(0)
 
@@ -95,7 +95,7 @@
 	if (strcmp(x,y)) {						\
 	    fprintf(stderr, "\n%s:%d: %s \"%s\" != \"%s\".\n", __FILE__, \
 		    __LINE__, __func__, x, y);                          \
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
     } while(0)
 
@@ -105,7 +105,7 @@
 	    fprintf(stderr, "\n%s:%d: %s \"%s\" != \"%s\" (<= %zd "	\
 		    "bytes considered).\n", __FILE__,			\
 		    __LINE__, __func__, x, y, (size_t)n);		\
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
     } while(0)
 
@@ -116,7 +116,7 @@
 	if (ix != iy) {                                                 \
 	    fprintf(stderr, "\n%s:%d: %s: %d != %d.\n", __FILE__, __LINE__, \
 		    __func__, ix, iy);                                  \
-	    return UTEST_FAIL;                                          \
+	    return UTEST_FAILED;                                          \
 	}                                                               \
     } while(0)
 

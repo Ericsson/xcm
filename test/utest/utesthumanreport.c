@@ -112,7 +112,7 @@ static void human_report_tc_end(struct utest_report *report,
 	cfprintf(report->output, color ? RED : NULL, "TIMED OUT");
 	report->timed_out++;
 	break;
-    case UTEST_FAIL:
+    case UTEST_FAILED:
 	cfprintf(report->output, color ? RED : NULL, "FAILED");
 	report->failed++;
 	break;
