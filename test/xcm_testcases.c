@@ -4106,6 +4106,22 @@ TESTCASE(xcm, tls_disable_expiration_doesnt_disable_auth)
     return UTEST_SUCCESS;
 }
 
+static int load_cred(const char *subdir, const char *file, char **data)
+{
+    char cdir[PATH_MAX];
+    get_cert_path(cdir, subdir);
+
+    char path[PATH_MAX];
+    ut_snprintf(path, sizeof(path), "%s/%s", cdir, file);
+
+    return ut_load_text_file(path, data);
+}
+
+static int load_default_cred(const char *file, char **data)
+{
+    return load_cred("default", file, data);
+}
+
 TESTCASE(xcm, tls_auth_conf)
 {
     CHKNOERR(
@@ -4193,6 +4209,14 @@ TESTCASE(xcm, tls_auth_conf)
     xcm_attr_map_add_bool(truster_attrs, "tls.auth", false);
     /* Setting tls.tc_file should be disallowed when tls.auth is false */
     CHKNULLERRNO(tu_server_a(tls_addr, truster_attrs), EINVAL);
+
+    xcm_attr_map_del(truster_attrs, "tls.tc_file");
+    char *data;
+    CHKNOERR(load_cred("truster", "tc.pem", &data));
+    xcm_attr_map_add_bin(truster_attrs, "tls.tc", data, strlen(data));
+    /* Setting tls.tc should also be disallowed */
+    CHKNULLERRNO(tu_server_a(tls_addr, truster_attrs), EINVAL);
+    ut_free(data);
 
     xcm_attr_map_destroy(accept_attrs);
     xcm_attr_map_destroy(truster_attrs);
@@ -5473,29 +5497,18 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
     return UTEST_SUCCESS;
 }
 
-int load_cred(const char *file, char **data)
-{
-    char cdir[PATH_MAX];
-    get_cert_path(cdir, "default");
-
-    char path[PATH_MAX];
-    ut_snprintf(path, sizeof(path), "%s/%s", cdir, file);
-
-    return ut_load_text_file(path, data);
-}
-
 static int run_credentials_by_value(bool override_on_accept)
 {
     char *tls_addr = gen_tls_addr();
 
     char *cert;
-    CHKNOERR(load_cred("cert.pem", &cert));
+    CHKNOERR(load_default_cred("cert.pem", &cert));
 
     char *key;
-    CHKNOERR(load_cred("key.pem", &key));
+    CHKNOERR(load_default_cred("key.pem", &key));
 
     char *tc;
-    CHKNOERR(load_cred("tc.pem", &tc));
+    CHKNOERR(load_default_cred("tc.pem", &tc));
 
     CHK(cert != NULL && key != NULL && tc != NULL);
 
