@@ -8,7 +8,6 @@
 #include "log_epoll.h"
 #include "util.h"
 
-#include <assert.h>
 #include <stdbool.h>
 #include <stdlib.h>
 
@@ -31,13 +30,13 @@ void epoll_reg_set_add(struct epoll_reg_set *reg, int fd, int event)
     };
 
     int rc = epoll_ctl(reg->epoll_fd, EPOLL_CTL_ADD, fd, &nevent);
-    assert(rc == 0);
+    ut_assert(rc == 0);
 
     reg->fds[reg->num_fds] = fd;
     reg->events[reg->num_fds] = event;
     reg->num_fds++;
 
-    assert(reg->num_fds < EPOLL_REG_SET_MAX_FDS);
+    ut_assert(reg->num_fds < EPOLL_REG_SET_MAX_FDS);
 }
 
 static size_t reg_fd_idx(struct epoll_reg_set *reg, int fd)

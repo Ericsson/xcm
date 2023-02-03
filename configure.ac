@@ -42,13 +42,36 @@ AC_CHECK_LIB([rt], [clock_gettime],
 AC_CHECK_LIB([pthread], [pthread_create],
              [AC_SUBST([PTHREAD_LIBS], [-lpthread])],
              [AC_MSG_ERROR([Unable to find the pthread library.])])
-AC_CHECK_LIB([anl], [getaddrinfo_a],
-             [AC_SUBST([ANL_LIBS], [-lanl])],
-             [AC_MSG_ERROR([Unable to find the ANL library.])])
 
 AC_SUBST([AM_CFLAGS])
 
 AC_CONFIG_FILES([Makefile include/xcm_version.h python/config.py])
+
+AC_ARG_ENABLE([cares],
+    AS_HELP_STRING([--disable-c-ares], [use glibc resolver instead of the c-ares library]))
+
+AS_IF([test "x$enable_cares" != "xno"], [
+	AC_CHECK_LIB([cares], [ares_init],
+	             [AC_SUBST([CARES_LIBS], [-lcares])],
+	             [AC_MSG_ERROR([Unable to find the c-ares DNS library.])])
+	AC_CHECK_HEADERS(ares.h, [:],
+	                 [AC_MSG_ERROR([Unable to find c-ares header file.])])
+	AC_PREPROC_IFELSE([AC_LANG_PROGRAM([#include <ares.h>],
+	                                   [
+#if ARES_VERSION < 0x11000
+#error c-ares version must be at least 1.16.0
+#endif
+                                           ])],
+                          [AC_MSG_RESULT(yes)],
+                          [AC_MSG_FAILURE([c-ares 1.16.0 or later is required.])])
+	], [
+	AC_CHECK_LIB([anl], [getaddrinfo_a],
+	             [AC_SUBST([ANL_LIBS], [-lanl])],
+	             [AC_MSG_ERROR([Unable to find the ANL library.])])
+	]
+)
+
+AM_CONDITIONAL([CARES], [test "x$enable_cares" != "xno"])
 
 AC_ARG_ENABLE([tls],
     AS_HELP_STRING([--disable-tls], [disable XCM TLS and UTLS transports]))
@@ -79,7 +102,7 @@ AS_IF([test "x$enable_tls" != "xno"], [
 AM_CONDITIONAL([TLS], [test "x$enable_tls" != "xno"])
 
 AC_ARG_ENABLE([sctp],
-    AS_HELP_STRING([--enable-sctp], [Enable XCM SCTP transport]))
+    AS_HELP_STRING([--enable-sctp], [enable XCM SCTP transport]))
 
 AS_IF([test "x$enable_sctp" = "xyes"], [
 	AC_CHECK_HEADERS(netinet/sctp.h, [],
@@ -130,7 +153,7 @@ AM_CONDITIONAL([PYTHON], [test "x$enable_python" != "xno"])
 AS_IF([test "x$enable_python" != "xno"], [AM_PATH_PYTHON])
 
 AC_ARG_ENABLE([valgrind],
-    AS_HELP_STRING([--enable-valgrind], [Use Valgrind when running tests]))
+    AS_HELP_STRING([--enable-valgrind], [use Valgrind when running tests]))
 
 AS_IF([test "x$enable_valgrind" = "xyes"], [
 	AC_CHECK_PROG(valgrind, [],

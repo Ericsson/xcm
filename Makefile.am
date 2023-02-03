@@ -41,9 +41,14 @@ LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_version.c libxcm/xcm_compat.c \
 	libxcm/xcm_addr.c libxcm/xcm_addr_compat.c libxcm/xcm_attr_map.c \
 	libxcm/xcm_tp.c libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c \
 	libxcm/common_tp.c libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c \
-	libxcm/xcm_dns.c libxcm/xcm_dns_glibc.c libxcm/epoll_reg.c \
-	libxcm/epoll_reg_set.c libxcm/active_fd.c common/slist.c \
-	common/util.c
+	libxcm/xcm_dns.c libxcm/epoll_reg.c libxcm/epoll_reg_set.c \
+	libxcm/active_fd.c common/slist.c common/util.c
+
+if CARES
+LIBXCM_SOURCES += libxcm/xcm_dns_cares.c
+else
+LIBXCM_SOURCES += libxcm/xcm_dns_glibc.c
+endif
 
 if TLS
 LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/xcm_tp_btls.c \
@@ -59,7 +64,7 @@ LIBXCM_SOURCES += libxcm/ctl.c common/common_ctl.c
 endif
 
 libxcm_la_SOURCES = $(LIBXCM_SOURCES)
-libxcm_la_LDFLAGS = @ANL_LIBS@ @SSL_LIBS@ \
+libxcm_la_LDFLAGS = @ANL_LIBS@ @CARES_LIBS@ @SSL_LIBS@ \
 	-Wl,--version-script=$(srcdir)/libxcm/libxcm.vs \
 	-version-info $(XCM_VERSION_CURRENT):$(XCM_VERSION_REVISION):$(XCM_VERSION_AGE)
 libxcm_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/libxcm

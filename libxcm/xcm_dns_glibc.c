@@ -7,7 +7,7 @@
 #include "xcm_dns.h"
 
 #include "epoll_reg.h"
-#include "log_tp.h"
+#include "log_dns.h"
 #include "util.h"
 #include "xcm_addr.h"
 
@@ -130,7 +130,7 @@ static void try_retrieve_query_result(struct xcm_dns_query *query)
 	else
 	    query->state = query_state_failed;
     } else if (rc != EAI_INPROGRESS) {
-	LOG_DNS_ERROR(query->log_ref, query->domain_name);
+	LOG_DNS_ERROR(query->log_ref, query->domain_name, gai_strerror(rc));
 	query->state = query_state_failed;
     }
 }
@@ -277,7 +277,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
  err_free:
     freeaddrinfo(addr_info);
  err:
-    LOG_DNS_ERROR(log_ref, domain_name);
     errno = ENOENT;
+    LOG_DNS_ERROR(log_ref, domain_name, strerror(errno));
     return -1;
 }

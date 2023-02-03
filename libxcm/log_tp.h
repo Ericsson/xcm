@@ -32,18 +32,6 @@
     log_debug_sock(s, "Checking status of on-going %s connection " \
 		   "establishment attempt.", proto_name)
 
-#define LOG_DNS_ERROR(s, domain_name)                                   \
-    log_debug_sock(s, "Unable to resolve address for \"%s\".", domain_name)
-
-#define LOG_DNS_RESPONSE(s, domain_name, family, ip)                   \
-    log_debug_sock(s, "Domain name \"%s\" resolved to %s address %s",  \
-		   domain_name, log_family_str(family), \
-		   log_ip_str(family, ip))
-
-#define LOG_DNS_GLIBC_LEAK_WARNING(s, domain_name)			\
-    log_debug_sock(s, "Early cancellation of asynchronous DNS resolution for " \
-		   "\"%s\". Likely triggered glic memory leak.", domain_name)
-
 #define LOG_TCP_CONN_CHECK(s)                   \
     LOG_CONN_CHECK("TCP", s)
 
