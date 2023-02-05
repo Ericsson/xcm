@@ -16,7 +16,8 @@ extern "C" {
  * A XCM attribute map is a set of key-value pairs. The key is an
  * attribute name in the form of a string. One key maps to at most one
  * value. The attribute value is either a boolean, a signed 64-bit
- * integer, a string, or a variable-length binary object.
+ * integer, a double-precision floating point value, a string, or a
+ * variable-length binary object.
  */
 
 #include <xcm_attr_types.h>
@@ -91,6 +92,19 @@ void xcm_attr_map_add_bool(struct xcm_attr_map *attr_map,
  */
 void xcm_attr_map_add_int64(struct xcm_attr_map *attr_map,
 			    const char *attr_name, int64_t attr_value);
+
+
+/**
+ * Associate a key with a double-precision floating point value.
+ *
+ * @param[in] attr_map The attribute map instance.
+ * @param[in] attr_name The name of the attribute to be added.
+ * @param[in] attr_value The double value of the attribute to be added.
+ *
+ * @see xcm_attr_map_add
+ */
+void xcm_attr_map_add_double(struct xcm_attr_map *attr_map,
+			     const char *attr_name, double attr_value);
 
 
 /**
@@ -188,6 +202,24 @@ const bool *xcm_attr_map_get_bool(const struct xcm_attr_map *attr_map,
  * @return A pointer to the attribute's integer value, or NULL if the attribute does not exist or is of a non-integer type.
  */
 const int64_t *xcm_attr_map_get_int64(const struct xcm_attr_map *attr_map,
+				      const char *attr_name);
+
+
+/**
+ * Retrieve the floating point value associated with a particular key.
+ *
+ * This function retrieves the double-precision floating point
+ * attribute value of the attribute @p attr_name, in case it exists
+ * and is of type @ref xcm_attr_type_double.
+ *
+ * The value pointer returned is valid as long as the key is not
+ * removed, its value is changed, or the map is destroyed.
+ *
+ * @param[in] attr_map The attribute map instance.
+ * @param[in] attr_name The name of the attribute to be retrieved.
+ * @return A pointer to the attribute's double value, or NULL if the attribute does not exist or is of a non-double type.
+ */
+const double *xcm_attr_map_get_double(const struct xcm_attr_map *attr_map,
 				      const char *attr_name);
 
 

@@ -73,6 +73,21 @@ int xcm_attr_set_bool(struct xcm_socket *socket, const char *name, bool value);
 int xcm_attr_set_int64(struct xcm_socket *socket, const char *name,
 		       int64_t value);
 
+/** Sets the value of a double type socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[in] value The new double-precision floating point value.
+ *
+ * @return Returns the 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * See xcm_attr_set() for possible errno values.
+ */
+
+int xcm_attr_set_double(struct xcm_socket *socket, const char *name,
+			double value);
+
 /** Sets the value of a string socket attribute.
  *
  * @param[in] socket The connection or server socket.
@@ -153,6 +168,25 @@ int xcm_attr_get_bool(struct xcm_socket *socket, const char *name,
 
 int xcm_attr_get_int64(struct xcm_socket *socket, const char *name,
 		       int64_t *value);
+
+/** Retrieves the value of a double type socket attribute.
+ *
+ * @param[in] socket The connection or server socket.
+ * @param[in] name The name of the attribute.
+ * @param[out] value A user-supplied buffer where the value of the attribute will be stored.
+ *
+ * @return Returns sizeof(double) on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENOENT       | The attribute does not exist, or is not of type double.
+ *
+ * See xcm_attr_get() for other possible errno values.
+ */
+
+int xcm_attr_get_double(struct xcm_socket *socket, const char *name,
+		       double *value);
 
 /** Retrieves the value of a string socket attribute.
  *

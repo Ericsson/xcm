@@ -88,6 +88,9 @@ static void print_attr(const char *attr_name, enum xcm_attr_type type,
     case xcm_attr_type_int64:
 	printf("%" PRId64, *((int64_t *)attr_value));
 	break;
+    case xcm_attr_type_double:
+	printf("%f", *((double *)attr_value));
+	break;
     case xcm_attr_type_str:
 	printf("\"%s\"", (char *)attr_value);
 	break;

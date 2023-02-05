@@ -29,10 +29,12 @@
     xcm_attr_set;
     xcm_attr_set_bool;
     xcm_attr_set_int64;
+    xcm_attr_set_double;
     xcm_attr_set_str;
     xcm_attr_get;
     xcm_attr_get_bool;
     xcm_attr_get_int64;
+    xcm_attr_get_double;
     xcm_attr_get_str;
     xcm_attr_get_bin;
     xcm_attr_get_all;
@@ -41,12 +43,14 @@
     xcm_attr_map_add;
     xcm_attr_map_add_bool;
     xcm_attr_map_add_int64;
+    xcm_attr_map_add_double;
     xcm_attr_map_add_str;
     xcm_attr_map_add_bin;
     xcm_attr_map_add_all;
     xcm_attr_map_get;
     xcm_attr_map_get_bool;
     xcm_attr_map_get_int64;
+    xcm_attr_map_get_double;
     xcm_attr_map_get_str;
     xcm_attr_map_get_bin;
     xcm_attr_map_exists;

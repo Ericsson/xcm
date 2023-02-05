@@ -523,6 +523,8 @@ static bool valid_attr_len(enum xcm_attr_type type, size_t len)
 	return len == sizeof(bool);
     case xcm_attr_type_int64:
 	return len == sizeof(int64_t);
+    case xcm_attr_type_double:
+	return len == sizeof(double);
     case xcm_attr_type_str:
 	return len > 0;
     case xcm_attr_type_bin:
@@ -582,6 +584,11 @@ int xcm_attr_set_bool(struct xcm_socket *s, const char *name, bool value)
 int xcm_attr_set_int64(struct xcm_socket *s, const char *name, int64_t value)
 {
     return xcm_attr_set(s, name, xcm_attr_type_int64, &value, sizeof(value));
+}
+
+int xcm_attr_set_double(struct xcm_socket *s, const char *name, double value)
+{
+    return xcm_attr_set(s, name, xcm_attr_type_double, &value, sizeof(value));
 }
 
 int xcm_attr_set_str(struct xcm_socket *s, const char *name,
@@ -660,6 +667,13 @@ int xcm_attr_get_int64(struct xcm_socket *s, const char *name,
 {
     return attr_get_with_type(s, name, xcm_attr_type_int64,
 			      value, sizeof(int64_t));
+}
+
+int xcm_attr_get_double(struct xcm_socket *s, const char *name,
+			double *value)
+{
+    return attr_get_with_type(s, name, xcm_attr_type_double,
+			      value, sizeof(double));
 }
 
 int xcm_attr_get_str(struct xcm_socket *s, const char *name,

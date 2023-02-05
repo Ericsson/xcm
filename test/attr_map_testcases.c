@@ -119,6 +119,41 @@ TESTCASE(attr_map, access_int64)
     return UTEST_SUCCESS;
 }
 
+static int verify_double_value(struct xcm_attr_map *attr_map,
+			       const char *attr_name,
+			       double expected_value)
+{
+    if (verify_value(attr_map, attr_name, xcm_attr_type_double,
+		     &expected_value, sizeof(double)) < 0)
+	return -1;
+
+    const double *value = xcm_attr_map_get_double(attr_map, attr_name);
+
+    if (value == NULL)
+	return -1;
+
+    if (*value != expected_value)
+	return -1;
+
+    return 0;
+}
+
+TESTCASE(attr_map, access_double)
+{
+    struct xcm_attr_map *attr_map = xcm_attr_map_create();
+
+    xcm_attr_map_add_bool(attr_map, "bool", true);
+    xcm_attr_map_add_double(attr_map, "double.a", 4711.42);
+
+    CHKNOERR(verify_double_value(attr_map, "double.a", 4711.42));
+
+    CHK(xcm_attr_map_get_double(attr_map, "double.nosuch") == NULL);
+
+    xcm_attr_map_destroy(attr_map);
+
+    return UTEST_SUCCESS;
+}
+
 static int verify_str_value(struct xcm_attr_map *attr_map,
 			    const char *attr_name,
 			    const char *expected_value)
@@ -167,7 +202,7 @@ TESTCASE(attr_map, access_bin)
     tu_randblk(data, data_len);
 
     size_t data2_len = 1;
-    void *data2 = ut_malloc(data_len);
+    void *data2 = ut_malloc(data2_len);
     tu_randblk(data2, data2_len);
 
 
@@ -189,6 +224,7 @@ TESTCASE(attr_map, access_bin)
     CHK(value != NULL);
 
     ut_free(data);
+    ut_free(data2);
     xcm_attr_map_destroy(attr_map);
 
     return UTEST_SUCCESS;

@@ -24,7 +24,9 @@ enum xcm_attr_type {
       string length (including NUL). */
     xcm_attr_type_str = 3,
     /*! Variable-length binary data. */
-    xcm_attr_type_bin = 4
+    xcm_attr_type_bin = 4,
+    /*! Double precision floating point value. */
+    xcm_attr_type_double = 5
 };
 
 #ifdef __cplusplus

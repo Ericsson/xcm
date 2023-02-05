@@ -26,6 +26,9 @@ static void assert_valid_len(enum xcm_attr_type type, size_t value_len)
     case xcm_attr_type_int64:
 	ut_assert(value_len == sizeof(int64_t));
 	break;
+    case xcm_attr_type_double:
+	ut_assert(value_len == sizeof(double));
+	break;
     case xcm_attr_type_str:
     case xcm_attr_type_bin:
 	break;
@@ -144,7 +147,7 @@ void xcm_attr_map_add_bool(struct xcm_attr_map *attr_map,
     xcm_attr_map_add(attr_map, attr_name, xcm_attr_type_bool, &attr_value,
 		     sizeof(bool));
 }
-    
+
 void xcm_attr_map_add_int64(struct xcm_attr_map *attr_map,
 			   const char *attr_name,
 			   int64_t attr_value)
@@ -152,7 +155,15 @@ void xcm_attr_map_add_int64(struct xcm_attr_map *attr_map,
     xcm_attr_map_add(attr_map, attr_name, xcm_attr_type_int64, &attr_value,
 		     sizeof(int64_t));
 }
-    
+
+void xcm_attr_map_add_double(struct xcm_attr_map *attr_map,
+			     const char *attr_name,
+			     double attr_value)
+{
+    xcm_attr_map_add(attr_map, attr_name, xcm_attr_type_double, &attr_value,
+		     sizeof(double));
+}
+
 void xcm_attr_map_add_str(struct xcm_attr_map *attr_map,
 			  const char *attr_name,
 			  const char *attr_value)
@@ -205,6 +216,12 @@ const int64_t *xcm_attr_map_get_int64(const struct xcm_attr_map *attr_map,
 				      const char *attr_name)
 {
     return lookup_value_with_type(attr_map, attr_name, xcm_attr_type_int64);
+}
+
+const double *xcm_attr_map_get_double(const struct xcm_attr_map *attr_map,
+				      const char *attr_name)
+{
+    return lookup_value_with_type(attr_map, attr_name, xcm_attr_type_double);
 }
 
 const char *xcm_attr_map_get_str(const struct xcm_attr_map *attr_map,

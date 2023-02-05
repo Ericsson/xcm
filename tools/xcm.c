@@ -26,6 +26,8 @@ static void usage(const char *name)
     printf(" -l                      Act as a server (default is client).\n");
     printf(" -b <name>=(true|false)  Set boolean connection attribute\n");
     printf(" -i <name>=<value>       Set integer connection attribute.\n");
+    printf(" -d <name>=<value>       Set double-precision floating point "
+	   "connection attribute.\n");
     printf(" -s <name>=<value>       Set string connection attribute.\n");
     printf(" -f <name>=<filename>    Set binary connection attribute to the "
 	   "contents of\n"
@@ -91,6 +93,21 @@ static void parse_int64_attr(const char *s, char *name, int64_t *value)
 
     if (end != (str_value + strlen(str_value))) {
 	fprintf(stderr, "\"%s\" not an integer.\n", str_value);
+	exit(EXIT_FAILURE);
+    }
+}
+
+static void parse_double_attr(const char *s, char *name, double *value)
+{
+    char str_value[MAX_ATTR_VALUE_SIZE + 1];
+
+    parse_str_attr(s, name, str_value);
+
+    char *end;
+    *value = strtod(str_value, &end);
+
+    if (end != (str_value + strlen(str_value))) {
+	fprintf(stderr, "\"%s\" not a double.\n", str_value);
 	exit(EXIT_FAILURE);
     }
 }
@@ -288,6 +305,7 @@ int main(int argc, char **argv)
     char attr_name[MAX_ATTR_NAME_SIZE + 1];
     bool attr_bool_value;
     int64_t attr_int64_value;
+    double attr_double_value;
     char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
     while ((c = getopt(argc, argv, "lb:i:s:f:xvh")) != -1)
@@ -303,6 +321,11 @@ int main(int argc, char **argv)
     case 'i':
 	parse_int64_attr(optarg, attr_name, &attr_int64_value);
 	xcm_attr_map_add_int64(attrs, attr_name, attr_int64_value);
+	attrs = conn_attrs;
+	break;
+    case 'd':
+	parse_double_attr(optarg, attr_name, &attr_double_value);
+	xcm_attr_map_add_double(attrs, attr_name, attr_double_value);
 	attrs = conn_attrs;
 	break;
     case 's':

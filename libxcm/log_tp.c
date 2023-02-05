@@ -45,10 +45,13 @@ void log_attr_str_value(enum xcm_attr_type type, const void *value, size_t len,
 	    strcpy(buf, "false");
 	break;
     case xcm_attr_type_int64:
-	snprintf(buf, capacity, "%" PRId64, *((int64_t*)value));
+	snprintf(buf, capacity, "%" PRId64, *((const int64_t *)value));
+	break;
+    case xcm_attr_type_double:
+	snprintf(buf, capacity, "%f", *((const double *)value));
 	break;
     case xcm_attr_type_str:
-	snprintf(buf, capacity, "\"%s\"", (char *)value);
+	snprintf(buf, capacity, "\"%s\"", (const char *)value);
 	buf[capacity-1] = '\0';
 	break;
     case xcm_attr_type_bin: {
@@ -85,6 +88,8 @@ const char *log_attr_type_name(enum xcm_attr_type type)
 	return "bool";
     case xcm_attr_type_int64:
 	return "int64";
+    case xcm_attr_type_double:
+	return "double";
     case xcm_attr_type_str:
 	return "string";
     case xcm_attr_type_bin:
@@ -114,12 +119,16 @@ static void aprint_attr(const char *attr_name, enum xcm_attr_type type,
 
     switch (type) {
     case xcm_attr_type_bool:
-	ut_aprintf(state->buf, state->capacity,
-		   "%s", *((const bool *)attr_value) ? "true" : "false");
+	ut_aprintf(state->buf, state->capacity, "%s",
+		   *((const bool *)attr_value) ? "true" : "false");
 	break;
     case xcm_attr_type_int64:
-	ut_aprintf(state->buf, state->capacity,
-		   "%"PRId64"", *((const int64_t *)attr_value));
+	ut_aprintf(state->buf, state->capacity, "%"PRId64"",
+		   *((const int64_t *)attr_value));
+	break;
+    case xcm_attr_type_double:
+	ut_aprintf(state->buf, state->capacity, "%f",
+		   *((const double *)attr_value));
 	break;
     case xcm_attr_type_str:
 	ut_aprintf(state->buf, state->capacity,
