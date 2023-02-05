@@ -75,6 +75,13 @@ the OpenSSL dependency):
 LTTng support may also be disabled:
 `./configure --disable-lttng`
 
+XCM may be configured to use the glibc resolver instead of the c-ares
+library:
+`./configure --disable-cares`
+
+Note: glibc getaddrinfo_a() uses background threads, performs worse
+than c-ares, and has a tendency to leak memory in some corner cases.
+
 The 'xcm' command-line tool may be disabled (eliminating the libevent
 dependency):
 `./configure --disable-xcm-tool`

@@ -48,7 +48,7 @@ AC_SUBST([AM_CFLAGS])
 AC_CONFIG_FILES([Makefile include/xcm_version.h python/config.py])
 
 AC_ARG_ENABLE([cares],
-    AS_HELP_STRING([--disable-c-ares], [use glibc resolver instead of the c-ares library]))
+    AS_HELP_STRING([--disable-cares], [use glibc resolver instead of the c-ares library]))
 
 AS_IF([test "x$enable_cares" != "xno"], [
 	AC_CHECK_LIB([cares], [ares_init],
