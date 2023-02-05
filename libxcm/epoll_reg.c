@@ -40,7 +40,7 @@ void epoll_reg_add(struct epoll_reg *reg, int event)
 
     if (epoll_ctl(reg->epoll_fd, EPOLL_CTL_ADD, reg->fd, &nevent) < 0) {
 	LOG_EPOLL_ADD_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
-	abort();
+	ut_fatal();
     }
     reg->event = event;
 }
@@ -57,7 +57,7 @@ void epoll_reg_mod(struct epoll_reg *reg, int event)
 
     if (epoll_ctl(reg->epoll_fd, EPOLL_CTL_MOD, reg->fd, &nevent) < 0) {
 	LOG_EPOLL_MOD_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
-	abort();
+	ut_fatal();
     }
     reg->event = event;
 }
@@ -90,7 +90,7 @@ void epoll_reg_del(struct epoll_reg *reg)
     if (rc < 0 && (epoll_errno != EBADF && epoll_errno != ENOENT &&
 		   epoll_errno != EPERM)) {
 	LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, reg->fd, errno);
-	abort();
+	ut_fatal();
     }
 
     reg->event = 0;

@@ -61,7 +61,7 @@ void epoll_reg_set_mod(struct epoll_reg_set *reg, int fd, int event)
 
     if (epoll_ctl(reg->epoll_fd, EPOLL_CTL_MOD, fd, &nevent) < 0) {
 	LOG_EPOLL_MOD_FAILED(reg->log_ref, reg->epoll_fd, fd, errno);
-	abort();
+	ut_fatal();
     }
 
     reg->events[idx] = event;
@@ -83,7 +83,7 @@ void epoll_reg_set_del(struct epoll_reg_set *reg, int fd)
 		   epoll_errno != ENOENT &&
 		   epoll_errno != EPERM)) {
 	LOG_EPOLL_DEL_FAILED(reg->log_ref, reg->epoll_fd, fd, epoll_errno);
-	abort();
+	ut_fatal();
     }
 
     if (reg->num_fds > 1) {

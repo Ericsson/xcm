@@ -57,7 +57,7 @@ static void resolv_complete(union sigval sigval)
 	since we are running in a different thread than the socket's
 	owner. */
     if (rc < 0)
-	abort();
+	ut_fatal();
 }
 
 static int initiate_query(struct xcm_dns_query *query)
@@ -77,7 +77,7 @@ static int initiate_query(struct xcm_dns_query *query)
     ut_assert(rc != EAI_SYSTEM);
 
     if (rc == EAI_MEMORY)
-	abort();
+	ut_mem_exhausted();
     else if (rc == EAI_AGAIN) {
 	errno = EAGAIN;
 	return -1;

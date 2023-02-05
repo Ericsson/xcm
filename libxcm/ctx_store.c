@@ -235,7 +235,7 @@ static int get_credentials_hash(const struct item *cert,
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
 
     if (ctx == NULL)
-	abort();
+	ut_mem_exhausted();
 
     int rc = EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
     ut_assert(rc == 1);
@@ -265,7 +265,7 @@ static BIO *str_to_bio(const char *s)
     BIO *bio = BIO_new(BIO_s_mem());
 
     if (bio == NULL)
-	abort();
+	ut_mem_exhausted();
 
     int rc = BIO_puts(bio, s);
     ut_assert(rc == strlen(s));
@@ -399,7 +399,7 @@ static SSL_CTX *load_ssl_ctx(const char *cert_data, const char *key_data,
 
     SSL_CTX *ssl_ctx = SSL_CTX_new(method);
     if (ssl_ctx == NULL)
-	abort();
+	ut_mem_exhausted();
 
     SSL_CTX_set_options(ssl_ctx, TLS_OPT_SET);
     SSL_CTX_clear_options(ssl_ctx, TLS_OPT_CLEAR);

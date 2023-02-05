@@ -59,7 +59,7 @@ update_timeout(struct xcm_dns_query *query, const struct timeval *timeout,
 
     if (timerfd_settime(query->timer_fd, 0, &ts, NULL) < 0) {
 	LOG_DNS_TIMERFD_CREATION_FAILED(log_ref, errno);
-	abort();
+	ut_fatal();
     }
 
     epoll_reg_set_add(&query->reg, query->timer_fd, EPOLLIN);
@@ -145,7 +145,7 @@ static void query_cb(void *arg, int status, int timeouts,
 
 	query->state = query_state_successful;
     } else if (status == ENOMEM)
-	abort();
+	ut_mem_exhausted();
     else if (status != ARES_ECANCELLED && status != ARES_EDESTRUCTION) {
 	LOG_DNS_ERROR(query->log_ref, query->domain_name,
 		      ares_strerror(status));
@@ -177,7 +177,7 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
 	errno = ENOENT;
 	goto err;
     } else if (rc != ARES_SUCCESS)
-	abort(); /* out of memory or failed to initialize library */
+	ut_mem_exhausted(); /* out of memory or failed to initialize library */
 
     ares_getaddrinfo(query->channel, domain_name, NULL, NULL, query_cb, query);
 
@@ -327,8 +327,7 @@ out:
 static void init(void) __attribute__((constructor));
 static void init(void)
 {
-    if (ares_library_init(ARES_LIB_INIT_ALL) != ARES_SUCCESS)
-	abort();
+    ares_library_init(ARES_LIB_INIT_ALL);
 }
 
 #endif

@@ -47,7 +47,7 @@ void *ut_malloc(size_t size)
 {
     void *ptr = malloc(size);
     if (ptr == NULL)
-	abort();
+	ut_mem_exhausted();
     return ptr;
 }
 
@@ -55,7 +55,7 @@ void *ut_realloc(void *ptr, size_t size)
 {
     ptr = realloc(ptr, size);
     if (ptr == NULL)
-	abort();
+	ut_mem_exhausted();
     return ptr;
 }
 
@@ -70,7 +70,7 @@ char *ut_strdup(const char *str)
 {
     char *copy = strdup(str);
     if (copy == NULL)
-	abort();
+	ut_mem_exhausted();
     return copy;
 }
 
@@ -78,7 +78,8 @@ char *ut_strndup(const char *str, size_t n)
 {
     char *copy = strndup(str, n);
     if (copy == NULL)
-	abort();
+	ut_mem_exhausted();
+
     return copy;
 }
 
@@ -92,6 +93,16 @@ void *ut_memdup(const char *ptr, size_t size)
 void ut_free(void *ptr)
 {
     free(ptr);
+}
+
+void ut_mem_exhausted(void)
+{
+    ut_fatal();
+}
+
+void ut_fatal(void)
+{
+    abort();
 }
 
 void ut_close(int fd)
@@ -174,7 +185,7 @@ char *ut_asprintf(const char *fmt, ...)
 
     int rc = vasprintf(&str, fmt, ap);
     if (rc < 0)
-	abort();
+	ut_fatal();
 
     va_end(ap);
 

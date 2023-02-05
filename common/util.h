@@ -30,6 +30,8 @@ char *ut_strdup(const char *str);
 char *ut_strndup(const char *str, size_t n);
 void *ut_memdup(const char *ptr, size_t size);
 void ut_free(void *ptr);
+void ut_mem_exhausted(void) __attribute__ ((__noreturn__));
+void ut_fatal(void) __attribute__ ((__noreturn__));
 
 void ut_close(int fd);
 void ut_close_if_valid(int fd);

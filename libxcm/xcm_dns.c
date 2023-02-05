@@ -16,7 +16,7 @@ bool xcm_dns_is_valid_name(const char *name)
     int rc = regcomp(&re, DNS_RE, REG_ICASE|REG_EXTENDED);
 
     if (rc != 0)
-	abort(); /* out of memory */
+	ut_mem_exhausted();
 
     bool result;
     regmatch_t m;
@@ -26,7 +26,7 @@ bool xcm_dns_is_valid_name(const char *name)
     else if (rc == REG_NOMATCH)
 	result = false;
     else
-	abort();
+	ut_fatal();
 
     regfree(&re);
 
