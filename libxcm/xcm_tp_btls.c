@@ -1212,7 +1212,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return 0;
 
  err_close:
-    UT_PROTECT_ERRNO(close(conn_fd));
+    ut_close(conn_fd);
  err_deinit:
     deinit(conn_s, true);
     return -1;

@@ -87,7 +87,7 @@ static int create_ux(struct xcm_socket *s)
  err_unlink:
     unlink(addr.sun_path);
  err_close:
-    close(server_fd);
+    ut_close(server_fd);
  err:
     LOG_CTL_CREATE_FAILED(s, addr.sun_path, errno);
     return -1;
@@ -119,7 +119,7 @@ static void remove_client(struct ctl *ctl, int client_idx)
 
     epoll_reg_set_del(&ctl->reg_set, rclient->fd);
 
-    UT_PROTECT_ERRNO(close(rclient->fd));
+    ut_close(rclient->fd);
 
     const int last_idx = ctl->num_clients-1;
 
@@ -149,7 +149,7 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 			     &laddr_len);
 
 
-	close(ctl->server_fd);
+	ut_close(ctl->server_fd);
 
 	if (rc == 0 && owner)
 	    unlink(laddr.sun_path);
@@ -307,7 +307,7 @@ static void accept_client(struct ctl *ctl)
 
     if (rc < 0) {
 	LOG_CTL_NONBLOCK(ctl->socket, errno);
-	close(client_fd);
+	ut_close(client_fd);
 	return;
     }
 

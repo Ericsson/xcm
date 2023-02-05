@@ -161,8 +161,8 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
 
  err_reset:
     epoll_reg_reset(&query->reg);
-    close(query->pipefds[0]);
-    close(query->pipefds[1]);
+    ut_close(query->pipefds[0]);
+    ut_close(query->pipefds[1]);
  err_free:
     ut_free(query->domain_name);
     ut_free(query->request);
@@ -240,8 +240,8 @@ void xcm_dns_query_free(struct xcm_dns_query *query)
 
 	epoll_reg_reset(&query->reg);
 
-	close(query->pipefds[0]);
-	close(query->pipefds[1]);
+	ut_close(query->pipefds[0]);
+	ut_close(query->pipefds[1]);
 
 	if (query->request->ar_result)
 	    freeaddrinfo(query->request->ar_result);

@@ -264,7 +264,7 @@ void xcm_dns_query_free(struct xcm_dns_query *query)
 
 	epoll_reg_set_reset(&query->reg);
 
-	UT_PROTECT_ERRNO(close(query->timer_fd));
+	ut_close(query->timer_fd);
 
 	ut_free(query->domain_name);
 	ut_free(query);
@@ -317,7 +317,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 out_query_free:
     xcm_dns_query_free(query);
 out_epoll_close:
-    UT_PROTECT_ERRNO(close(epoll_fd));
+    ut_close(epoll_fd);
 out:
     return rc;
 }

@@ -92,7 +92,7 @@ void active_fd_put(int fd)
 
 	    if (active_fd->cnt == 0) {
 		LIST_REMOVE(active_fd, elem);
-		UT_PROTECT_ERRNO(close(active_fd->fd));
+		ut_close(active_fd->fd);
 		LOG_ACTIVE_FD_CLOSED(active_fd->fd);
 		ut_free(active_fd);
 	    }

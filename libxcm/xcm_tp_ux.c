@@ -142,7 +142,7 @@ static int create_socket(struct xcm_socket *s)
 
     if (enable_pass_cred(fd) < 0) {
 	LOG_PASS_CRED_FAILED(errno);
-	UT_PROTECT_ERRNO(close(fd));
+	ut_close(fd);
 	return -1;
     }
 
@@ -238,7 +238,7 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
     return 0;
 
  err_close:
-    UT_PROTECT_ERRNO(close(us->fd));
+    ut_close(us->fd);
  err:
     return -1;
 }
@@ -359,7 +359,7 @@ static int ux_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     if (ut_set_blocking(conn_fd, false) < 0) {
 	LOG_SET_BLOCKING_FAILED_FD(server_s, errno);
-	UT_PROTECT_ERRNO(close(conn_fd));
+	ut_close(conn_fd);
 	return -1;
     }
 

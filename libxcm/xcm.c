@@ -178,7 +178,7 @@ static struct xcm_socket *socket_create(const struct xcm_tp_proto *proto,
     return s;
 
 err_close:
-    close(epoll_fd);
+    ut_close(epoll_fd);
 err:
     return NULL;
 }
@@ -188,7 +188,7 @@ void socket_destroy(struct xcm_socket *s)
     if (s != NULL) {
 	int epoll_fd = s->epoll_fd;
 	xcm_tp_socket_destroy(s);
-	UT_PROTECT_ERRNO(close(epoll_fd));
+	ut_close(epoll_fd);
     }
 }
 
