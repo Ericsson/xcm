@@ -164,13 +164,6 @@ void tu_msleep(int ms)
     usleep(ms*1000);
 }
 
-double tu_ftime(void)
-{
-    struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
-    return t.tv_sec+((double)t.tv_nsec)/1e9;
-}
-
 static void die(const char *msg)
 {
     perror(msg);

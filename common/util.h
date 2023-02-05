@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 void ut_mutex_init(pthread_mutex_t *m);
@@ -35,6 +36,11 @@ void ut_fatal(void) __attribute__ ((__noreturn__));
 
 void ut_close(int fd);
 void ut_close_if_valid(int fd);
+
+double ut_timeval_to_f(const struct timeval *tv);
+double ut_timespec_to_f(const struct timespec *ts);
+void ut_f_to_timespec(double t, struct timespec *ts);
+double ut_ftime(void);
 
 int ut_send_all(int fd, void* buf, size_t count, int flags);
 

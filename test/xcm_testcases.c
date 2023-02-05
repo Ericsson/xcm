@@ -1597,10 +1597,10 @@ static int verify_condition_immediately_met(struct xcm_socket *conn,
     if (rc == 0)
 	return 0;
 
-    double start = tu_ftime();
+    double start = ut_ftime();
     if (wait_for_xcm(conn, condition) < 0)
 	return -1;
-    double latency = tu_ftime() - start;
+    double latency = ut_ftime() - start;
 
     if (latency > MAX_IMMEDIATE_LATENCY)
 	return -1;
@@ -2253,7 +2253,7 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
     char buf[1024];
     memset(buf, 0, sizeof(buf));
 
-    double start = tu_ftime();
+    double start = ut_ftime();
     int other_rc = 0;
     int op_rc;
     int op_errno;
@@ -2278,7 +2278,7 @@ static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
 	}
     }
 
-    double latency = tu_ftime() - start;
+    double latency = ut_ftime() - start;
 
     /* remove rule before checking if test case failed, to avoid leaving
        stale firewall rules */
@@ -2385,10 +2385,10 @@ static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
 
     manage_tcp_filter(ip_version, tcp_port, true);
 
-    double deadline = tu_ftime() + DETECTION_TIME * 1.5;
+    double deadline = ut_ftime() + DETECTION_TIME * 1.5;
 
     /* no detection expected, since keepalive is disabled */
-    while(tu_ftime() < deadline) {
+    while(ut_ftime() < deadline) {
 	char b;
 	if (xcm_receive(client_sock, &b, 1) < 0 && errno != EAGAIN)
 	    goto fail;
@@ -2401,8 +2401,8 @@ static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
     CHKNOERR(xcm_attr_set_bool(client_sock, "tcp.keepalive", true));
     CHKNOERR(xcm_attr_set_bool(accepted_sock, "tcp.keepalive", true));
 
-    deadline = tu_ftime() + DETECTION_TIME;
-    while(tu_ftime() < deadline) {
+    deadline = ut_ftime() + DETECTION_TIME;
+    while(ut_ftime() < deadline) {
 	char b;
 	if (!client_done && xcm_receive(client_sock, &b, 1) < 0 &&
 	    errno == ETIMEDOUT)
@@ -2467,7 +2467,7 @@ TESTCASE_F(xcm, tls_keepalive_attr, REQUIRE_ROOT)
 static pid_t create_hiccup(sa_family_t ip_version, int tcp_port,
 			   int target_hiccup_time, int max_error)
 {
-    double start = tu_ftime();
+    double start = ut_ftime();
     manage_tcp_filter(ip_version, tcp_port, true);
 
     pid_t p = fork();
@@ -2481,7 +2481,7 @@ static pid_t create_hiccup(sa_family_t ip_version, int tcp_port,
 
     manage_tcp_filter(ip_version, tcp_port, false);
 
-    int actual_hiccup = (tu_ftime() - start) * 1000;
+    int actual_hiccup = (ut_ftime() - start) * 1000;
 
     if (actual_hiccup > (target_hiccup_time + max_error))
 	exit(EXIT_FAILURE);
@@ -2620,7 +2620,7 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 
     struct xcm_socket *conn_socket;
 
-    double start = tu_ftime();
+    double start = ut_ftime();
     int rc = 0;
     if (blocking)
 	conn_socket = xcm_connect(addr, 0);
@@ -2628,7 +2628,7 @@ static int run_connect_timeout(const char *proto, sa_family_t ip_version,
 	conn_socket = xcm_connect(addr, XCM_NONBLOCK);
 	rc = wait_until_finished(conn_socket, 128);
     }
-    double latency = tu_ftime() - start;
+    double latency = ut_ftime() - start;
 
     tu_executef("%s -D %s", iptables_cmd, rxrule);
 
@@ -2924,7 +2924,7 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 
     bool connect_done = false;
     bool accept_done = false;
-    double deadline = tu_ftime() + ESTABLISHMENT_TIMEOUT;
+    double deadline = ut_ftime() + ESTABLISHMENT_TIMEOUT;
 
     if (connect_ns != NULL && (old_ns = tu_enter_ns(connect_ns)) < 0)
 	return -1;
@@ -2957,7 +2957,7 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 		goto out;
 	}
 
-	if (tu_ftime() > deadline)
+	if (ut_ftime() > deadline)
 	    goto out;
     }
 

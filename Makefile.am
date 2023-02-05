@@ -42,7 +42,7 @@ LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_version.c libxcm/xcm_compat.c \
 	libxcm/xcm_tp.c libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c \
 	libxcm/common_tp.c libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c \
 	libxcm/xcm_dns.c libxcm/epoll_reg.c libxcm/epoll_reg_set.c \
-	libxcm/active_fd.c common/slist.c common/util.c
+	libxcm/timer_mgr.c libxcm/active_fd.c common/slist.c common/util.c
 
 if CARES
 LIBXCM_SOURCES += libxcm/xcm_dns_cares.c

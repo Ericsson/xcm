@@ -26,8 +26,6 @@ struct xcm_socket *tu_server_a(const char *addr,
 
 void tu_msleep(int ms);
 
-double tu_ftime(void);
-
 int tu_execute_es(const char *cmd);
 void tu_execute(const char *cmd);
 void tu_executef(const char *fmt, ...);

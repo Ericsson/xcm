@@ -116,6 +116,29 @@ void ut_close_if_valid(int fd)
 	ut_close(fd);
 }
 
+double ut_timeval_to_f(const struct timeval *tv)
+{
+    return (double)tv->tv_sec + (double)tv->tv_usec / 1e6;
+}
+
+double ut_timespec_to_f(const struct timespec *ts)
+{
+    return (double)ts->tv_sec + (double)ts->tv_nsec / 1e9;
+}
+
+void ut_f_to_timespec(double t, struct timespec *ts)
+{
+    ts->tv_sec = t;
+    ts->tv_nsec = (t - ts->tv_sec) * 1e9;
+}
+
+double ut_ftime(void)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return ut_timespec_to_f(&now);
+}
+
 int ut_send_all(int fd, void* buf, size_t count, int flags) {
     ssize_t offset = 0;
     do {
