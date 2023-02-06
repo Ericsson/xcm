@@ -20,6 +20,8 @@
 #include <sys/timerfd.h>
 #include <unistd.h>
 
+#define PER_QUERY_TIMEOUT 1  /* seconds */
+
 enum query_state {
     query_state_in_progress,
     query_state_failed,
@@ -170,7 +172,11 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
 
     epoll_reg_set_init(&query->reg, epoll_fd, log_ref);
 
-    int rc = ares_init(&query->channel);
+    struct ares_options options = {
+	.timeout = PER_QUERY_TIMEOUT * 1000
+    };
+
+    int rc = ares_init_options(&query->channel, &options, ARES_OPT_TIMEOUTMS);
 
     if (rc == ARES_EFILE) {
 	LOG_DNS_CONF_FILE_ERROR(log_ref);
