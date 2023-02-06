@@ -144,7 +144,7 @@ static void query_cb(void *arg, int status, int timeouts,
 	ares_freeaddrinfo(result);
 
 	query->state = query_state_successful;
-    } else if (status == ENOMEM)
+    } else if (status == ARES_ENOMEM)
 	ut_mem_exhausted();
     else if (status != ARES_ECANCELLED && status != ARES_EDESTRUCTION) {
 	LOG_DNS_ERROR(query->log_ref, query->domain_name,
