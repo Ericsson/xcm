@@ -22,18 +22,10 @@
     log_debug_sock(s, "Failed to create timer fd; %d (%s).",	\
 		   create_errno, strerror(create_errno))
 
-#define LOG_TIMER_MGR_SCHEDULE(s, tmo_type, tmo_id, abs_tmo, rel_tmo)	\
-    log_debug_sock(s, "Scheduled %s timer id %"PRId64			\
-		   " expiring at %.3f (in %.3f s).", tmo_type, tmo_id,	\
-		   abs_tmo, rel_tmo)
-
-#define LOG_TIMER_MGR_SCHEDULE_ABS(s, tmo_id, abs_tmo)			\
-    LOG_TIMER_MGR_SCHEDULE(s, "absolute", tmo_id,			\
-			abs_tmo, (abs_tmo - ut_ftime()))
-
-#define LOG_TIMER_MGR_SCHEDULE_REL(s, tmo_id, rel_tmo)			\
-    LOG_TIMER_MGR_SCHEDULE(s, "relative", tmo_id,			\
-			ut_ftime() + rel_tmo, rel_tmo)
+#define LOG_TIMER_MGR_SCHEDULE(s, tmo_id, relative_timeout)		\
+    log_debug_sock(s, "Scheduled timer id %"PRId64" expiring at %.3f "	\
+		   "(in %.3f s).", tmo_id, ut_ftime() + relative_timeout, \
+		   relative_timeout)
 
 #define LOG_TIMER_MGR_CANCEL(s, tmo_id)				\
     log_debug_sock(s, "Canceled timeout id %"PRId64".", tmo_id)

@@ -55,11 +55,16 @@ int tu_assure_bool_attr(struct xcm_socket *s, const char *attr_name,
 int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 			 enum tu_cmp_type tu_cmp_type, int64_t cmp_value);
 
+int tu_assure_double_attr(struct xcm_socket *s, const char *attr_name,
+			  enum tu_cmp_type tu_cmp_type, double cmp_value);
+
 int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
 		       const char *expected_value);
 
 int tu_assure_bin_attr(struct xcm_socket *s, const char *attr_name,
 		       const void *expected_value, size_t len);
+
+int tu_assure_non_existent_attr(struct xcm_socket *s, const char *attr_name);
 
 ssize_t tu_read_file(const char *filename, char *buf, size_t capacity);
 

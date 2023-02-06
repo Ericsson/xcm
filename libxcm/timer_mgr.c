@@ -81,14 +81,14 @@ static void set_timer_fd(struct timer_mgr *timer, struct itimerspec *ts)
     }
 }
 
-static void arm_timer_fd(struct timer_mgr *timer, double rel_timeout)
+static void arm_timer_fd(struct timer_mgr *timer, double relative_timeout)
 {
-    if (rel_timeout < 0)
-	rel_timeout = 0;
+    if (relative_timeout < 0)
+	relative_timeout = 0;
 
     struct itimerspec ts = {};
-    if (rel_timeout > 0)
-        ut_f_to_timespec(rel_timeout, &ts.it_value);
+    if (relative_timeout > 0)
+        ut_f_to_timespec(relative_timeout, &ts.it_value);
 
     /* negative or near-zero timeout means we should wake up as
        soon as possible, but a all-zero it_value will result in the
@@ -96,7 +96,7 @@ static void arm_timer_fd(struct timer_mgr *timer, double rel_timeout)
     if (ts.it_value.tv_sec == 0 && ts.it_value.tv_nsec == 0)
 	ts.it_value.tv_nsec = 1;
 
-    LOG_TIMER_MGR_ARM(timer->log_ref, rel_timeout);
+    LOG_TIMER_MGR_ARM(timer->log_ref, relative_timeout);
 
     set_timer_fd(timer, &ts);
 }
@@ -150,33 +150,24 @@ static int64_t schedule_abs(struct timer_mgr *timer, double abs_mtimer)
     return timer_id;
 }
 
-int64_t timer_mgr_schedule_abs(struct timer_mgr *timer, double abs_mtimer)
+int64_t timer_mgr_schedule(struct timer_mgr *timer, double relative_mtimer)
 {
-    int64_t timer_id = schedule_abs(timer, abs_mtimer);
+    if (relative_mtimer < 0)
+	relative_mtimer = 0;
 
-     LOG_TIMER_MGR_SCHEDULE_ABS(timer->log_ref, timer_id, abs_mtimer);
+    int64_t timer_id = schedule_abs(timer, ut_ftime() + relative_mtimer);
+
+    LOG_TIMER_MGR_SCHEDULE(timer->log_ref, timer_id, relative_mtimer);
 
     return timer_id;
 }
 
-int64_t timer_mgr_schedule_rel(struct timer_mgr *timer, double rel_mtimer)
-{
-    if (rel_mtimer < 0)
-	rel_mtimer = 0;
-
-    int64_t timer_id = schedule_abs(timer, ut_ftime() + rel_mtimer);
-
-    LOG_TIMER_MGR_SCHEDULE_REL(timer->log_ref, timer_id, rel_mtimer);
-
-    return timer_id;
-}
-
-void timer_mgr_reschedule_rel(struct timer_mgr *timer, double rel_mtimer,
+void timer_mgr_reschedule(struct timer_mgr *timer, double relative_mtimer,
 			      int64_t *timer_id)
 {
     if (*timer_id >= 0)
 	timer_mgr_cancel(timer, timer_id);
-    *timer_id = timer_mgr_schedule_rel(timer, rel_mtimer);
+    *timer_id = timer_mgr_schedule(timer, relative_mtimer);
 }
 
 static struct mtimer *find_mtimer(struct timer_mgr *timer, int64_t timer_id)

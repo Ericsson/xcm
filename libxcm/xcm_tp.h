@@ -174,8 +174,10 @@ struct xcm_tp_proto *xcm_tp_proto_by_name(const char *proto_name);
 struct xcm_tp_proto *xcm_tp_proto_by_addr(const char *addr);
 
 int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity);
-int xcm_tp_set_bool_attr(const void *buf, size_t len, bool *value);
+void xcm_tp_set_bool_attr(const void *buf, size_t len, bool *value);
 int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity);
+void xcm_tp_set_double_attr(const void *buf, size_t len, double *value);
+int xcm_tp_get_double_attr(double value, void *buf, size_t capacity);
 int xcm_tp_get_bin_attr(const char *value, size_t len, void *buf,
 			size_t capacity);
 

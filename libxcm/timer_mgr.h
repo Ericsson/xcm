@@ -21,11 +21,10 @@ struct timer_mgr;
 
 struct timer_mgr *timer_mgr_create(int epoll_fd, void *log_ref);
 
-int64_t timer_mgr_schedule_abs(struct timer_mgr *mgr, double abs_tmo);
-int64_t timer_mgr_schedule_rel(struct timer_mgr *mgr, double rel_tmo);
+int64_t timer_mgr_schedule(struct timer_mgr *mgr, double relative_timeout);
 
-void timer_mgr_reschedule_rel(struct timer_mgr *mgr, double rel_tmo,
-			      int64_t *timer_id);
+void timer_mgr_reschedule(struct timer_mgr *mgr, double relative_timeout,
+			  int64_t *timer_id);
 
 bool timer_mgr_has_expired(struct timer_mgr *mgr, int64_t timer_id);
 void timer_mgr_cancel(struct timer_mgr *mgr, int64_t *timer_id);

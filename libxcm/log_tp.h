@@ -325,6 +325,11 @@
     log_debug_sock(s, "Failed to set attribute value; errno %d (%s).",	\
 		   reason_errno, strerror(reason_errno))
 
+#define LOG_ATTR_GET_INVALID_CAPACITY(s, attr_name, capacity)		\
+    log_debug_sock(s, "Attempt to get attribute \"%s\" to buffer with "	\
+		   "the too-small capacity of %zd bytes.", attr_name,	\
+		   capacity)
+
 #define LOG_GET_ATTR_REQ(s, attr_name)					\
     log_debug_sock(s, "Application getting attribute \"%s\".", attr_name)
 

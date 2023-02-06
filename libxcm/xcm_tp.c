@@ -276,31 +276,31 @@ int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity)
 
     strcpy(buf, value);
 
-    return len+1;
+    return len + 1;
 }
 
-int xcm_tp_set_bool_attr(const void *buf, size_t len, bool *value)
+void xcm_tp_set_bool_attr(const void *buf, size_t len, bool *value)
 {
-    if (len != sizeof(bool)) {
-	errno = EINVAL;
-	return -1;
-    }
-
-    memcpy(value, buf, len);
-
-    return 0;
+    memcpy(value, buf, sizeof(bool));
 }
 
 int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity)
 {
-    if (sizeof(bool) > capacity) {
-	errno = EOVERFLOW;
-	return -1;
-    }
-
     memcpy(buf, &value, sizeof(bool));
 
     return sizeof(bool);
+}
+
+void xcm_tp_set_double_attr(const void *buf, size_t len, double *value)
+{
+    memcpy(value, buf, sizeof(double));
+}
+
+int xcm_tp_get_double_attr(double value, void *buf, size_t capacity)
+{
+    memcpy(buf, &value, sizeof(double));
+
+    return sizeof(double);
 }
 
 int xcm_tp_get_bin_attr(const char *value, size_t len, void *buf,
@@ -385,8 +385,7 @@ static int set_blocking_attr(struct xcm_socket *s, void *context,
 {
     bool is_blocking;
 
-    if (xcm_tp_set_bool_attr(value, len, &is_blocking) < 0)
-	return -1;
+    xcm_tp_set_bool_attr(value, len, &is_blocking);
 
     if (xcm_set_blocking(s, is_blocking) < 0)
 	return -1;

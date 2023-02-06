@@ -6,7 +6,7 @@
 #ifndef XCM_ATTR_NAMES_H
 #define XCM_ATTR_NAMES_H
 
-/* Generic XCM counters */
+/* Generic XCM attributes */
 
 #define XCM_ATTR_XCM_BLOCKING "xcm.blocking"
 
@@ -31,7 +31,11 @@
 #define XCM_ATTR_XCM_FROM_LOWER_MSGS "xcm.from_lower_msgs"
 #define XCM_ATTR_XCM_FROM_LOWER_BYTES "xcm.from_lower_bytes"
 
-/* TCP-level counters */
+/* DNS attributes */
+
+#define XCM_ATTR_DNS_TIMEOUT "dns.timeout"
+
+/* TCP-level attributes */
 
 #define XCM_ATTR_TCP_RTT "tcp.rtt"
 #define XCM_ATTR_TCP_TOTAL_RETRANS "tcp.total_retrans"
@@ -45,7 +49,7 @@
 #define XCM_ATTR_TCP_KEEPALIVE_COUNT "tcp.keepalive_count"
 #define XCM_ATTR_TCP_USER_TIMEOUT "tcp.user_timeout"
 
-/* TLS-level counters */
+/* TLS-level attributes */
 
 #define XCM_ATTR_TLS_CERT_FILE "tls.cert_file"
 #define XCM_ATTR_TLS_KEY_FILE "tls.key_file"
@@ -62,7 +66,7 @@
 #define XCM_ATTR_TLS_PEER_NAMES "tls.peer_names"
 #define XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID "tls.peer_subject_key_id"
 
-/* IPv6-level counters */
+/* IPv6-level attributes */
 
 #define XCM_ATTR_IPV6_SCOPE "ipv6.scope"
 

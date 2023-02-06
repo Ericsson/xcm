@@ -6,6 +6,7 @@
 #include "active_fd.h"
 #include "common_tp.h"
 #include "ctx_store.h"
+#include "dns_attr.h"
 #include "epoll_reg.h"
 #include "item.h"
 #include "log_tls.h"
@@ -110,6 +111,7 @@ struct btls_socket
 	    uint16_t remote_port;
 	    struct xcm_dns_query *query;
 
+	    struct dns_opts dns_opts;
 	    struct tcp_opts tcp_opts;
 
 	    int ssl_condition;
@@ -321,6 +323,15 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 	bts->conn.fd6 = -1;
 
 	epoll_reg_init(&bts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
+
+	dns_opts_init(&bts->conn.dns_opts);
+
+	/* Connections spawned from a server socket never use DNS */
+	if (parent != NULL)
+	    dns_opts_disable_timeout(&bts->conn.dns_opts);
+
+	if (!xcm_dns_supports_timeout_param())
+	    dns_opts_disable_timeout(&bts->conn.dns_opts);
 
 	tcp_opts_init(&bts->conn.tcp_opts);
 
@@ -995,8 +1006,9 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	    goto err;
 
 	BTLS_SET_STATE(s, conn_state_resolving);
-	bts->conn.query = xcm_dns_resolve(bts->conn.remote_host.name,
-					  s->epoll_fd, s);
+	bts->conn.query =
+	    xcm_dns_resolve(bts->conn.remote_host.name, s->epoll_fd,
+			    bts->conn.dns_opts.timeout, s);
 	if (bts->conn.query == NULL)
 	    goto err;
     } else {
@@ -1537,7 +1549,9 @@ static int set_client_attr(struct xcm_socket *s, void *context,
 	return -1;
     }
 
-    return xcm_tp_set_bool_attr(value, len, &(bts->tls_client));
+    xcm_tp_set_bool_attr(value, len, &(bts->tls_client));
+
+    return 0;
 }
 
 static int get_client_attr(struct xcm_socket *s, void *context,
@@ -1557,7 +1571,9 @@ static int set_early_bool_attr(struct xcm_socket *s, bool *attr,
 	return -1;
     }
 
-    return xcm_tp_set_bool_attr(value, len, attr);
+    xcm_tp_set_bool_attr(value, len, attr);
+
+    return 0;
 }
 
 static int set_auth_attr(struct xcm_socket *s, void *context,
@@ -1630,6 +1646,38 @@ GEN_TCP_ACCESS(keepalive_time, int64_t)
 GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
+
+static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
+				const void *value, size_t len)
+{
+    struct btls_socket *ts = TOBTLS(s);
+
+    if (ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    double timeout;
+    xcm_tp_set_double_attr(value, len, &timeout);
+
+    if (dns_opts_set_timeout(&ts->conn.dns_opts, timeout) < 0)
+	return -1;
+
+    return 0;
+}
+
+static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
+				void *value, size_t capacity)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    double timeout;
+
+    if (dns_opts_get_timeout(&bts->conn.dns_opts, &timeout) < 0)
+	return -1;
+
+    return xcm_tp_get_double_attr(timeout, value, capacity);
+}
 
 static int set_scope_attr(struct xcm_socket *s, void *context,
 			  const void *value, size_t len)
@@ -1849,7 +1897,9 @@ static int set_verify_peer_name_attr(struct xcm_socket *s, void *context,
 	return -1;
     }
 
-    return xcm_tp_set_bool_attr(value, len, &(bts->verify_peer_name));
+    xcm_tp_set_bool_attr(value, len, &(bts->verify_peer_name));
+
+    return 0;
 }
 
 static int get_verify_peer_name_attr(struct xcm_socket *s, void *context,
@@ -2095,6 +2145,8 @@ static struct xcm_tp_attr conn_attrs[] = {
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
 			xcm_attr_type_bin, get_peer_subject_key_id),
     IP_COMMON_ATTRS,
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_TIMEOUT, xcm_attr_type_double,
+			set_dns_timeout_attr, get_dns_timeout_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,

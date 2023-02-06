@@ -40,9 +40,10 @@ XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_version.c libxcm/xcm_compat.c \
 	libxcm/xcm_addr.c libxcm/xcm_addr_compat.c libxcm/xcm_attr_map.c \
 	libxcm/xcm_tp.c libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c \
-	libxcm/common_tp.c libxcm/tcp_attr.c libxcm/log.c libxcm/log_tp.c \
-	libxcm/xcm_dns.c libxcm/epoll_reg.c libxcm/epoll_reg_set.c \
-	libxcm/timer_mgr.c libxcm/active_fd.c common/slist.c common/util.c
+	libxcm/common_tp.c libxcm/dns_attr.c libxcm/tcp_attr.c libxcm/log.c \
+	libxcm/log_tp.c libxcm/xcm_dns.c libxcm/epoll_reg.c \
+	libxcm/epoll_reg_set.c libxcm/timer_mgr.c libxcm/active_fd.c \
+	common/slist.c common/util.c
 
 if CARES
 LIBXCM_SOURCES += libxcm/xcm_dns_cares.c
@@ -128,7 +129,7 @@ XCMTEST_TESTCASE_SOURCES = test/xcm_testcases.c test/addr_testcases.c \
 
 xcmtest_SOURCES = $(XCMTEST_TESTCASE_SOURCES) $(UTEST_SOURCES) \
 	common/util.c common/slist.c test/testutil.c test/tnet.c \
-	test/pingpong.c
+	test/iowrap.c test/pingpong.c
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
 xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -no-install
 xcmtest_LDADD = libxcm.la

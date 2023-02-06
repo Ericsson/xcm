@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "util.h"
+
 #define DNS_MAX_LEN (253)
 #define DNS_RE "^[a-z0-9\\-]+(\\.[a-z0-9\\-]+\\.?)*$"
 

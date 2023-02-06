@@ -516,7 +516,7 @@ static const struct xcm_tp_attr *socket_attr_lookup(struct xcm_socket *s,
     return attr;
 }
 
-static bool valid_attr_len(enum xcm_attr_type type, size_t len)
+static bool valid_set_attr_len(enum xcm_attr_type type, size_t len)
 {
     switch (type) {
     case xcm_attr_type_bool:
@@ -534,10 +534,29 @@ static bool valid_attr_len(enum xcm_attr_type type, size_t len)
     }
 }
 
+/* for historical reasons, we accept larger-than-needed buffers on get */
+static bool valid_get_attr_capacity(enum xcm_attr_type type, size_t capacity)
+{
+    switch (type) {
+    case xcm_attr_type_bool:
+	return capacity >= sizeof(bool);
+    case xcm_attr_type_int64:
+	return capacity >= sizeof(int64_t);
+    case xcm_attr_type_double:
+	return capacity >= sizeof(double);
+    case xcm_attr_type_str:
+	return capacity > 0;
+    case xcm_attr_type_bin:
+	return true;
+    default:
+	ut_assert(0);
+    }
+}
+
 int xcm_attr_set(struct xcm_socket *s, const char *name,
 		 enum xcm_attr_type type, const void *value, size_t len)
 {
-    if (!valid_attr_len(type, len)) {
+    if (!valid_set_attr_len(type, len)) {
 	LOG_ATTR_SET_INVALID_LEN(s, name, len);
 	errno = EINVAL;
 	goto err;
@@ -615,6 +634,12 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
 
     if (attr->get == NULL) {
 	errno = EACCES;
+	goto err;
+    }
+
+    if (!valid_get_attr_capacity(attr->type, capacity)) {
+	LOG_ATTR_GET_INVALID_CAPACITY(s, name, capacity);
+	errno = EINVAL;
 	goto err;
     }
 

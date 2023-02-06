@@ -5,6 +5,7 @@
 
 #include "active_fd.h"
 #include "common_tp.h"
+#include "dns_attr.h"
 #include "epoll_reg.h"
 #include "log_tp.h"
 #include "mbuf.h"
@@ -64,6 +65,7 @@ struct tcp_socket
 	    uint16_t remote_port;
 	    struct xcm_dns_query *query;
 
+	    struct dns_opts dns_opts;
 	    struct tcp_opts tcp_opts;
 
 	    struct mbuf send_mbuf;
@@ -231,6 +233,15 @@ static int tcp_init(struct xcm_socket *s, struct xcm_socket *parent)
 	    return -1;
 
 	epoll_reg_init(&ts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
+
+	dns_opts_init(&ts->conn.dns_opts);
+
+	/* Connections spawned from a server socket never use DNS */
+	if (parent != NULL)
+	    dns_opts_disable_timeout(&ts->conn.dns_opts);
+
+	if (!xcm_dns_supports_timeout_param())
+	    dns_opts_disable_timeout(&ts->conn.dns_opts);
 
 	tcp_opts_init(&ts->conn.tcp_opts);
 
@@ -493,7 +504,8 @@ static int tcp_connect(struct xcm_socket *s, const char *remote_addr)
 
 	TCP_SET_STATE(s, conn_state_resolving);
 	ts->conn.query =
-	    xcm_dns_resolve(ts->conn.remote_host.name, s->epoll_fd, s);
+	    xcm_dns_resolve(ts->conn.remote_host.name, s->epoll_fd,
+			    ts->conn.dns_opts.timeout, s);
 	if (!ts->conn.query)
 	    goto err;
     } else {
@@ -1110,6 +1122,37 @@ GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
 
+static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
+				const void *value, size_t len)
+{
+    struct tcp_socket *ts = TOTCP(s);
+
+    if (ts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    double timeout;
+    xcm_tp_set_double_attr(value, len, &timeout);
+
+    if (dns_opts_set_timeout(&ts->conn.dns_opts, timeout) < 0)
+	return -1;
+
+    return 0;
+}
+
+static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
+				void *value, size_t capacity)
+{
+    struct tcp_socket *ts = TOTCP(s);
+
+    double timeout;
+    if (dns_opts_get_timeout(&ts->conn.dns_opts, &timeout) < 0)
+	return -1;
+
+    return xcm_tp_get_double_attr(timeout, value, capacity);
+}
+
 static int set_scope_attr(struct xcm_socket *s, void *context,
 			  const void *value, size_t len)
 {
@@ -1164,6 +1207,8 @@ static int get_scope_attr(struct xcm_socket *s, void *context,
 			set_scope_attr, get_scope_attr)
 
 const static struct xcm_tp_attr conn_attrs[] = {
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_TIMEOUT, xcm_attr_type_double,
+			set_dns_timeout_attr, get_dns_timeout_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,

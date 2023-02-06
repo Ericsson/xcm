@@ -487,7 +487,8 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 
 	SCTP_SET_STATE(s, conn_state_resolving);
 	ss->conn.query =
-	    xcm_dns_resolve(ss->conn.remote_host.name, s->epoll_fd, s);
+	    xcm_dns_resolve(ss->conn.remote_host.name, s->epoll_fd,
+			    ts->conn.dns_opts.timeout, s);
 	if (!ss->conn.query)
 	    goto err;
     } else {

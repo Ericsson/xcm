@@ -523,6 +523,47 @@ int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
     return 0;
 }
 
+int tu_assure_double_attr(struct xcm_socket *s, const char *attr_name,
+			  enum tu_cmp_type cmp_type, double cmp_value)
+{
+    double actual_value;
+
+    int rc;
+    if (tu_randbool()) {
+	enum xcm_attr_type type = 4711;
+	rc = xcm_attr_get(s, attr_name, &type, &actual_value,
+			  sizeof(actual_value));
+	if (type != xcm_attr_type_double)
+	    return -1;
+    } else
+	rc = xcm_attr_get_double(s, attr_name, &actual_value);
+
+    if (rc != sizeof(double))
+	return -1;
+
+    if (cmp_type == cmp_type_greater_than && actual_value <= cmp_value)
+	return -1;
+    else if (cmp_type == cmp_type_equal && actual_value != cmp_value)
+	return -1;
+
+    struct search search = {
+	.name = attr_name,
+	.found = false
+    };
+    xcm_attr_get_all(s, search_cb, &search);
+
+    if (!search.found || search.actual_type != xcm_attr_type_double ||
+	search.actual_len != sizeof(double))
+	return -1;
+
+    memcpy(&actual_value, search.actual_value, sizeof(double));
+
+    if (cmp_type == cmp_type_greater_than && actual_value <= cmp_value)
+	return -1;
+
+    return 0;
+}
+
 int tu_assure_bin_attr(struct xcm_socket *s, const char *attr_name,
 		       const void *expected_value, size_t len)
 {
@@ -551,6 +592,22 @@ int tu_assure_bin_attr(struct xcm_socket *s, const char *attr_name,
     if (!search.found || search.actual_type != xcm_attr_type_bin ||
 	search.actual_len != len ||
 	memcmp(search.actual_value, expected_value, len) != 0)
+	return -1;
+
+    return 0;
+}
+
+int tu_assure_non_existent_attr(struct xcm_socket *s, const char *attr_name)
+{
+    enum xcm_attr_type type;
+    char buf[8*1024];
+
+    int rc = xcm_attr_get(s, "dns.timeout", &type, buf, sizeof(buf));
+
+    if (rc >= 0)
+	return -1;
+
+    if (errno != ENOENT)
 	return -1;
 
     return 0;

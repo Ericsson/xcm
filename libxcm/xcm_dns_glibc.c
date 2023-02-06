@@ -136,7 +136,7 @@ static void try_retrieve_query_result(struct xcm_dns_query *query)
 }
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
-				      void *log_ref)
+				      double timeout, void *log_ref)
 {
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
     query->request = ut_malloc(sizeof(struct gaicb));
@@ -151,6 +151,8 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
     query->log_ref = log_ref;
 
     query->state = query_state_resolving;
+
+    LOG_DNS_RESOLUTION_ATTEMPT(log_ref, domain_name);
 
     if (initiate_query(query) < 0)
 	goto err_reset;
@@ -262,6 +264,8 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 
     struct addrinfo *addr_info = NULL;
 
+    LOG_DNS_RESOLUTION_ATTEMPT(log_ref, host->name);
+
     if (getaddrinfo(domain_name, NULL, NULL, &addr_info) != 0)
 	goto err;
 
@@ -280,4 +284,9 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
     errno = ENOENT;
     LOG_DNS_ERROR(log_ref, domain_name, strerror(errno));
     return -1;
+}
+
+bool xcm_dns_supports_timeout_param(void)
+{
+    return false;
 }

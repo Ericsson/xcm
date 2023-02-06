@@ -3,12 +3,6 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#include "config.h"
-#include "pingpong.h"
-#include "testutil.h"
-#include "tnet.h"
-#include "utest.h"
-#include "util.h"
 #include <xcm.h>
 #include <xcm_version.h>
 #include <xcm_addr.h>
@@ -30,6 +24,14 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "config.h"
+#include "iowrap.h"
+#include "pingpong.h"
+#include "testutil.h"
+#include "tnet.h"
+#include "utest.h"
+#include "util.h"
 
 /* For now, all transports are expected to support the below
    size. However, there's nothing in the API that forces a transport
@@ -274,6 +276,40 @@ static int check_bool_attr(struct xcm_socket *s,
     return tu_assure_bool_attr(s, attr_name, expected_value);
 }
 
+#define DEFAULT_DNS_TIMEOUT (10)
+
+static int check_dns_attrs(struct xcm_socket *server_sock,
+			   struct xcm_socket *accepted_sock,
+			   struct xcm_socket *connect_sock,
+			   const struct xcm_attr_map *connect_attrs)
+{
+#ifdef XCM_CARES
+    const double *timeout = xcm_attr_map_get_double(connect_attrs,
+						    "dns.timeout");
+
+    double expected_timeout = DEFAULT_DNS_TIMEOUT;
+
+    if (timeout != NULL)
+	expected_timeout = *timeout;
+#endif
+
+    if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
+	return -1;
+    if (tu_assure_non_existent_attr(accepted_sock, "dns.timeout") < 0)
+	return -1;
+
+#ifdef XCM_CARES
+    if (tu_assure_double_attr(connect_sock, "dns.timeout", cmp_type_equal,
+			      expected_timeout) < 0)
+	return -1;
+#else
+    if (tu_assure_non_existent_attr(connect_sock, "dns.timeout") < 0)
+	return -1;
+#endif
+
+    return 0;
+}
+
 static int check_tls_attrs(struct xcm_socket *s, const char *ns,
 			   const char *cert_dir,
 			   const struct xcm_attr_map *parent_attrs,
@@ -302,6 +338,16 @@ static bool is_ipv6(const char *addr)
     return strchr(addr, '[') != NULL;
 }
 
+static bool is_tcp(const char *addr)
+{
+    return strncmp(addr, "tcp", 3) == 0;
+}
+
+static bool is_btls(const char *addr)
+{
+    return strncmp(addr, "btls", 4) == 0;
+}
+
 static bool is_tls(const char *addr)
 {
     return strncmp(addr, "tls", 3) == 0;
@@ -320,6 +366,12 @@ static bool is_tls_or_utls(const char *addr)
 static bool is_sctp(const char *addr)
 {
     return strncmp(addr, "sctp", 4) == 0;
+}
+
+static bool is_inet(const char *addr)
+{
+    return is_tcp(addr) || is_btls(addr) || is_tls_or_utls(addr) ||
+	is_sctp(addr);
 }
 
 static pid_t simple_server(const char *ns, const char *addr,
@@ -368,6 +420,9 @@ static pid_t simple_server(const char *ns, const char *addr,
     if (tu_assure_str_attr(server_sock, "xcm.type", "server") < 0)
 	goto err;
 
+    if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
+	goto err;
+
     char test_proto[64];
     xcm_addr_parse_proto(addr, test_proto, sizeof(test_proto));
     if (tu_assure_str_attr(server_sock, "xcm.transport", test_proto) < 0)
@@ -385,6 +440,9 @@ static pid_t simple_server(const char *ns, const char *addr,
     } while (polling_accept && conn == NULL && errno == EAGAIN);
 
     if (conn == NULL)
+	goto err;
+
+    if (tu_assure_non_existent_attr(conn, "dns.timeout") < 0)
 	goto err;
 
     if (is_tls(xcm_local_addr(conn)))
@@ -1197,6 +1255,93 @@ TESTCASE_SERIALIZED_F(xcm, dns, REQUIRE_PUBLIC_DNS)
 
     return UTEST_SUCCESS;
 }
+
+#ifdef XCM_CARES
+
+#define DNS_PORT 53
+
+static int run_dns_timeout_test_timeout(const char *proto, double timeout)
+{
+    char addr[128];
+    /* Add a random component to miss in any resolver library caches */
+    snprintf(addr, sizeof(addr), "%s:www.domain-%d-%d.com:80", proto,
+	     tu_randint(0, 100000), tu_randint(0, 100000));
+
+    iowrap_drop_on_send(AF_INET, SOCK_DGRAM, 0, DNS_PORT);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "any");
+
+    double expected_timeout;
+
+    if (timeout > 0) {
+	xcm_attr_map_add_double(attrs, "dns.timeout", timeout);
+	expected_timeout = timeout;
+    } else
+	expected_timeout = DEFAULT_DNS_TIMEOUT;
+
+
+    double start = ut_ftime();
+
+    struct xcm_socket *conn = xcm_connect_a(addr, attrs);
+    int connect_errno = errno;
+
+    double latency = ut_ftime() - start;
+
+    xcm_attr_map_destroy(attrs);
+
+    iowrap_clear();
+
+    CHKNOERR(xcm_close(conn));
+
+    CHK(latency > (expected_timeout * 0.9));
+    CHK(latency < (expected_timeout * 1.1));
+
+    /* XXX: should be ETIMEDOUT? */
+    CHKINTEQ(connect_errno, ENOENT);
+
+    return UTEST_SUCCESS;
+}
+
+static int run_dns_timeout_test(const char *proto)
+{
+    int rc;
+    if ((rc = run_dns_timeout_test_timeout(proto, -1)) != UTEST_SUCCESS)
+	return rc;
+
+    if ((rc = run_dns_timeout_test_timeout(proto, 2.0)) != UTEST_SUCCESS)
+	return rc;
+
+    return UTEST_SUCCESS;
+}
+
+/* The timeout tests are broken into multiple tests to speed up execution */
+
+TESTCASE_TIMEOUT(xcm, tcp_dns_timeout, 20.0)
+{
+    return run_dns_timeout_test("tcp");
+}
+
+#ifdef XCM_TLS
+
+TESTCASE_TIMEOUT(xcm, tls_dns_timeout, 20.0)
+{
+    return run_dns_timeout_test("tls");
+}
+
+TESTCASE_TIMEOUT(xcm, btls_dns_timeout, 20.0)
+{
+    return run_dns_timeout_test("btls");
+}
+
+TESTCASE_TIMEOUT(xcm, utls_dns_timeout, 20.0)
+{
+    return run_dns_timeout_test("utls");
+}
+
+#endif
+
+#endif
 
 static int run_ns_switch_test(const char *proto)
 {
@@ -2226,7 +2371,8 @@ static void manage_tcp_filter(sa_family_t ip_version, int tcp_port,
 #define MAX_DEAD_PEER_DETECTION_TIME (7)
 
 enum run_keepalive_mode { on_rx, on_rx_pending_tx, on_tx };
-static int run_dead_peer_detection_op(const char *proto, sa_family_t ip_version,
+static int run_dead_peer_detection_op(const char *proto,
+				      sa_family_t ip_version,
 				      enum run_keepalive_mode mode)
 {
     const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
@@ -2960,6 +3106,11 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 	if (ut_ftime() > deadline)
 	    goto out;
     }
+
+    if (is_inet(connect_addr) && !is_sctp(connect_addr) &&
+		check_dns_attrs(server_sock, accepted_sock, connect_sock,
+				connect_attrs) < 0)
+	return UTEST_FAILED;
 
     if (is_tls(server_addr) ||
 	(is_tls(connect_addr) && is_utls(server_addr))) {

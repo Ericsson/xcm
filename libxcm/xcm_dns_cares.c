@@ -21,7 +21,9 @@
 #include <sys/timerfd.h>
 #include <unistd.h>
 
+#define DEFAULT_OVERALL_TIMEOUT 10
 #define PER_QUERY_TIMEOUT 1  /* seconds */
+#define SYNC_DNS_TIMEOUT 10
 
 enum query_state {
     query_state_in_progress,
@@ -43,6 +45,7 @@ struct xcm_dns_query
 
     struct timer_mgr *timer_mgr;
     int64_t ares_timer_id;
+    int64_t overall_timer_id;
 
     struct xcm_addr_ip ip;
 
@@ -50,13 +53,13 @@ struct xcm_dns_query
 };
 
 static void
-update_timer(struct xcm_dns_query *query, double timeout, void *log_ref)
+update_ares_timer(struct xcm_dns_query *query, double timeout, void *log_ref)
 {
-    timer_mgr_reschedule_rel(query->timer_mgr, timeout, &query->ares_timer_id);
+    timer_mgr_reschedule(query->timer_mgr, timeout, &query->ares_timer_id);
 }
 
 static void
-clear_timer(struct xcm_dns_query *query)
+clear_ares_timer(struct xcm_dns_query *query)
 {
     timer_mgr_cancel(query->timer_mgr, &query->ares_timer_id);
 }
@@ -87,9 +90,9 @@ update_epoll_fd(struct xcm_dns_query *query)
 	    ares_timeout(query->channel, NULL, &max_wait);
 
 	if (timeout != NULL)
-	    update_timer(query, ut_timeval_to_f(timeout), query->log_ref);
+	    update_ares_timer(query, ut_timeval_to_f(timeout), query->log_ref);
     } else
-	update_timer(query, 0, query->log_ref);
+	update_ares_timer(query, 0, query->log_ref);
 }
 
 static int get_ip(const char *domain_name, struct ares_addrinfo *result,
@@ -145,9 +148,12 @@ static void query_cb(void *arg, int status, int timeouts,
 }
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
-				      void *log_ref)
+				      double timeout, void *log_ref)
 {
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
+
+    if (timeout <= 0)
+	timeout = DEFAULT_OVERALL_TIMEOUT;
 
     *query = (struct xcm_dns_query) {
 	.domain_name = ut_strdup(domain_name),
@@ -159,6 +165,9 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
     query->timer_mgr = timer_mgr_create(epoll_fd, log_ref);
     if (query->timer_mgr == NULL)
 	goto err;
+
+    query->overall_timer_id =
+	timer_mgr_schedule(query->timer_mgr, timeout);
 
     epoll_reg_set_init(&query->reg, epoll_fd, log_ref);
 
@@ -174,6 +183,8 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
 	goto err;
     } else if (rc != ARES_SUCCESS)
 	ut_mem_exhausted(); /* out of memory or failed to initialize library */
+
+    LOG_DNS_RESOLUTION_ATTEMPT_TIMEOUT(log_ref, domain_name, timeout);
 
     ares_getaddrinfo(query->channel, domain_name, NULL, NULL, query_cb, query);
 
@@ -195,7 +206,7 @@ bool xcm_dns_query_completed(struct xcm_dns_query *query)
 
 static void process_in_progress(struct xcm_dns_query *query)
 {
-    clear_timer(query);
+    clear_ares_timer(query);
 
     int i;
     for (i = 0; i < ARES_GETSOCK_MAXNUM; i++) {
@@ -215,6 +226,13 @@ static void process_in_progress(struct xcm_dns_query *query)
 
     /* to process timeouts */
     ares_process(query->channel, NULL, NULL);
+
+    if (query->state != query_state_successful &&
+	timer_mgr_has_expired(query->timer_mgr, query->overall_timer_id)) {
+	query->state = query_state_failed;
+	timer_mgr_cancel(query->timer_mgr, &query->overall_timer_id);
+	LOG_DNS_TIMED_OUT(query->log_ref, query->domain_name);
+    }
 
     update_epoll_fd(query);
 }
@@ -284,7 +302,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
     }
 
     struct xcm_dns_query *query =
-	xcm_dns_resolve(host->name, epoll_fd, log_ref);
+	xcm_dns_resolve(host->name, epoll_fd, SYNC_DNS_TIMEOUT, log_ref);
 
     if (query == NULL)
 	goto out_epoll_close;
@@ -319,6 +337,11 @@ out_epoll_close:
     ut_close(epoll_fd);
 out:
     return rc;
+}
+
+bool xcm_dns_supports_timeout_param(void)
+{
+    return true;
 }
 
 #ifdef CARES_HAVE_ARES_LIBRARY_INIT

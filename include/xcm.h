@@ -915,7 +915,8 @@ extern "C" {
  * the read-only attributes. The read-write attributes are mapped to
  * @c TCP_KEEP* and @c TCP_USER_TIMEOUT.
  *
- * Besides the TCP layer attributes, the IP
+ * Besides the TCP layer attributes, IP- and DNS-level attributes are also
+ * listed here.
  *
  * Attribute Name     | Socket Type | Value Type | Mode | Description
  * -------------------|-------------|------------|------|------------
@@ -929,6 +930,7 @@ extern "C" {
  * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default value is 3.
  * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
  * ipv6.scope         | All         | Integer    | RW   | The IPv6 scope id used. Only available on IPv6 sockets. Writable only at socket creation. If left unset, it will take on the value of 0 (the global scope). Any other value denotes the network interface index to be used, for IPv6 link local addresses. See the if_nametoindex(3) manual page for how to map interface names to indices.
+ * dns.timeout        | Connection  | Double     | RW   | The number of seconds until DNS times out. The timeout covers the complete DNS resolution process (as opposed to a particular query/response transaction to a particular transaction). Only available when the library is built with the c-ares DNS resolver.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.
@@ -1186,7 +1188,7 @@ extern "C" {
  * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or the TLS authenication is disabled and the remote peer did not send a certificate).
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
- * all the @ref tcp_attr.
+ * all the @ref tcp_attr (including the IP and DNS-level attributes).
  *
  * @subsection utls_transport UTLS Transport
  *
