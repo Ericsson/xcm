@@ -44,7 +44,7 @@ installed, `make doxygen-pdf` will produce a PDF version of the
 document.
 
 An online copy of this API version's documentation can be found here:
-https://ericsson.github.io/xcm/api/0.22/
+https://ericsson.github.io/xcm/api/0.23/
 
 ## Building
 
