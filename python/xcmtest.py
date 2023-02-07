@@ -19,21 +19,24 @@ def echo_server(addr):
     p.start()
     return p
 
+def rand_port():
+    return random.randint(10000, 12000)
+
 TEST_ADDRS = [
     "ux:test-%d" % random.randint(0, 10000),
-    "tcp:127.0.0.1:%d" % random.randint(10000, 12000)
+    "tcp:127.0.0.1:%d" % rand_port()
 ]
 
 if config.has_tls():
     TEST_ADDRS.extend([
-        "tls:127.0.0.1:%d" % random.randint(10000, 12000),
-        "utls:127.0.0.1:%d" % random.randint(10000, 12000),
-        "btls:127.0.0.1:%d" % random.randint(10000, 12000)
+        "tls:127.0.0.1:%d" % rand_port(),
+        "utls:127.0.0.1:%d" % rand_port(),
+        "btls:127.0.0.1:%d" % rand_port()
     ])
 
 if config.has_sctp():
     TEST_ADDRS.extend([
-        "sctp:127.0.0.1:%d" % random.randint(10000, 12000)
+        "sctp:127.0.0.1:%d" % rand_port()
     ])
 
 CERT_DIR = "./test/cert/%d" % os.getpid()
@@ -86,7 +89,7 @@ class TestXcm(unittest.TestCase):
         os.unsetenv("XCM_TLS_CERT")
         os.system("rm -rf %s" % CERT_DIR)
     def test_connect_attrs(self):
-        addr = "tcp:127.0.0.1:%d" % random.randint(10000, 12000)
+        addr = "tcp:127.0.0.1:%d" % rand_port()
         server_process = echo_server(addr)
         time.sleep(0.5)
         attrs = {
@@ -212,6 +215,23 @@ class TestXcm(unittest.TestCase):
             sock.set_blocking(True)
 
             sock.close()
+    def test_dns(self):
+        addr = "tcp:localhost:%d" % rand_port()
+
+        server_process = echo_server(addr)
+        time.sleep(0.5)
+
+        attrs = {
+            "dns.timeout": 1.0
+        }
+
+        conn = xcm.connect(addr, attrs=attrs)
+        conn.close()
+
+        server_process.terminate()
+        server_process.join()
+
+
     def test_gc_closes(self):
         sock = xcm.server(TEST_ADDRS[0])
         del sock

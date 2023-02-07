@@ -5,8 +5,8 @@
 import os
 import socket
 
-from ctypes import CDLL, c_void_p, c_char_p, c_long, c_int, c_bool, cast, \
-    POINTER, create_string_buffer, byref, get_errno
+from ctypes import CDLL, c_void_p, c_char_p, c_long, c_int, c_double, c_bool, \
+    cast, POINTER, create_string_buffer, byref, get_errno
 
 xcm_c = CDLL("libxcm.so.0", use_errno=True)
 
@@ -84,6 +84,10 @@ xcm_attr_set_int64_c = xcm_c.xcm_attr_set_int64
 xcm_attr_set_int64_c.restype = c_int
 xcm_attr_set_int64_c.argtypes = [c_void_p, c_char_p, c_long]
 
+xcm_attr_set_double_c = xcm_c.xcm_attr_set_double
+xcm_attr_set_double_c.restype = c_int
+xcm_attr_set_double_c.argtypes = [c_void_p, c_char_p, c_double]
+
 xcm_attr_set_str_c = xcm_c.xcm_attr_set_str
 xcm_attr_set_str_c.restype = c_int
 xcm_attr_set_str_c.argtypes = [c_void_p, c_char_p, c_char_p]
@@ -107,6 +111,10 @@ xcm_attr_map_add_bool_c.argtypes = [c_void_p, c_char_p, c_bool]
 xcm_attr_map_add_int64_c = xcm_c.xcm_attr_map_add_int64
 xcm_attr_map_add_int64_c.restype = None
 xcm_attr_map_add_int64_c.argtypes = [c_void_p, c_char_p, c_long]
+
+xcm_attr_map_add_double_c = xcm_c.xcm_attr_map_add_double
+xcm_attr_map_add_double_c.restype = None
+xcm_attr_map_add_double_c.argtypes = [c_void_p, c_char_p, c_double]
 
 xcm_attr_map_add_str_c = xcm_c.xcm_attr_map_add_str
 xcm_attr_map_add_str_c.restype = None
@@ -149,6 +157,8 @@ def _attr_map_add(attr_map, attr_name, attr_value):
             add_fun = xcm_attr_map_add_bool_c
         elif isinstance(attr_value, int):
             add_fun = xcm_attr_map_add_int64_c
+        elif isinstance(attr_value, float):
+            add_fun = xcm_attr_map_add_double_c
         elif isinstance(attr_value, str):
             add_fun = xcm_attr_map_add_str_c
             attr_value = attr_value.encode('utf-8')
@@ -229,6 +239,8 @@ class Socket:
             set_fun = xcm_attr_set_bool_c
         elif isinstance(attr_value, int):
             set_fun = xcm_attr_set_int64_c
+        elif isinstance(attr_value, float):
+            set_fun = xcm_attr_set_double_c
         elif isinstance(attr_value, str):
             set_fun = xcm_attr_set_str_c
             attr_value = attr_value.encode('utf-8')
@@ -241,7 +253,7 @@ class Socket:
     @_assure_open
     def get_attr(self, attr_name):
         attr_type = c_int()
-        attr_capacity = 1024
+        attr_capacity = 8192
         attr_value = create_string_buffer(attr_capacity)
         rc = xcm_attr_get_c(self.xcm_socket, attr_name.encode('utf-8'),
                             byref(attr_type), attr_value, attr_capacity)
@@ -298,6 +310,7 @@ class ServerSocket(Socket):
 
 
 def connect(addr, flags=0, attrs={}):
+    attr_map = None
     try:
         attr_map = _attr_map_create(attrs)
         if flags == NONBLOCK:
