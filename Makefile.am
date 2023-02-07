@@ -131,7 +131,7 @@ xcmtest_SOURCES = $(XCMTEST_TESTCASE_SOURCES) $(UTEST_SOURCES) \
 	common/util.c common/slist.c test/testutil.c test/tnet.c \
 	test/iowrap.c test/pingpong.c
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
-xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -no-install
+xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -ldl -no-install
 xcmtest_LDADD = libxcm.la
 if CTL
 xcmtest_LDADD += libxcmctl.la
