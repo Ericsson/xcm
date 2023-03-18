@@ -5,6 +5,7 @@
 
 #include "active_fd.h"
 #include "common_tp.h"
+#include "dns_attr.h"
 #include "epoll_reg.h"
 #include "log_tp.h"
 #include "util.h"
@@ -488,7 +489,7 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 	SCTP_SET_STATE(s, conn_state_resolving);
 	ss->conn.query =
 	    xcm_dns_resolve(ss->conn.remote_host.name, s->epoll_fd,
-			    ts->conn.dns_opts.timeout, s);
+			    XCM_DNS_TIMEOUT, s);
 	if (!ss->conn.query)
 	    goto err;
     } else {

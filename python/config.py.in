@@ -9,3 +9,9 @@ def has_sctp():
         return int("@XCM_SCTP@")
     except ValueError:
         return False
+
+def has_cares():
+    try:
+        return int("@XCM_CARES@")
+    except ValueError:
+        return False

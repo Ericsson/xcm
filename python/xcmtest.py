@@ -221,9 +221,10 @@ class TestXcm(unittest.TestCase):
         server_process = echo_server(addr)
         time.sleep(0.5)
 
-        attrs = {
-            "dns.timeout": 1.0
-        }
+        attrs = {}
+
+        if config.has_cares():
+            attrs["dns.timeout"] =  1.0
 
         conn = xcm.connect(addr, attrs=attrs)
         conn.close()

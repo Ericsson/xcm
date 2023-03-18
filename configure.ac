@@ -64,7 +64,8 @@ AS_IF([test "x$enable_cares" != "xno"], [
                                            ])],
                           [AC_MSG_RESULT(yes)],
                           [AC_MSG_FAILURE([c-ares 1.16.0 or later is required.])])
-  	AC_DEFINE([XCM_CARES], [1], [Use c-ares DNS library.])	], [
+	AC_DEFINE([XCM_CARES], [1], [Use c-ares DNS library.])
+	AC_SUBST(XCM_CARES, 1)], [
 	AC_CHECK_LIB([anl], [getaddrinfo_a],
 	             [AC_SUBST([ANL_LIBS], [-lanl])],
 	             [AC_MSG_ERROR([Unable to find the ANL library.])])
