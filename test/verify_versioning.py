@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright(c) 2020-2023 Ericsson AB
+
 import sys
 import re
 import os
