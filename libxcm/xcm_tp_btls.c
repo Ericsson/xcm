@@ -347,6 +347,42 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     return 0;
 }
 
+static int conn_fd(struct xcm_socket *s)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if (bts->conn.ssl == NULL)
+	return -1;
+
+    /* On some versions of OpenSSL, calling SSL_get_fd() before a BIO
+       has been configured (e.g., via SSL_set_fd()) adds an error to
+       the OpenSSL error stack. */
+    if (SSL_get_rbio(bts->conn.ssl) == NULL)
+	return -1;
+
+    return SSL_get_fd(bts->conn.ssl);
+}
+
+static int server_fd(struct xcm_socket *s)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    return bts->server.fd;
+}
+
+static int socket_fd(struct xcm_socket *s)
+{
+    switch (s->type) {
+    case xcm_socket_type_conn:
+	return conn_fd(s);
+    case xcm_socket_type_server:
+	return server_fd(s);
+    default:
+	ut_assert(0);
+	return -1;
+    }
+}
+
 static int conn_deinit(struct xcm_socket *s, bool owner)
 {
     int rc = 0;
@@ -356,15 +392,13 @@ static int conn_deinit(struct xcm_socket *s, bool owner)
     if (bts->conn.state == conn_state_ready && owner)
 	SSL_shutdown(bts->conn.ssl);
 
-    if (bts->conn.ssl != NULL) {
-	int fd = SSL_get_fd(bts->conn.ssl);
+    int fd = conn_fd(s);
 
-	ut_close_if_valid(fd);
+    ut_close_if_valid(fd);
 
-	SSL_free(bts->conn.ssl);
-	/* to have socket_fd() still callable (i.e. for logging) */
-	bts->conn.ssl = NULL;
-    }
+    SSL_free(bts->conn.ssl);
+    /* have socket_fd()/conn_fd() still callable (i.e. for logging) */
+    bts->conn.ssl = NULL;
 
     int active_fd = bts->conn.active_fd_reg.fd;
     epoll_reg_reset(&bts->conn.active_fd_reg);
@@ -562,23 +596,6 @@ static void verify_peer_cert(struct xcm_socket *s)
     }
 }
 
-static int socket_fd(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    switch (s->type) {
-    case xcm_socket_type_conn:
-	if (bts->conn.ssl == NULL)
-	    return -1;
-	return SSL_get_fd(bts->conn.ssl);
-    case xcm_socket_type_server:
-	return bts->server.fd;
-    default:
-	ut_assert(0);
-	return -1;
-    }
-}
-
 static int bind_local_addr(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
@@ -593,8 +610,8 @@ static int bind_local_addr(struct xcm_socket *s)
 	return -1;
     }
 
-    if (bind(socket_fd(s), (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-	LOG_CLIENT_BIND_FAILED(s, bts->laddr, socket_fd(s), errno);
+    if (bind(conn_fd(s), (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+	LOG_CLIENT_BIND_FAILED(s, bts->laddr, conn_fd(s), errno);
 	return -1;
     }
 
@@ -625,8 +642,6 @@ static int conn_select_fd(struct xcm_socket *s, sa_family_t family)
     struct btls_socket *bts = TOBTLS(s);
     int used;
     int unused;
-
-    ut_assert(SSL_get_fd(bts->conn.ssl) == -1);
 
     if (family == AF_INET) {
 	used = bts->conn.fd4;
@@ -662,7 +677,7 @@ static void begin_connect(struct xcm_socket *s)
     if (bind_local_addr(s) < 0)
 	goto err;
 
-    if (tcp_opts_effectuate(&bts->conn.tcp_opts, socket_fd(s)) <  0)
+    if (tcp_opts_effectuate(&bts->conn.tcp_opts, conn_fd(s)) <  0)
 	goto err;
 
     if (conf_scope(s, &bts->scope, &bts->conn.remote_host.ip) < 0)
@@ -672,7 +687,7 @@ static void begin_connect(struct xcm_socket *s)
     tp_ip_to_sockaddr(&bts->conn.remote_host.ip, bts->conn.remote_port,
 		      bts->scope, (struct sockaddr*)&servaddr);
 
-    if (connect(socket_fd(s), (struct sockaddr*)&servaddr,
+    if (connect(conn_fd(s), (struct sockaddr*)&servaddr,
 		sizeof(servaddr)) < 0) {
 	if (errno != EINPROGRESS) {
 	    LOG_CONN_FAILED(s, errno);
@@ -686,7 +701,7 @@ static void begin_connect(struct xcm_socket *s)
 
     assert_socket(s);
 
-    epoll_reg_set_fd(&bts->fd_reg, socket_fd(s));
+    epoll_reg_set_fd(&bts->fd_reg, conn_fd(s));
 
     try_finish_connect(s);
 
@@ -754,7 +769,7 @@ static void try_finish_tls_handshake(struct xcm_socket *s)
 	if (bts->tls_auth)
 	    verify_peer_cert(s);
 	if (bts->conn.state == conn_state_ready)
-	    LOG_TLS_CONN_ESTABLISHED(s, socket_fd(s),
+	    LOG_TLS_CONN_ESTABLISHED(s, conn_fd(s),
 				     SSL_get_version(bts->conn.ssl),
 				     SSL_get_cipher_name(bts->conn.ssl));
     }
@@ -771,7 +786,7 @@ static void try_finish_connect(struct xcm_socket *s)
     case conn_state_tcp_connecting: {
 	LOG_TCP_CONN_CHECK(s);
 	UT_SAVE_ERRNO;
-	int rc = ut_established(socket_fd(s));
+	int rc = ut_established(conn_fd(s));
 	UT_RESTORE_ERRNO(connect_errno);
 	if (rc < 0) {
 	    if (connect_errno == EINPROGRESS) {
@@ -784,7 +799,7 @@ static void try_finish_connect(struct xcm_socket *s)
 	    ut_assert(connect_errno != 0);
 	    return;
 	}
-	LOG_TCP_CONN_ESTABLISHED(s, socket_fd(s));
+	LOG_TCP_CONN_ESTABLISHED(s, conn_fd(s));
 	BTLS_SET_STATE(s, conn_state_tls_connecting);
     }
     case conn_state_tls_connecting: {
