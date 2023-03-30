@@ -782,18 +782,24 @@ extern "C" {
  * 
  * @section thread_safety Thread Safety
  *
- * Unlike BSD sockets, a XCM socket may not be shared among different
- * threads without synchronization external to XCM. With proper
- * external serialization, a socket may be shared by different threads
- * in the same process, although it might provide difficult in
- * practice since a thread in a blocking XCM function will continue to
- * hold the lock, and thus preventing other threads from accessing the
- * socket at all.
+ * XCM API calls are MT safe provided they operate on different
+ * sockets. Calls pertaining to the same sockets are not MT safe.
  *
- * For non-blocking sockets, threads sharing a socket need to agree on
- * what is the appropriate socket @p condition to wait for. When this
- * condition is met, all threads are woken up, returning from
- * select().
+ * Thus, multiple threads may make XCM API calls in parallel, provided
+ * the calls refer to different XCM sockets.
+ *
+ * An XCM socket may not be shared among different threads without
+ * synchronization external to XCM. Provided calls are properly
+ * serialized (e.g., with a mutex lock), a socket may be shared by
+ * different threads in the samea process. However, this might prove
+ * difficult since a thread in a blocking XCM function will continue
+ * to hold the lock, preventing other threads from accessing the
+ * socket.
+ *
+ * For non-blocking sockets (with external synchronization), threads
+ * sharing a socket need to agree on what is the appropriate socket @p
+ * condition to wait for. When this condition is met, all threads are
+ * woken up, returning from select().
  *
  * It is safe to "give away" a XCM socket from one thread to another,
  * provided the appropriate memory fences are used.
