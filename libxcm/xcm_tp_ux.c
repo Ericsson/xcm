@@ -466,12 +466,13 @@ static int ux_finish(struct xcm_socket *s)
     return 0;
 }
 
-int retrieve_addr(int fd,
-		  int (*socknamefn)(int, struct sockaddr *, socklen_t *),
-		  int (*makefn)(const char *name, char *addr_s,
-				size_t capacity),
-		  size_t addr_offset,
-		  char *buf, size_t buf_len)
+static int retrieve_addr(int fd,
+			 int (*socknamefn)(int, struct sockaddr *,
+					   socklen_t *),
+			 int (*makefn)(const char *name, char *addr_s,
+				       size_t capacity),
+			 size_t addr_offset,
+			 char *buf, size_t buf_len)
 {
     if (fd < 0)
 	return -1;
