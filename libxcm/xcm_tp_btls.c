@@ -1443,10 +1443,10 @@ static int btls_finish(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
+    LOG_FINISH_REQ(s);
+
     if (s->type == xcm_socket_type_server)
 	return 0;
-
-    LOG_FINISH_REQ(s);
 
     try_finish_in_progress(s);
 

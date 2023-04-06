@@ -783,10 +783,10 @@ static int sctp_finish(struct xcm_socket *s)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
+    LOG_FINISH_REQ(s);
+
     if (s->type == xcm_socket_type_server)
 	return 0;
-
-    LOG_FINISH_REQ(s);
 
     try_finish_connect(s);
 

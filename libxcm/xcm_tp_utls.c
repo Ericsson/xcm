@@ -415,6 +415,8 @@ static void utls_update(struct xcm_socket *s)
 
 static int utls_finish(struct xcm_socket *s)
 {
+    LOG_FINISH_REQ(s);
+
     if (s->type == xcm_socket_type_conn)
 	return xcm_tp_socket_finish(active_sub_conn(s));
     else {

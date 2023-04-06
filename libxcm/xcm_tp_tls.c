@@ -471,7 +471,8 @@ static int tls_finish(struct xcm_socket *s)
 
     LOG_FINISH_REQ(s);
 
-    TP_RET_ERR_IF(ts->conn.bad, ts->conn.badness_reason);
+    TP_RET_ERR_IF(s->type == xcm_socket_type_conn && ts->conn.bad,
+		  ts->conn.badness_reason);
 
     int rc = 0;
 
