@@ -1547,6 +1547,77 @@ TESTCASE_SERIALIZED_TIMEOUT_F(xcm, backpressure_with_slow_server, 80.0,
     return UTEST_SUCCESS;
 }
 
+#define MAX_BACKLOG (128)
+#define MAX_CONNECT_LATENCY (0.5)
+
+TESTCASE(xcm, full_listen_queue_doesnt_block_connect)
+{
+    int i;
+    for (i=0; i<test_all_addrs_len; i++) {
+	const char *test_addr = test_all_addrs[i];
+
+	struct xcm_socket *server_socket = tu_server(test_addr);
+
+	CHK(server_socket != NULL);
+	CHKNOERR(set_blocking(server_socket, false));
+
+	struct xcm_socket *conn_sockets[MAX_BACKLOG];
+	int num;
+
+	/* fill up the backlog */
+	for (num = 0; num < MAX_BACKLOG; num++) {
+	    double start = ut_ftime();
+
+	    struct xcm_socket *conn_socket =
+		tu_connect(test_addr, XCM_NONBLOCK);
+
+	    double latency = ut_ftime() - start;
+
+	    CHK(latency < MAX_CONNECT_LATENCY);
+
+	    if (conn_socket == NULL) {
+		CHK(errno == ECONNREFUSED || errno == EAGAIN ||
+		    errno == ETIMEDOUT);
+		break;
+	    }
+
+	    int retries = 5;
+
+	    int rc;
+
+	    while (retries-- > 0) {
+		start = ut_ftime();
+		rc = xcm_finish(conn_socket);
+		latency = ut_ftime() - start;
+
+		CHK(latency < MAX_CONNECT_LATENCY);
+
+		if (rc == 0)
+		    break;
+
+		tu_msleep(1);
+	    }
+
+	    if (rc < 0 && errno != EAGAIN) {
+		CHK(errno == ECONNREFUSED || errno == ETIMEDOUT);
+		CHKNOERR(xcm_close(conn_socket));
+		break;
+	    }
+
+	    conn_sockets[num] = conn_socket;
+	}
+
+	CHKNOERR(xcm_close(server_socket));
+
+	int j;
+	for (j = 0; j < num; j++)
+	    CHKNOERR(xcm_close(conn_sockets[j]));
+    }
+
+    return UTEST_SUCCESS;
+}
+
+
 #define NB_MAX_RETRIES (100)
 
 #ifdef XCM_TLS
