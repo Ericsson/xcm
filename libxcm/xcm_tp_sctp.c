@@ -636,7 +636,8 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return -1;
 }
 
-static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len)
+static int xsctp_send(struct xcm_socket *__restrict s,
+		      const void *__restrict buf, size_t len)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
@@ -677,7 +678,8 @@ static int xsctp_send(struct xcm_socket *s, const void *buf, size_t len)
     return -1;
 }
 
-static int sctp_receive(struct xcm_socket *s, void *buf, size_t capacity)
+static int sctp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
+			size_t capacity)
 {
     struct sctp_socket *ss = TOSCTP(s);
 

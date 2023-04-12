@@ -147,8 +147,10 @@ int xcm_tp_socket_close(struct xcm_socket *s);
 void xcm_tp_socket_cleanup(struct xcm_socket *s);
 int xcm_tp_socket_accept(struct xcm_socket *conn_s,
 			 struct xcm_socket *server_s);
-int xcm_tp_socket_send(struct xcm_socket *s, const void *buf, size_t len);
-int xcm_tp_socket_receive(struct xcm_socket *s, void *buf, size_t capacity);
+int xcm_tp_socket_send(struct xcm_socket *__restrict s,
+		       const void *__restrict buf, size_t len);
+int xcm_tp_socket_receive(struct xcm_socket *__restrict s,
+			  void *__restrict buf, size_t capacity);
 void xcm_tp_socket_update(struct xcm_socket *s);
 int xcm_tp_socket_finish(struct xcm_socket *s);
 const char *xcm_tp_socket_get_transport(struct xcm_socket *s);

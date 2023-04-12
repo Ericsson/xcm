@@ -370,7 +370,8 @@ static int ux_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return 0;
 }
 
-static int ux_send(struct xcm_socket *s, const void *buf, size_t len)
+static int ux_send(struct xcm_socket *__restrict s,
+		   const void *__restrict buf, size_t len)
 {
     struct ux_socket *us = TOUX(s);
 
@@ -397,7 +398,8 @@ static int ux_send(struct xcm_socket *s, const void *buf, size_t len)
     return -1;
 }
 
-static int ux_receive(struct xcm_socket *s, void *buf, size_t capacity)
+static int ux_receive(struct xcm_socket *__restrict s,
+		      void *__restrict buf, size_t capacity)
 {
     struct ux_socket *us = TOUX(s);
 

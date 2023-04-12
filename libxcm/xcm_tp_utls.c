@@ -384,12 +384,14 @@ static struct xcm_socket *active_sub_conn(struct xcm_socket *s)
     return us->ux_socket != NULL ? us->ux_socket : us->tls_socket;
 }
 
-static int utls_send(struct xcm_socket *s, const void *buf, size_t len)
+static int utls_send(struct xcm_socket *__restrict s,
+		     const void *__restrict buf, size_t len)
 {
     return xcm_tp_socket_send(active_sub_conn(s), buf, len);
 }
 
-static int utls_receive(struct xcm_socket *s, void *buf, size_t capacity)
+static int utls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
+			size_t capacity)
 {
     return xcm_tp_socket_receive(active_sub_conn(s), buf, capacity);
 }

@@ -163,7 +163,8 @@ int xcm_tp_socket_accept(struct xcm_socket *conn_s,
     return rc;
 }
 
-int xcm_tp_socket_send(struct xcm_socket *s, const void *buf, size_t len)
+int xcm_tp_socket_send(struct xcm_socket *__restrict s,
+		       const void *__restrict buf, size_t len)
 {
     int rc = XCM_TP_CALL(send, s, buf, len);
 

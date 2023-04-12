@@ -1245,7 +1245,8 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     return -1;
 }
 
-static int btls_send(struct xcm_socket *s, const void *buf, size_t len)
+static int btls_send(struct xcm_socket *__restrict s,
+		     const void *__restrict buf, size_t len)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1295,7 +1296,8 @@ static int btls_send(struct xcm_socket *s, const void *buf, size_t len)
     return -1;
 }
 
-static int btls_receive(struct xcm_socket *s, void *buf, size_t capacity)
+static int btls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
+			size_t capacity)
 {
     struct btls_socket *bts = TOBTLS(s);
 

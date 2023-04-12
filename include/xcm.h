@@ -1562,7 +1562,8 @@ struct xcm_socket *xcm_accept_a(struct xcm_socket *server_socket,
  * See xcm_finish() for more errno values.
  */
 
-int xcm_send(struct xcm_socket *conn_socket, const void *buf, size_t len);
+int xcm_send(struct xcm_socket *__restrict conn_socket,
+	     const void *__restrict buf, size_t len);
 
 /** Receive message on a particular connection.
  *
@@ -1587,7 +1588,8 @@ int xcm_send(struct xcm_socket *conn_socket, const void *buf, size_t len);
  *
  * See xcm_finish() for possible errno values.
  */
-int xcm_receive(struct xcm_socket *conn_socket, void *buf, size_t capacity);
+int xcm_receive(struct xcm_socket *__restrict conn_socket,
+		void *__restrict buf, size_t capacity);
 
 /** Flag bit denoting a socket where the application likely can
     receive data. */

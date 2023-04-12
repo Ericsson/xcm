@@ -293,7 +293,8 @@ static int try_finish_send(struct xcm_socket *s)
     }
 }
 
-static int tls_send(struct xcm_socket *s, const void *buf, size_t len)
+static int tls_send(struct xcm_socket *__restrict s,
+		    const void *__restrict buf, size_t len)
 {
     struct tls_socket *ts = TOTLS(s);
 
@@ -410,7 +411,8 @@ static int buffer_msg(struct xcm_socket *s)
     return 1;
 }
 
-static int tls_receive(struct xcm_socket *s, void *buf, size_t capacity)
+static int tls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
+		       size_t capacity)
 {
     struct tls_socket *ts = TOTLS(s);
 

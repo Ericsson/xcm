@@ -376,7 +376,8 @@ static int msg_bsend(struct xcm_socket *conn_s, const void *buf, size_t len)
     }
 }
 
-int xcm_send(struct xcm_socket *conn_s, const void *buf, size_t len)
+int xcm_send(struct xcm_socket *__restrict conn_s,
+	     const void *__restrict buf, size_t len)
 {
     TP_RET_ERR_UNLESS_TYPE(conn_s, xcm_socket_type_conn);
 
@@ -395,7 +396,8 @@ int xcm_send(struct xcm_socket *conn_s, const void *buf, size_t len)
 	return xcm_tp_socket_send(conn_s, buf, len);
 }
 
-int xcm_receive(struct xcm_socket *conn_s, void *buf, size_t capacity)
+int xcm_receive(struct xcm_socket *__restrict conn_s,
+		void *__restrict buf, size_t capacity)
 {
     TP_RET_ERR_UNLESS_TYPE(conn_s, xcm_socket_type_conn);
 

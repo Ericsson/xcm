@@ -705,7 +705,8 @@ static void try_send(struct xcm_socket *s)
     }
 }
 
-static int tcp_send(struct xcm_socket *s, const void *buf, size_t len)
+static int tcp_send(struct xcm_socket *__restrict s,
+		    const void *__restrict buf, size_t len)
 {
     struct tcp_socket *ts = TOTCP(s);
 
@@ -843,7 +844,8 @@ static void try_finish_in_progress(struct xcm_socket *s)
     }
 }
 
-static int tcp_receive(struct xcm_socket *s, void *buf, size_t capacity)
+static int tcp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
+		       size_t capacity)
 {
     struct tcp_socket *ts = TOTCP(s);
 
