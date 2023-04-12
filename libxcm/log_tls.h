@@ -92,38 +92,30 @@
 		   "errno %d (%s).", filename, reason_errno,	     \
 		   strerror(reason_errno))
 
-#define LOG_TLS_CREATING_CTX(s, cert, key, tc)				\
+#define LOG_TLS_CTX_ACTION(s, action, cert, key, tc)			\
     do {								\
 	if (item_is_set(tc))						\
-	    log_debug_sock(s, "Creating SSL context with certificate "	\
-			   "\"%s\", key \"%s\" and trusted CA \"%s\".", \
+	    log_debug_sock(s, "%s with certificate \"%s\", key \"%s\" " \
+			   "and trusted CA \"%s\".", action,		\
 			   item_unsensitive_data(cert),			\
 			   item_unsensitive_data(key),			\
 			   item_unsensitive_data(tc));			\
 	else								\
-	    log_debug_sock(s, "Creating SSL context with certificate "	\
-			   "\"%s\" and key \"%s\". No trusted CAs in use.", \
+	    log_debug_sock(s, "%s with certificate \"%s\" and key "	\
+			   "\"%s\". No trusted CAs in use.", action,	\
 			   item_unsensitive_data(cert),			\
 			   item_unsensitive_data(key));			\
     } while (0)
+
+#define LOG_TLS_CREATING_CTX(s, cert, key, tc)				\
+    LOG_TLS_CTX_ACTION(s, "Creating SSL context", cert, key, tc)
 
 #define LOG_TLS_CTX_RETRY \
     log_debug_sock(s, "Certificate files changed on disk during " \
 		   "processing. Retrying.")
 
 #define LOG_TLS_CTX_REUSE(s, cert_file, key_file, tc_file)		\
-    do {								\
-	if (tc_file != NULL)						\
-	    log_debug_sock(s, "Using cached SSL context with "		\
-			   "certificate file \"%s\", key file \"%s\" "	\
-			   "and trust chain file \"%s\".", cert_file,	\
-			   key_file, tc_file);				\
-	else								\
-	    log_debug_sock(s, "Using cached SSL context with "		\
-			   "certificate file \"%s\" and key file "	\
-			   "\"%s\". No trusted CAs in use.",		\
-			   cert_file, key_file);			\
-    } while (0)
+    LOG_TLS_CTX_ACTION(s, "Using cached SSL context", cert, key, tc)
 
 void hash_description(uint8_t *hash, size_t hash_len, char *buf);
 
