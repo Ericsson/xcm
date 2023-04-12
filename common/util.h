@@ -65,7 +65,8 @@ bool ut_is_readable(int fd);
 /* 'name' buffer needs to be NAME_MAX in size */
 int ut_self_net_ns(char *name);
 
-int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
+	      unsigned int flags);
 
 ssize_t ut_load_file(const char *filename, char **data);
 ssize_t ut_load_text_file(const char *filename, char **data);

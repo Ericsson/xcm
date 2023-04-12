@@ -135,7 +135,7 @@ static void set_fd(struct xcm_socket *s, int fd)
 
 static int create_socket(struct xcm_socket *s)
 {
-    int fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+    int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0);
 
     if (fd < 0)
 	return -1;
@@ -216,15 +216,10 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
     if (create_socket(s) < 0)
 	goto err;
 
-    struct ux_socket *us = TOUX(s);
-
-    if (ut_set_blocking(us->fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err_close;
-    }
-
     socklen_t servaddr_len = is_ux(s) ?
 	sockaddr_un_size(strlen(path)) : sizeof(struct sockaddr_un);
+
+    struct ux_socket *us = TOUX(s);
 
     if (connect(us->fd, (struct sockaddr*)&servaddr, servaddr_len) < 0) {
 	if (errno == ENOENT)
@@ -318,11 +313,6 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
 	goto err_close;
     }
 
-    if (ut_set_blocking(us->fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err_close;
-    }
-
     LOG_SERVER_CREATED_FD(s, us->fd);
 
     return 0;
@@ -351,15 +341,9 @@ static int ux_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     LOG_ACCEPT_REQ(server_s);
 
-    int conn_fd = ut_accept(server_us->fd, NULL, NULL);
+    int conn_fd = ut_accept(server_us->fd, NULL, NULL, SOCK_NONBLOCK);
     if (conn_fd < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
-	return -1;
-    }
-
-    if (ut_set_blocking(conn_fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(server_s, errno);
-	ut_close(conn_fd);
 	return -1;
     }
 

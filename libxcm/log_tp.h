@@ -262,10 +262,6 @@
     log_debug_sock(s, "Received request to put socket into %s mode.", \
 		   should_block ? "blocking" : "non-blocking")
 
-#define LOG_SET_BLOCKING_FAILED_FD(s, reason_errno)			\
-    log_debug_sock(s, "Failed to change fd blocking mode; errno %d (%s).", \
-		   reason_errno, strerror(reason_errno))
-
 #define LOG_BLOCKING_FINISHING_WORK(s)					\
     log_debug("When switching from non-blocking mode to blocking; making " \
 	      "sure to finish any outstanding work.")

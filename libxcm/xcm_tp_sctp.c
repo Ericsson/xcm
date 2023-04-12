@@ -235,17 +235,10 @@ static void deinit(struct xcm_socket *s)
 
 static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
 {
-    *fd = socket(family, SOCK_STREAM, IPPROTO_SCTP);
+    *fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_SCTP);
 
     if (*fd < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
-	return -1;
-    }
-
-    if (ut_set_blocking(*fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(NULL, errno);
-	*fd = -1;
-	ut_close(*fd);
 	return -1;
     }
 
@@ -556,11 +549,6 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 	goto err;
     }
 
-    if (ut_set_blocking(ss->fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	goto err;
-    }
-
     epoll_reg_set_fd(&ss->fd_reg, ss->fd);
 
     LOG_SERVER_CREATED_FD(s, ss->fd);
@@ -604,18 +592,13 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     LOG_ACCEPT_REQ(server_s);
 
     int conn_fd;
-    if ((conn_fd = ut_accept(server_ss->fd, NULL, NULL)) < 0) {
+    if ((conn_fd = ut_accept(server_ss->fd, NULL, NULL, SOCK_NONBLOCK)) < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
 	goto err_deinit;
     }
 
     if (set_sctp_conn_opts(conn_fd) < 0)
 	goto err_close;
-
-    if (ut_set_blocking(conn_fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(NULL, errno);
-	goto err_close;
-    }
 
     conn_ss->fd = conn_fd;
     epoll_reg_set_fd(&conn_ss->fd_reg, conn_fd);

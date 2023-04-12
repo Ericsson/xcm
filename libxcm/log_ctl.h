@@ -29,14 +29,9 @@
     log_debug_sock(s, "Error accepting new client on control socket; "	\
 		   "errno %d (%s).", reason_errno, strerror(reason_errno))
 
-#define LOG_CTL_NONBLOCK(s, reason_errno)				\
-    log_debug_sock(s, "Error setting new client control socket to non-" \
-		   "blocking mode; errno %d (%s).", reason_errno,	\
-		   strerror(reason_errno))
-
 #define LOG_CLIENT_ACCEPTED(s, fd, num)					\
-    log_debug_sock(s, "New control client with fd %d accepted; now %d clients "	\
-		   "connected.", fd, num)
+    log_debug_sock(s, "New control client with fd %d accepted; now %d " \
+		   "clients connected.", fd, num)
 
 #define LOG_CLIENT_REMOVED(s)					\
     log_debug_sock(s, "Removing client.")

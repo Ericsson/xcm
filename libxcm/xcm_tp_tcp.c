@@ -456,17 +456,10 @@ static void try_finish_connect(struct xcm_socket *s)
 
 static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
 {
-    *fd = socket(family, SOCK_STREAM, IPPROTO_TCP);
+    *fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
 
     if (*fd < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
-	return -1;
-    }
-
-    if (ut_set_blocking(*fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(s, errno);
-	*fd = -1;
-	ut_close(*fd);
 	return -1;
     }
 
@@ -627,18 +620,13 @@ static int tcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     }
 
     int conn_fd;
-    if ((conn_fd = ut_accept(server_ts->fd, NULL, NULL)) < 0) {
+    if ((conn_fd = ut_accept(server_ts->fd, NULL, NULL, SOCK_NONBLOCK)) < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
 	goto err_deinit;
     }
 
     if (tcp_opts_effectuate(&conn_ts->conn.tcp_opts, conn_fd) < 0)
 	goto err_close;
-
-    if (ut_set_blocking(conn_fd, false) < 0) {
-	LOG_SET_BLOCKING_FAILED_FD(NULL, errno);
-	goto err_close;
-    }
 
     conn_ts->fd = conn_fd;
     epoll_reg_set_fd(&conn_ts->fd_reg, conn_fd);

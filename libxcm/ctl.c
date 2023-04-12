@@ -69,16 +69,13 @@ static int create_ux(struct xcm_socket *s)
     unlink(addr.sun_path);
 
     int server_fd;
-    if ((server_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0)) < 0)
+    if ((server_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0)) < 0)
 	goto err;
 
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0)
 	goto err_close;
 
     if (listen(server_fd, 2) < 0)
-	goto err_unlink;
-
-    if (ut_set_blocking(server_fd, false) < 0)
 	goto err_unlink;
 
     LOG_CTL_CREATED(s, addr.sun_path, server_fd);
@@ -295,19 +292,11 @@ static void accept_client(struct ctl *ctl)
     if (!ut_is_readable(ctl->server_fd))
 	return;
 
-    int client_fd = accept(ctl->server_fd, NULL, NULL);
+    int client_fd = ut_accept(ctl->server_fd, NULL, NULL, SOCK_NONBLOCK);
 
     if (client_fd < 0) {
 	if (errno != EAGAIN)
 	    LOG_CTL_ACCEPT_ERROR(ctl->socket, errno);
-	return;
-    }
-
-    int rc = ut_set_blocking(client_fd, false);
-
-    if (rc < 0) {
-	LOG_CTL_NONBLOCK(ctl->socket, errno);
-	ut_close(client_fd);
 	return;
     }
 
