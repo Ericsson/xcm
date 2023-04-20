@@ -89,6 +89,15 @@ dependency):
 The control interface can be disabled:
 `./configure --disable-ctl`
 
+### Ubuntu
+
+To build on Ubuntu 22.04 LTS, install the following packages:
+
+```
+sudo apt install gcc make automake libtool libssl-dev libevent-dev \
+     liblttng-ust-dev libc-ares-dev
+```
+
 ### Static Library Builds
 
 XCM depends on constructor functions to register transports into the
