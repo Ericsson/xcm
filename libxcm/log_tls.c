@@ -24,6 +24,6 @@ void log_tls_get_error_stack(char *buf, size_t capacity)
     unsigned long err;
     buf[0] = '\0';
     while ((err = ERR_get_error()) != 0)
-	ut_snprintf(buf+strlen(buf), capacity-strlen(buf), "%s%s.",
-		    strlen(buf) > 0 ? " " : "", ERR_error_string(err, NULL));
+	snprintf(buf+strlen(buf), capacity-strlen(buf), "%s%s.",
+		 strlen(buf) > 0 ? " " : "", ERR_error_string(err, NULL));
 }

@@ -44,10 +44,6 @@ double ut_ftime(void);
 
 int ut_send_all(int fd, void* buf, size_t count, int flags);
 
-int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
-    __attribute__ ((format (printf, 3, 4)));
-int ut_vsnprintf(char *buf, size_t capacity, const char *format, va_list ap)
-    __attribute__ ((format (printf, 3, 0)));
 void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
     __attribute__ ((format (printf, 3, 0)));
 void ut_aprintf(char *buf, size_t capacity, const char *format, ...)

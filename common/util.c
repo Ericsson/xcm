@@ -151,29 +151,6 @@ int ut_send_all(int fd, void* buf, size_t count, int flags) {
     return count;
 }
 
-int ut_vsnprintf(char *buf, size_t capacity, const char *format, va_list ap)
-{
-    int rc = vsnprintf(buf, capacity, format, ap);
-
-    /* guarantee NUL-terminated strings */
-    if (rc >= capacity)
-	buf[capacity-1] = '\0';
-
-    return rc;
-}
-
-int ut_snprintf(char *buf, size_t capacity, const char *format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-
-    int rc = ut_vsnprintf(buf, capacity, format, ap);
-
-    va_end(ap);
-
-    return rc;
-}
-
 void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
 {
     size_t len = strlen(buf);

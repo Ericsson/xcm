@@ -193,10 +193,10 @@ static int assure_cred_attr(struct xcm_socket *s, const char *ns,
     char file_attr_name[1024];
     char value_attr_name[1024];
 
-    ut_snprintf(file_attr_name, sizeof(file_attr_name), "tls.%s_file",
-		cred_name);
-    ut_snprintf(value_attr_name, sizeof(value_attr_name), "tls.%s",
-		cred_name);
+    snprintf(file_attr_name, sizeof(file_attr_name), "tls.%s_file",
+	     cred_name);
+    snprintf(value_attr_name, sizeof(value_attr_name), "tls.%s",
+	     cred_name);
 
     bool by_value =
 	(attrs != NULL && xcm_attr_map_exists(attrs, value_attr_name))
@@ -4333,8 +4333,8 @@ static int load_cred(const char *subdir, const char *file, char **data)
     char cdir[PATH_MAX];
     get_cert_path(cdir, subdir);
 
-    char path[PATH_MAX];
-    ut_snprintf(path, sizeof(path), "%s/%s", cdir, file);
+    char path[2 * PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s", cdir, file);
 
     return ut_load_text_file(path, data);
 }

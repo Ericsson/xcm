@@ -71,15 +71,15 @@ static void format_msg(char *buf, size_t capacity, const char *file, int line,
 {
     char sref[64];
     if (s != NULL)
-	ut_snprintf(sref, sizeof(sref), " <%" PRId64 ">", s->sock_id);
+	snprintf(sref, sizeof(sref), " <%" PRId64 ">", s->sock_id);
     else
 	sref[0] = '\0';
 
     char bname[NAME_MAX+1];
     strcpy(bname, file);
 
-    ut_snprintf(buf, capacity, "TID %d: %s [%s:%d]%s: ", ut_gettid(),
-		function, basename(bname), line, sref);
+    snprintf(buf, capacity, "TID %d: %s [%s:%d]%s: ", ut_gettid(),
+	     function, basename(bname), line, sref);
     ut_vaprintf(buf, capacity, format, ap);
     ut_aprintf(buf, capacity, "\n");
 }
