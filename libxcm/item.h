@@ -27,6 +27,8 @@ void item_set_value_n(struct item *item, const char *value, size_t len,
 
 const char *item_unsensitive_data(const struct item *item);
 
+int item_load(const struct item *item, char **data);
+
 void item_copy(const struct item *src_item, struct item *dst_item);
 
 bool item_is_set(const struct item *item);

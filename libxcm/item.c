@@ -57,6 +57,22 @@ const char *item_unsensitive_data(const struct item *item)
 	return item->data;
 }
 
+int item_load(const struct item *item, char **data)
+{
+    switch (item->type)
+    {
+    case item_type_none:
+	*data = NULL;
+	return 0;
+    case item_type_file:
+	return ut_load_text_file(item->data, data);
+    case item_type_value:
+	*data = ut_strdup(item->data);
+	return 0;
+    }
+    ut_assert(0);
+}
+
 void item_copy(const struct item *src_item, struct item *dst_item)
 {
     item_deinit(dst_item);

@@ -444,22 +444,6 @@ err_free:
     return NULL;
 }
 
-static int load_item(const struct item *item, char **data)
-{
-    switch (item->type)
-    {
-    case item_type_none:
-	*data = NULL;
-	return 0;
-    case item_type_file:
-	return ut_load_text_file(item->data, data);
-    case item_type_value:
-	*data = ut_strdup(item->data);
-	return 0;
-    }
-    ut_assert(0);
-}
-
 SSL_CTX *ctx_store_get_ctx(const struct item *cert, const struct item *key,
 			   const struct item *tc, void *log_ref)
 {
@@ -503,11 +487,11 @@ SSL_CTX *ctx_store_get_ctx(const struct item *cert, const struct item *key,
 
 	LOG_TLS_CREATING_CTX(log_ref, cert, key, tc);
 
-	if (load_item(cert, &cert_data) < 0)
+	if (item_load(cert, &cert_data) < 0)
 	    goto out;
-	if (load_item(key, &key_data) < 0)
+	if (item_load(key, &key_data) < 0)
 	    goto out_free;
-	if (load_item(tc, &tc_data) < 0)
+	if (item_load(tc, &tc_data) < 0)
 	    goto out_free;
 
 	if (get_credentials_hash(cert, key, tc, nhash, log_ref) < 0) {
