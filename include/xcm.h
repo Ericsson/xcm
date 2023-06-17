@@ -936,7 +936,7 @@ extern "C" {
  * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default value is 3.
  * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
  * ipv6.scope         | All         | Integer    | RW   | The IPv6 scope id used. Only available on IPv6 sockets. Writable only at socket creation. If left unset, it will take on the value of 0 (the global scope). Any other value denotes the network interface index to be used, for IPv6 link local addresses. See the if_nametoindex(3) manual page for how to map interface names to indices.
- * dns.timeout        | Connection  | Double     | RW   | The number of seconds until DNS times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query/response transaction to a particular transaction). Only available when the library is built with the c-ares DNS resolver.
+ * dns.timeout        | Connection  | Double     | RW   | The number of seconds until DNS times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.
