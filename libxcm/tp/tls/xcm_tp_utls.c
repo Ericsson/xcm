@@ -4,7 +4,6 @@
  */
 
 #include "config.h"
-#include "ctl.h"
 #include "log_tp.h"
 #include "log_utls.h"
 #include "util.h"
@@ -12,6 +11,10 @@
 #include "xcm_addr.h"
 #include "xcm_addr_limits.h"
 #include "xcm_tp.h"
+
+#ifdef XCM_CTL
+#include "ctl.h"
+#endif
 
 #include <stdbool.h>
 #include <stdio.h>

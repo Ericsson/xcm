@@ -37,38 +37,61 @@ XCMCTL_VERSION_CURRENT=1
 XCMCTL_VERSION_REVISION=0
 XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 
-LIBXCM_SOURCES = libxcm/xcm.c libxcm/xcm_version.c libxcm/xcm_compat.c \
-	libxcm/xcm_addr.c libxcm/xcm_addr_compat.c libxcm/xcm_attr_map.c \
-	libxcm/xcm_tp.c libxcm/xcm_tp_ux.c libxcm/xcm_tp_tcp.c \
-	libxcm/common_tp.c libxcm/dns_attr.c libxcm/tcp_attr.c libxcm/log.c \
-	libxcm/log_tp.c libxcm/xcm_dns.c libxcm/epoll_reg.c \
-	libxcm/epoll_reg_set.c libxcm/timer_mgr.c libxcm/active_fd.c \
-	common/slist.c common/util.c
+libxcm_la_SOURCES = \
+	common/slist.c \
+	common/util.c \
+	libxcm/core/epoll_reg.c \
+	libxcm/core/epoll_reg_set.c \
+	libxcm/core/log.c \
+	libxcm/core/timer_mgr.c \
+	libxcm/core/xcm.c \
+	libxcm/core/xcm_addr.c \
+	libxcm/core/xcm_addr_compat.c \
+	libxcm/core/xcm_attr_map.c \
+	libxcm/core/xcm_compat.c \
+	libxcm/core/xcm_version.c \
+	libxcm/tp/common/active_fd.c \
+	libxcm/tp/common/common_tp.c \
+	libxcm/tp/common/dns_attr.c \
+	libxcm/tp/common/log_tp.c \
+	libxcm/tp/common/tcp_attr.c \
+	libxcm/tp/common/xcm_tp.c \
+	libxcm/tp/dns/xcm_dns.c \
+	libxcm/tp/tcp/xcm_tp_tcp.c \
+	libxcm/tp/ux/xcm_tp_ux.c
 
-if CARES
-LIBXCM_SOURCES += libxcm/xcm_dns_cares.c
-else
-LIBXCM_SOURCES += libxcm/xcm_dns_glibc.c
-endif
-
-if TLS
-LIBXCM_SOURCES += libxcm/xcm_tp_tls.c libxcm/xcm_tp_btls.c \
-	libxcm/ctx_store.c libxcm/item.c libxcm/xcm_tp_utls.c libxcm/log_tls.c
-endif
-
-if SCTP
-LIBXCM_SOURCES += libxcm/xcm_tp_sctp.c
-endif
-
-if CTL
-LIBXCM_SOURCES += libxcm/ctl.c common/common_ctl.c
-endif
-
-libxcm_la_SOURCES = $(LIBXCM_SOURCES)
 libxcm_la_LDFLAGS = @ANL_LIBS@ @CARES_LIBS@ @SSL_LIBS@ \
 	-Wl,--version-script=$(srcdir)/libxcm/libxcm.vs \
 	-version-info $(XCM_VERSION_CURRENT):$(XCM_VERSION_REVISION):$(XCM_VERSION_AGE)
-libxcm_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/libxcm
+libxcm_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/libxcm/core \
+	-I$(srcdir)/libxcm/tp/common -I$(srcdir)/libxcm/tp/ux \
+	-I$(srcdir)/libxcm/tp/tcp -I$(srcdir)/libxcm/tp/dns
+
+if CARES
+libxcm_la_SOURCES += libxcm/tp/dns/xcm_dns_cares.c
+else
+libxcm_la_SOURCES += libxcm/tp/dns/xcm_dns_glibc.c
+endif
+
+if TLS
+libxcm_la_SOURCES += \
+	libxcm/tp/tls/ctx_store.c \
+	libxcm/tp/tls/item.c \
+	libxcm/tp/tls/log_tls.c \
+	libxcm/tp/tls/xcm_tp_btls.c \
+	libxcm/tp/tls/xcm_tp_tls.c \
+	libxcm/tp/tls/xcm_tp_utls.c
+libxcm_la_CPPFLAGS += -I$(srcdir)/libxcm/tp/tls
+endif
+
+if SCTP
+libxcm_la_SOURCES += libxcm/tp/sctp/xcm_tp_sctp.c
+endif
+
+if CTL
+libxcm_la_SOURCES += libxcm/ctl/ctl.c common/common_ctl.c
+libxcm_la_CPPFLAGS += -I$(srcdir)/libxcm/ctl
+endif
 
 if LTTNG
 libxcm_la_SOURCES += lttng/xcm_lttng.c
@@ -124,12 +147,22 @@ UTEST_SOURCES = test/utest/utest.c  test/utest/utestreport.c \
         test/utest/utesthumanreport.c
 TEST_CPPFLAGS=-I$(srcdir)/test -I$(srcdir)/test/utest
 
-XCMTEST_TESTCASE_SOURCES = test/xcm_testcases.c test/addr_testcases.c \
-	test/attr_map_testcases.c test/slist_testcases.c
+XCMTEST_TESTCASE_SOURCES = \
+	test/addr_testcases.c \
+	test/attr_map_testcases.c \
+	test/slist_testcases.c \
+	test/xcm_testcases.c
 
-xcmtest_SOURCES = $(XCMTEST_TESTCASE_SOURCES) $(UTEST_SOURCES) \
-	common/util.c common/slist.c test/testutil.c test/tnet.c \
-	test/iowrap.c test/pingpong.c
+xcmtest_SOURCES = \
+	$(XCMTEST_TESTCASE_SOURCES) \
+	$(UTEST_SOURCES) \
+	common/slist.c \
+	common/util.c \
+	test/iowrap.c \
+	test/pingpong.c \
+	test/testutil.c \
+	test/tnet.c
+
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
 xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -ldl -no-install
 xcmtest_LDADD = libxcm.la
