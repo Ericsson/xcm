@@ -719,7 +719,7 @@ static void try_finish_resolution(struct xcm_socket *s)
     struct xcm_addr_ip ip;
 
     UT_SAVE_ERRNO;
-    int rc = xcm_dns_query_result(bts->conn.query, &ip);
+    int rc = xcm_dns_query_result(bts->conn.query, &ip, 1);
     UT_RESTORE_ERRNO(query_errno);
 
     if (rc < 0) {

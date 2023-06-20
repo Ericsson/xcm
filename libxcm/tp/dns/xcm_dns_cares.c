@@ -47,7 +47,8 @@ struct xcm_dns_query
     int64_t ares_timer_id;
     int64_t overall_timer_id;
 
-    struct xcm_addr_ip ip;
+    struct xcm_addr_ip ips[XCM_DNS_MAX_RESULT_IPS];
+    int ips_len;
 
     void *log_ref;
 };
@@ -95,34 +96,42 @@ update_epoll_fd(struct xcm_dns_query *query)
 	update_ares_timer(query, 0, query->log_ref);
 }
 
-static int get_ip(const char *domain_name, struct ares_addrinfo *result,
-		  struct xcm_addr_ip *ip, void *log_ref)
+static void get_ip(const char *domain_name, struct ares_addrinfo_node *node,
+		   struct xcm_addr_ip *ip, void *log_ref)
 {
-    /* C-ares is sorting the addresses per RFC 6724, with some
-       exceptions.  See c-ares documentation for details. */
-    struct ares_addrinfo_node *addr = result->nodes;
+    ut_assert(node->ai_family == AF_INET || node->ai_family == AF_INET6);
 
-    ut_assert(addr->ai_family == AF_INET || addr->ai_family == AF_INET6);
+    ip->family = node->ai_family;
 
-    ip->family = addr->ai_family;
-
-    if (addr->ai_family == AF_INET) {
+    if (node->ai_family == AF_INET) {
 	struct sockaddr_in *sockaddr4 =
-	    (struct sockaddr_in *)addr->ai_addr;
+	    (struct sockaddr_in *)node->ai_addr;
 
 	memcpy(&ip->addr.ip4, &sockaddr4->sin_addr, 4);
 
 	LOG_DNS_RESPONSE(log_ref, domain_name, ip->family, ip->addr.ip6);
     } else {
 	struct sockaddr_in6 *sockaddr6 =
-	    (struct sockaddr_in6 *)addr->ai_addr;
+	    (struct sockaddr_in6 *)node->ai_addr;
 
 	memcpy(ip->addr.ip6, sockaddr6->sin6_addr.s6_addr, 16);
 
 	LOG_DNS_RESPONSE(log_ref, domain_name, ip->family, &ip->addr.ip4);
     }
+}
 
-    return 0;
+static int get_ips(const char *domain_name, struct ares_addrinfo *result,
+		       struct xcm_addr_ip *ips, int capacity, void *log_ref)
+{
+    int i;
+    struct ares_addrinfo_node *node = result->nodes;
+
+    for (i = 0; node != NULL && i < capacity; i++) {
+	get_ip(domain_name, node, &ips[i], log_ref);
+	node = node->ai_next;
+    }
+
+    return i;
 }
 
 static void query_cb(void *arg, int status, int timeouts,
@@ -133,7 +142,8 @@ static void query_cb(void *arg, int status, int timeouts,
     ut_assert(status != ARES_ENOTIMP);
 
     if (status == ARES_SUCCESS) {
-	get_ip(query->domain_name, result, &query->ip, query->log_ref);
+	query->ips_len = get_ips(query->domain_name, result, query->ips,
+				 XCM_DNS_MAX_RESULT_IPS, query->log_ref);
 
 	ares_freeaddrinfo(result);
 
@@ -252,7 +262,7 @@ void xcm_dns_query_process(struct xcm_dns_query *query)
 }
 
 int xcm_dns_query_result(struct xcm_dns_query *query,
-			 struct xcm_addr_ip *ip)
+			 struct xcm_addr_ip *ips, int capacity)
 {
     switch (query->state) {
     case query_state_in_progress:
@@ -261,10 +271,16 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
     case query_state_failed:
 	errno = ENOENT;
 	return -1;
-    case query_state_successful:
-	*ip = query->ip;
+    case query_state_successful: {
+	int len = UT_MIN(capacity, query->ips_len);
+	ut_assert(len >= 1);
+
+	memcpy(ips, query->ips, sizeof(struct xcm_addr_ip) * len);
+
 	epoll_reg_set_reset(&query->reg);
-	return 0;
+
+	return len;
+    }
     default:
 	ut_assert(0);
 	return 0;
@@ -320,9 +336,9 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 
 	xcm_dns_query_process(query);
 
-	int query_rc = xcm_dns_query_result(query, &host->ip);
+	int query_rc = xcm_dns_query_result(query, &host->ip, 1);
 
-	if (query_rc == 0)
+	if (query_rc == 1)
 	    break;
 	else if (query < 0 && errno != EAGAIN)
 	    goto out_query_free;
