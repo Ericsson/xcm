@@ -60,6 +60,11 @@ int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr)
     return proto_addr_to_sockaddr(tcp_addr, xcm_addr_parse_tcp, sockaddr);
 }
 
+int tp_btcp_to_sockaddr(const char *btcp_addr, struct sockaddr *sockaddr)
+{
+    return proto_addr_to_sockaddr(btcp_addr, xcm_addr_parse_btcp, sockaddr);
+}
+
 int tp_btls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr)
 {
     return proto_addr_to_sockaddr(tls_addr, xcm_addr_parse_btls, sockaddr);
@@ -116,6 +121,18 @@ void tp_sockaddr_to_sctp_addr(struct sockaddr_storage *sock_addr,
     sockaddr_to_host(sock_addr, &xcm_host, &port);
 
     int rc = xcm_addr_make_sctp(&xcm_host, port, xcm_addr, capacity);
+    ut_assert(rc == 0);
+}
+
+void tp_sockaddr_to_btcp_addr(struct sockaddr_storage *sock_addr,
+			      char *xcm_addr, size_t capacity)
+{
+    struct xcm_addr_host xcm_host;
+    uint16_t port;
+
+    sockaddr_to_host(sock_addr, &xcm_host, &port);
+
+    int rc = xcm_addr_make_btcp(&xcm_host, port, xcm_addr, capacity);
     ut_assert(rc == 0);
 }
 

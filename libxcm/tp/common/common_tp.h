@@ -20,12 +20,17 @@ void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
 
 int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr);
 
+int tp_btcp_to_sockaddr(const char *btcp_addr, struct sockaddr *sockaddr);
+
 int tp_btls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr);
 
 void tp_sockaddr_to_tcp_addr(struct sockaddr_storage *sock_addr,
 			     char *xcm_addr, size_t capacity);
 
 void tp_sockaddr_to_sctp_addr(struct sockaddr_storage *sock_addr,
+			      char *xcm_addr, size_t capacity);
+
+void tp_sockaddr_to_btcp_addr(struct sockaddr_storage *sock_addr,
 			      char *xcm_addr, size_t capacity);
 
 void tp_sockaddr_to_btls_addr(struct sockaddr_storage *sock_addr,

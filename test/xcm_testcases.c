@@ -338,6 +338,11 @@ static bool is_ipv6(const char *addr)
     return strchr(addr, '[') != NULL;
 }
 
+static bool is_btcp(const char *addr)
+{
+    return strncmp(addr, "btcp", 4) == 0;
+}
+
 static bool is_tcp(const char *addr)
 {
     return strncmp(addr, "tcp", 3) == 0;
@@ -370,8 +375,8 @@ static bool is_sctp(const char *addr)
 
 static bool is_inet(const char *addr)
 {
-    return is_tcp(addr) || is_btls(addr) || is_tls_or_utls(addr) ||
-	is_sctp(addr);
+    return is_btcp(addr) || is_tcp(addr) || is_btls(addr) ||
+	is_tls_or_utls(addr) || is_sctp(addr);
 }
 
 static pid_t simple_server(const char *ns, const char *addr,
@@ -538,6 +543,7 @@ static void add_m_test_addrs(char ***addrs, int *len) {
 }
 
 static void add_b_test_addrs(char ***addrs, int *len) {
+    add_addr(addrs, len, gen_ip4_port_addr("btcp"));
 #ifdef XCM_TLS
     add_addr(addrs, len, gen_ip4_port_addr("btls"));
 #endif
@@ -1322,6 +1328,11 @@ TESTCASE_TIMEOUT(xcm, tcp_dns_timeout, 20.0)
     return run_dns_timeout_test("tcp");
 }
 
+TESTCASE_TIMEOUT(xcm, btcp_dns_timeout, 20.0)
+{
+    return run_dns_timeout_test("btcp");
+}
+
 #ifdef XCM_TLS
 
 TESTCASE_TIMEOUT(xcm, tls_dns_timeout, 20.0)
@@ -2090,31 +2101,43 @@ TESTCASE(xcm, non_blocking_connect_lazy)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, invalid_service)
+static int run_invalid_service(const char *addr, const char *invalid_service)
 {
-    struct xcm_attr_map *attrs;
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "xcm.service", invalid_service);
 
-#ifdef XCM_TLS
-    CHKNULLERRNO(xcm_server("btls:127.0.0.1:4711"), EINVAL);
-
-    attrs = xcm_attr_map_create();
-    xcm_attr_map_add_bool(attrs, "xcm.service", "messaging");
-
-    CHKNULLERRNO(xcm_server_a("btls:127.0.0.1:4711", attrs), EINVAL);
+    CHKNULLERRNO(xcm_server_a(addr, attrs), EINVAL);
 
     xcm_attr_map_destroy(attrs);
-#endif
 
-    attrs = xcm_attr_map_create();
-    xcm_attr_map_add_bool(attrs, "xcm.service", "bytestream");
-
-    CHKNULLERRNO(xcm_server_a("tcp:127.0.0.1:4711", attrs), EINVAL);
-
-    xcm_attr_map_destroy(attrs);
-    
     return UTEST_SUCCESS;
 }
 
+static int run_invalid_service_bytestream(const char *addr)
+{
+    return run_invalid_service(addr, "xcm.bytestream");
+}
+
+static int run_invalid_service_messaging(const char *addr)
+{
+    CHKNULLERRNO(xcm_server(addr), EINVAL);
+
+    return run_invalid_service(addr, "xcm.bytestream");
+}
+
+TESTCASE(xcm, invalid_service)
+{
+    int i;
+    for (i = 0; i < test_b_addrs_len; i++)
+	if (run_invalid_service_messaging(test_b_addrs[i]) < 0)
+	    return UTEST_FAILED;
+    
+    for (i = 0; i < test_m_addrs_len; i++)
+	if (run_invalid_service_bytestream(test_m_addrs[i]) < 0)
+	    return UTEST_FAILED;
+
+    return UTEST_SUCCESS;
+}
 
 TESTCASE(xcm, unknown_proto)
 {
@@ -2399,6 +2422,9 @@ TESTCASE_F(xcm, non_established_non_blocking_connect, REQUIRE_ROOT)
 {
     int rc = run_non_established_connect("tcp");
 
+    if (rc == UTEST_SUCCESS)
+	rc = run_non_established_connect("btcp");
+
 #ifdef XCM_SCTP
     if (rc == UTEST_SUCCESS)
 	rc = run_non_established_connect("sctp");
@@ -2529,12 +2555,18 @@ static int run_dead_peer_detection(const char *proto, sa_family_t ip_version)
     return UTEST_SUCCESS;
 }
 
-TESTCASE_TIMEOUT_F(xcm, tcp_dead_peer_detection, 60.0, REQUIRE_ROOT)
+TESTCASE_TIMEOUT_F(xcm, tcp_dead_peer_detection, 120.0, REQUIRE_ROOT)
 {
     if (run_dead_peer_detection("tcp", AF_INET) < 0)
 	return UTEST_FAILED;
     if (run_dead_peer_detection("tcp", AF_INET6) < 0)
 	return UTEST_FAILED;
+
+    if (run_dead_peer_detection("btcp", AF_INET) < 0)
+	return UTEST_FAILED;
+    if (run_dead_peer_detection("btcp", AF_INET6) < 0)
+	return UTEST_FAILED;
+
     return UTEST_SUCCESS;
 }
 
@@ -2559,7 +2591,7 @@ TESTCASE_TIMEOUT_F(xcm, tls_dead_peer_detection, 120.0, REQUIRE_ROOT)
 
 #define DETECTION_TIME (2.5)
 
-static int run_keepalive_attr(const char *proto, sa_family_t ip_version)
+static int run_keepalive_attr_family(const char *proto, sa_family_t ip_version)
 {
     const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
 
@@ -2646,13 +2678,23 @@ fail:
     return UTEST_SUCCESS;
 }
 
+static int run_keepalive_attr(const char *proto)
+{
+    if (run_keepalive_attr_family("tcp", AF_INET) < 0)
+	return UTEST_FAILED;
+
+    if (run_keepalive_attr_family("tcp", AF_INET6) < 0)
+	return UTEST_FAILED;
+
+    return UTEST_SUCCESS;
+}
 
 TESTCASE_F(xcm, tcp_keepalive_attr, REQUIRE_ROOT)
 {
-    if (run_keepalive_attr("tcp", AF_INET) < 0)
+    if (run_keepalive_attr("tcp") < 0)
 	return UTEST_FAILED;
 
-    if (run_keepalive_attr("tcp", AF_INET6) < 0)
+    if (run_keepalive_attr("btcp") < 0)
 	return UTEST_FAILED;
 
     return UTEST_SUCCESS;
@@ -2661,16 +2703,10 @@ TESTCASE_F(xcm, tcp_keepalive_attr, REQUIRE_ROOT)
 #ifdef XCM_TLS
 TESTCASE_F(xcm, tls_keepalive_attr, REQUIRE_ROOT)
 {
-    if (run_keepalive_attr("tls", AF_INET) < 0)
+    if (run_keepalive_attr("tls") < 0)
 	return UTEST_FAILED;
 
-    if (run_keepalive_attr("tls", AF_INET6) < 0)
-	return UTEST_FAILED;
-
-    if (run_keepalive_attr("btls", AF_INET) < 0)
-	return UTEST_FAILED;
-
-    if (run_keepalive_attr("btls", AF_INET6) < 0)
+    if (run_keepalive_attr("btls") < 0)
 	return UTEST_FAILED;
 
     return UTEST_SUCCESS;

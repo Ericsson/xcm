@@ -150,6 +150,11 @@ TESTCASE(addr, parse_utls)
     GEN_DNS_BASED_PARSE_TEST(utls, tcp);
 }
 
+TESTCASE(addr, parse_btcp)
+{
+    GEN_DNS_BASED_PARSE_TEST(btcp, tcp);
+}
+
 TESTCASE(addr, parse_btls)
 {
     GEN_DNS_BASED_PARSE_TEST(btls, tcp);
@@ -275,6 +280,11 @@ TESTCASE(addr, make_tls)
 TESTCASE(addr, make_utls)
 {
     GEN_DNS_BASED_MAKE_TEST(utls);
+}
+
+TESTCASE(addr, make_btcp)
+{
+    GEN_DNS_BASED_MAKE_TEST(btcp);
 }
 
 TESTCASE(addr, make_btls)

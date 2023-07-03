@@ -255,6 +255,12 @@ int xcm_addr_parse_sctp(const char *sctp_addr_s, struct xcm_addr_host *host,
     return host_port_parse(XCM_SCTP_PROTO, sctp_addr_s, host, port);
 }
 
+int xcm_addr_parse_btcp(const char *btcp_addr_s, struct xcm_addr_host *host,
+			uint16_t *port)
+{
+    return host_port_parse(XCM_BTCP_PROTO, btcp_addr_s, host, port);
+}
+
 int xcm_addr_parse_btls(const char *btls_addr_s, struct xcm_addr_host *host,
 			uint16_t *port)
 {
@@ -364,6 +370,12 @@ int xcm_addr_make_ux(const char *ux_name, char *ux_addr_s, size_t capacity)
 int xcm_addr_make_uxf(const char *uxf_name, char *uxf_addr_s, size_t capacity)
 {
     return addr_make_ux_uxf(XCM_UXF_PROTO, uxf_name, uxf_addr_s, capacity);
+}
+
+int xcm_addr_make_btcp(const struct xcm_addr_host *host, unsigned short port,
+		       char *btcp_addr_s, size_t capacity)
+{
+    return host_port_make(XCM_BTCP_PROTO, host, port, btcp_addr_s, capacity);
 }
 
 int xcm_addr_make_btls(const struct xcm_addr_host *host, unsigned short port,

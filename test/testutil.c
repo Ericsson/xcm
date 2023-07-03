@@ -26,7 +26,7 @@
 
 bool tu_is_bytestream_addr(const char *addr)
 {
-    return strncmp(addr, "btls", 4) == 0;
+    return strncmp(addr, "btls", 4) == 0 || strncmp(addr, "btcp", 4) == 0;
 }
 
 static void add_service_attr(struct xcm_attr_map *attrs, bool bytestream)

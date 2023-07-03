@@ -66,6 +66,7 @@
     xcm_addr_parse_sctp;
     xcm_addr_parse_ux;
     xcm_addr_parse_uxf;
+    xcm_addr_parse_btcp;
     xcm_addr_parse_btls;
     xcm_addr_make_utls;
     xcm_addr_make_tls;
@@ -73,6 +74,7 @@
     xcm_addr_make_sctp;
     xcm_addr_make_ux;
     xcm_addr_make_uxf;
+    xcm_addr_make_btcp;
     xcm_addr_make_btls;
 # Obsolete pre-DNS address parsing
     xcm_addr_utls6_parse;

@@ -38,8 +38,10 @@ extern "C" {
 #define XCM_UXF_PROTO "uxf"
 
 /** Protocol string for the Transport Layer Security (TLS) byte-stream
- * transport. */
+    transport. */
 #define XCM_BTLS_PROTO "btls"
+/** Protocol string for the TCP byte-stream transport. */
+#define XCM_BTCP_PROTO "btcp"
 
 enum xcm_addr_type {
     xcm_addr_type_name,
@@ -189,6 +191,22 @@ int xcm_addr_parse_ux(const char *ux_addr_s, char *ux_path, size_t capacity);
 int xcm_addr_parse_uxf(const char *uxf_addr_s, char *uxf_path,
 		       size_t capacity);
 
+/** Parses a BTCP XCM address.
+ *
+ * @param[in] btcp_addr_s The string to sparse.
+ * @param[out] host The host (either DNS domain name or IPv4/v6 adress).
+ * @param[out] port The TCP port in network byte order.
+ *
+ * @return Returns 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * EINVAL       | Malformed address.
+ */
+int xcm_addr_parse_btcp(const char *btcp_addr_s, struct xcm_addr_host *host,
+			uint16_t *port);
+
 /** Parses a BTLS XCM address.
  *
  * @param[in] btls_addr_s The string to sparse.
@@ -308,6 +326,24 @@ int xcm_addr_make_ux(const char *ux_name, char *ux_addr_s, size_t capacity);
  * EINVAL       | Invalid format of or too long UNIX Domain Socket address.
  */
 int xcm_addr_make_uxf(const char *uxf_name, char *uxf_addr_s, size_t capacity);
+
+/** Builds a BTCP XCM address string from the supplied host and port.
+ *
+ * @param[in] host The host (either DNS domain name or IPv4/v6 adress).
+ * @param[in] port The port in network byte order.
+ * @param[out] btcp_addr_s The user-supplied buffer where to store the result.
+ * @param[in] capacity The length of the buffer.
+ *
+ * @return Returns 0 on success, or -1 if an error occured
+ *         (in which case errno is set).
+ *
+ * errno        | Description
+ * -------------|------------
+ * ENAMETOOLONG | The user-supplied buffer is too small to fit the address.
+ * EINVAL       | Invalid IP address.
+ */
+int xcm_addr_make_btcp(const struct xcm_addr_host *host, unsigned short port,
+		       char *btcp_addr_s, size_t capacity);
 
 /** Builds a BTLS XCM address string from the supplied host and port.
  *

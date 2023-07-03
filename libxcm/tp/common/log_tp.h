@@ -255,8 +255,15 @@
 #define LOG_FINISH_SAY_FREE(s)					\
     log_debug_sock(s, "Socket has no outstanding tasks.")
 
-#define LOG_FINISH_SAY_BUSY(s, state_name)				\
-    log_debug_sock(s, "Socket is busy in state \"%s\".", state_name)
+#define LOG_FINISH_SAY_BUSY(s, state)				\
+    log_debug_sock(s, "Socket is busy in state \"%s\".", state_name(state))
+
+#define LOG_FINISH_SAY_BAD(s, reason_errno)			     \
+    log_debug_sock(s, "Socket is bad: errno %d (%s).", reason_errno, \
+		   strerror(reason_errno))
+
+#define LOG_FINISH_SAY_CLOSED(s)		\
+    log_debug_sock(s, "Socket is closed.")
 
 #define LOG_SET_BLOCKING(s, should_block) \
     log_debug_sock(s, "Received request to put socket into %s mode.", \

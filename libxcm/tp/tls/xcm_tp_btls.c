@@ -1449,7 +1449,7 @@ static int btls_finish(struct xcm_socket *s)
     case conn_state_tls_connecting:
     case conn_state_tls_accepting:
 	errno = EAGAIN;
-	LOG_FINISH_SAY_BUSY(s, state_name(bts->conn.state));
+	LOG_FINISH_SAY_BUSY(s, bts->conn.state);
 	return -1;
     case conn_state_ready:
 	return 0;
