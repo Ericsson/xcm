@@ -55,11 +55,6 @@ static int proto_addr_to_sockaddr(const char *addr,
     return 0;
 }
 
-int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr)
-{
-    return proto_addr_to_sockaddr(tcp_addr, xcm_addr_parse_tcp, sockaddr);
-}
-
 int tp_btcp_to_sockaddr(const char *btcp_addr, struct sockaddr *sockaddr)
 {
     return proto_addr_to_sockaddr(btcp_addr, xcm_addr_parse_btcp, sockaddr);
@@ -98,18 +93,6 @@ static void sockaddr_to_host(struct sockaddr_storage *sock_addr,
 {
     xcm_host->type = xcm_addr_type_ip;
     sockaddr_to_ip(sock_addr, &(xcm_host->ip), port);
-}
-
-void tp_sockaddr_to_tcp_addr(struct sockaddr_storage *sock_addr,
-			     char *xcm_addr, size_t capacity)
-{
-    struct xcm_addr_host xcm_host;
-    uint16_t port;
-
-    sockaddr_to_host(sock_addr, &xcm_host, &port);
-
-    int rc = xcm_addr_make_tcp(&xcm_host, port, xcm_addr, capacity);
-    ut_assert(rc == 0);
 }
 
 void tp_sockaddr_to_sctp_addr(struct sockaddr_storage *sock_addr,
@@ -164,8 +147,12 @@ void tp_sockaddr_to_btls_addr(struct sockaddr_storage *sock_addr,
     }
 
 
+GEN_ADDR_CONV(btcp, tcp)
+GEN_ADDR_CONV(tcp, btcp)
+
 GEN_ADDR_CONV(btls, tls)
 GEN_ADDR_CONV(tls, btls)
+
 GEN_ADDR_CONV(utls, tls)
 GEN_ADDR_CONV(tls, utls)
 

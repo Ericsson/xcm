@@ -18,14 +18,9 @@ struct xcm_socket;
 void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
 		       int64_t scope, struct sockaddr *sockaddr);
 
-int tp_tcp_to_sockaddr(const char *tcp_addr, struct sockaddr *sockaddr);
-
 int tp_btcp_to_sockaddr(const char *btcp_addr, struct sockaddr *sockaddr);
 
 int tp_btls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr);
-
-void tp_sockaddr_to_tcp_addr(struct sockaddr_storage *sock_addr,
-			     char *xcm_addr, size_t capacity);
 
 void tp_sockaddr_to_sctp_addr(struct sockaddr_storage *sock_addr,
 			      char *xcm_addr, size_t capacity);
@@ -36,8 +31,12 @@ void tp_sockaddr_to_btcp_addr(struct sockaddr_storage *sock_addr,
 void tp_sockaddr_to_btls_addr(struct sockaddr_storage *sock_addr,
 			      char *xcm_addr, size_t capacity);
 
+int btcp_to_tcp(const char *btcp_addr, char *tcp_addr, size_t capacity);
+int tcp_to_btcp(const char *tcp_addr, char *btcp_addr, size_t capacity);
+
 int btls_to_tls(const char *btls_addr, char *tls_addr, size_t capacity);
 int tls_to_btls(const char *tls_addr, char *btls_addr, size_t capacity);
+
 int utls_to_tls(const char *utls_addr, char *tls_addr, size_t capacity);
 int tls_to_utls(const char *tls_addr, char *utls_addr, size_t capacity);
 

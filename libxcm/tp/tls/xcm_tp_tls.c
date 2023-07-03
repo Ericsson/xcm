@@ -135,6 +135,11 @@ static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
     if (xcm_tp_socket_init(btls_socket, btls_parent) < 0)
 	goto err_destroy;
 
+    if (s->type == xcm_socket_type_conn) {
+	mbuf_init(&ts->conn.send_mbuf);
+	mbuf_init(&ts->conn.receive_mbuf);
+    }
+
     ts->btls_socket = btls_socket;
 
     return 0;
@@ -145,10 +150,11 @@ err:
     return -1;
 }
 
-static void deinit(struct xcm_socket *s, bool owner)
+static void deinit(struct xcm_socket *s)
 {
     if (s != NULL) {
 	struct tls_socket *ts = TOTLS(s);
+
 	xcm_tp_socket_destroy(ts->btls_socket);
 	ut_free(ts->attrs);
 
@@ -177,7 +183,7 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
 
     return 0;
 err:
-    deinit(s, true);
+    deinit(s);
     return -1;
 }
 
@@ -204,7 +210,7 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
     return 0;
  
  err:
-    deinit(s, true);
+    deinit(s);
     return -1;
 }
 
@@ -217,10 +223,9 @@ static int tls_close(struct xcm_socket *s)
     if (s) {
 	struct tls_socket *ts = TOTLS(s);
 
-	if (xcm_tp_socket_close(ts->btls_socket) < 0)
-	    rc = -1;
+	rc = xcm_tp_socket_close(ts->btls_socket);
 
-	deinit(s, true);
+	deinit(s);
     }
 
     return rc;
@@ -235,7 +240,7 @@ static void tls_cleanup(struct xcm_socket *s)
 
 	xcm_tp_socket_cleanup(ts->btls_socket);
 
-	deinit(s, false);
+	deinit(s);
     }
 }
 
@@ -248,7 +253,7 @@ static int tls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     if (xcm_tp_socket_accept(conn_ts->btls_socket,
 			     server_ts->btls_socket) < 0) {
-	deinit(conn_s, true);
+	deinit(conn_s);
 	return -1;
     }
 
