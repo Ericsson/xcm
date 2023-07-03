@@ -279,7 +279,7 @@ TESTCASE(addr, make_utls)
 
 TESTCASE(addr, make_btls)
 {
-    GEN_DNS_BASED_MAKE_TEST(utls);
+    GEN_DNS_BASED_MAKE_TEST(btls);
 }
 
 /* Below are testcases for the old pre-DNS and pre-IPv6 parse and make
