@@ -123,7 +123,7 @@ static int tcp_init(struct xcm_socket *s, struct xcm_socket *parent)
     struct tcp_socket *ts = TOTCP(s);
 
     struct xcm_socket *btcp_socket =
-	xcm_tp_socket_create(btcp_proto(), s->type, s->epoll_fd, false);
+	xcm_tp_socket_create(btcp_proto(), s->type, s->xpoll, false);
 
     if (btcp_socket == NULL)
 	goto err;
@@ -143,6 +143,8 @@ static int tcp_init(struct xcm_socket *s, struct xcm_socket *parent)
 
     ts->btcp_socket = btcp_socket;
 
+    LOG_INIT(s);
+
     return 0;
 
 err_destroy:
@@ -153,16 +155,18 @@ err:
 
 static void deinit(struct xcm_socket *s)
 {
-    if (s != NULL) {
-	struct tcp_socket *ts = TOTCP(s);
+    struct tcp_socket *ts = TOTCP(s);
 
-	xcm_tp_socket_destroy(ts->btcp_socket);
-	ut_free(ts->attrs);
+    LOG_DEINIT(s);
 
-	if (s->type == xcm_socket_type_conn) {
-	    mbuf_deinit(&ts->conn.send_mbuf);
-	    mbuf_deinit(&ts->conn.receive_mbuf);
-	}
+    xcm_tp_socket_destroy(ts->btcp_socket);
+    ts->btcp_socket = NULL;
+
+    ut_free(ts->attrs);
+
+    if (s->type == xcm_socket_type_conn) {
+	mbuf_deinit(&ts->conn.send_mbuf);
+	mbuf_deinit(&ts->conn.receive_mbuf);
     }
 }
 
@@ -175,15 +179,18 @@ static int tcp_connect(struct xcm_socket *s, const char *remote_addr)
     char btcp_addr[XCM_ADDR_MAX+1];
 
     if (tcp_to_btcp(remote_addr, btcp_addr, sizeof(btcp_addr)) < 0) {
-	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err;
+	LOG_ADDR_PARSE_ERR(s, remote_addr, errno);
+	goto err_close;
     }
 
     if (xcm_tp_socket_connect(ts->btcp_socket, btcp_addr) < 0)
-	goto err;
+	goto err_deinit;
 
     return 0;
-err:
+
+err_close:
+    xcm_tp_socket_close(ts->btcp_socket);
+err_deinit:
     deinit(s);
     return -1;
 }
@@ -197,18 +204,20 @@ static int tcp_server(struct xcm_socket *s, const char *local_addr)
     char btcp_addr[XCM_ADDR_MAX + 1];
 
     if (tcp_to_btcp(local_addr, btcp_addr, sizeof(btcp_addr)) < 0) {
-	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err;
+	LOG_ADDR_PARSE_ERR(s, local_addr, errno);
+	goto err_close;
     }
 
     if (xcm_tp_socket_server(ts->btcp_socket, btcp_addr) < 0)
-	goto err;
+	goto err_deinit;
 
     LOG_SERVER_CREATED(s);
 
     return 0;
 
-err:
+err_close:
+    xcm_tp_socket_close(ts->btcp_socket);
+err_deinit:
     deinit(s);
     return -1;
 }
@@ -219,7 +228,7 @@ static int tcp_close(struct xcm_socket *s)
 
     int rc = 0;
 
-    if (s) {
+    if (s != NULL) {
 	struct tcp_socket *ts = TOTCP(s);
 
 	rc = xcm_tp_socket_close(ts->btcp_socket);
@@ -454,7 +463,7 @@ static int tcp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 
 static void tcp_update(struct xcm_socket *s)
 {
-    LOG_UPDATE_REQ(s, s->epoll_fd);
+    LOG_UPDATE_REQ(s, xpoll_get_fd(s->xpoll));
 
     struct tcp_socket *ts = TOTCP(s);
 
@@ -496,6 +505,9 @@ static const char *tcp_get_remote_addr(struct xcm_socket *s,
 {
     struct tcp_socket *ts = TOTCP(s);
 
+    if (ts->btcp_socket == NULL)
+	return NULL;
+
     if (strlen(ts->conn.raddr) == 0) {
 	const char *btcp_addr  =
 	    xcm_tp_socket_get_remote_addr(ts->btcp_socket, suppress_tracing);
@@ -526,6 +538,9 @@ static const char *tcp_get_local_addr(struct xcm_socket *s,
 				      bool suppress_tracing)
 {
     struct tcp_socket *ts = TOTCP(s);
+
+    if (ts->btcp_socket == NULL)
+	return NULL;
 
     if (strlen(ts->laddr) == 0) {
 	const char *btcp_addr  =

@@ -2200,6 +2200,8 @@ TESTCASE(xcm, invalid_address)
     CHKNULLERRNO(xcm_connect("ux:", 0), EINVAL);
 
     CHKNULLERRNO(xcm_server("tcp:kex%:33"), EINVAL);
+    CHKNULLERRNO(xcm_server("tcp:foo"), EINVAL);
+    CHKNULLERRNO(xcm_server("tcp:[example.com]:99"), EINVAL);
 
 #ifdef XCM_SCTP
     char oversized_sctp[1024];
@@ -2217,9 +2219,7 @@ TESTCASE(xcm, invalid_address)
     snprintf(oversized_tls, sizeof(oversized_tls), "tls:%s:4711",
 	     oversized_domain_name);
     CHKNULLERRNO(xcm_server(oversized_tls), EINVAL);
-
     CHKNULLERRNO(xcm_server("tls:a$df"), EINVAL);
-
     CHKNULLERRNO(xcm_server("tls:[www.google.com]:99"), EINVAL);
 
     char oversized_utls[1024];
@@ -5958,7 +5958,7 @@ static int tcp_spammer(int dport, int max_writes, int write_max_size,
 	size_t write_sz = tu_randint(1, write_max_size);
 	uint8_t buf[write_sz];
 	tu_randblk(buf, write_sz);
-	send_rc = send(sock, buf, write_sz, 0);
+	send_rc = send(sock, buf, write_sz, MSG_NOSIGNAL);
     } while (send_rc > 0 && --writes_left > 0);
 
     close(sock);

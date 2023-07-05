@@ -11,7 +11,7 @@
 #include <sys/queue.h>
 #include <time.h>
 
-#include "epoll_reg.h"
+#include "xpoll.h"
 
 #define TIMER_MGR_CLOCKID CLOCK_MONOTONIC
 
@@ -19,7 +19,7 @@
 
 struct timer_mgr;
 
-struct timer_mgr *timer_mgr_create(int epoll_fd, void *log_ref);
+struct timer_mgr *timer_mgr_create(struct xpoll *xpoll, void *log_ref);
 
 int64_t timer_mgr_schedule(struct timer_mgr *mgr, double relative_timeout);
 

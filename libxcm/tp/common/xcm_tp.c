@@ -40,14 +40,14 @@ static int64_t get_next_sock_id(void)
 
 struct xcm_socket *xcm_tp_socket_create(const struct xcm_tp_proto *proto,
 					enum xcm_socket_type type,
-					int epoll_fd, bool is_blocking)
+					struct xpoll *xpoll, bool is_blocking)
 {
     size_t priv_size = proto->ops->priv_size(type);
     struct xcm_socket *s = ut_calloc(sizeof(struct xcm_socket) + priv_size);
     s->proto = proto;
     s->type = type;
     s->is_blocking = is_blocking;
-    s->epoll_fd = epoll_fd;
+    s->xpoll = xpoll;
     s->sock_id = get_next_sock_id();
     s->condition = 0;
 #ifdef XCM_CTL

@@ -34,6 +34,9 @@ void tp_sockaddr_to_btls_addr(struct sockaddr_storage *sock_addr,
 int btcp_to_tcp(const char *btcp_addr, char *tcp_addr, size_t capacity);
 int tcp_to_btcp(const char *tcp_addr, char *btcp_addr, size_t capacity);
 
+int btcp_to_btls(const char *btcp_addr, char *btls_addr, size_t capacity);
+int btls_to_btcp(const char *btls_addr, char *btcp_addr, size_t capacity);
+
 int btls_to_tls(const char *btls_addr, char *tls_addr, size_t capacity);
 int tls_to_btls(const char *tls_addr, char *btls_addr, size_t capacity);
 

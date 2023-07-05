@@ -40,8 +40,7 @@ XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 libxcm_la_SOURCES = \
 	common/slist.c \
 	common/util.c \
-	libxcm/core/epoll_reg.c \
-	libxcm/core/epoll_reg_set.c \
+	libxcm/core/xpoll.c \
 	libxcm/core/log.c \
 	libxcm/core/timer_mgr.c \
 	libxcm/core/xcm.c \

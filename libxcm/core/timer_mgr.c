@@ -6,7 +6,6 @@
 #include <assert.h>
 #include <sys/timerfd.h>
 
-#include "epoll_reg.h"
 #include "log_timer_mgr.h"
 #include "util.h"
 
@@ -24,8 +23,11 @@ LIST_HEAD(mtimer_list, mtimer);
 
 struct timer_mgr
 {
-    int fd;
-    struct epoll_reg epoll_reg;
+    struct xpoll *xpoll;
+
+    int timer_fd;
+    int timer_fd_reg_id;
+
     struct mtimer_list mtimers;
     int64_t next_timer_id;
 
@@ -47,11 +49,11 @@ static void mtimer_destroy(struct mtimer *mtimer)
     ut_free(mtimer);
 }
 
-struct timer_mgr *timer_mgr_create(int epoll_fd, void *log_ref)
+struct timer_mgr *timer_mgr_create(struct xpoll *xpoll, void *log_ref)
 {
-    int fd = timerfd_create(TIMER_MGR_CLOCKID, TFD_NONBLOCK);
+    int timer_fd = timerfd_create(TIMER_MGR_CLOCKID, TFD_NONBLOCK);
 
-    if (fd < 0) {
+    if (timer_fd < 0) {
 	LOG_TIMER_MGR_TIMER_FD_CREATION_FAILED(log_ref, errno);
 	return NULL;
     }
@@ -59,23 +61,23 @@ struct timer_mgr *timer_mgr_create(int epoll_fd, void *log_ref)
     struct timer_mgr *timer = ut_malloc(sizeof(struct timer_mgr));
 
     *timer = (struct timer_mgr) {
-	.fd = fd,
+	.timer_fd = timer_fd,
+	.xpoll = xpoll,
 	.log_ref = log_ref
     };
 
-    epoll_reg_init(&timer->epoll_reg, epoll_fd, timer->fd, log_ref);
-    epoll_reg_add(&timer->epoll_reg, EPOLLIN);
+    timer->timer_fd_reg_id = xpoll_fd_reg_add(xpoll, timer->timer_fd, EPOLLIN);
 
     LIST_INIT(&timer->mtimers);
 
-    LOG_TIMER_MGR_CREATED(log_ref, fd);
+    LOG_TIMER_MGR_CREATED(log_ref, timer_fd);
 
     return timer;
 }
 
 static void set_timer_fd(struct timer_mgr *timer, struct itimerspec *ts)
 {
-    if (timerfd_settime(timer->fd, TFD_TIMER_ABSTIME, ts, NULL) < 0) {
+    if (timerfd_settime(timer->timer_fd, TFD_TIMER_ABSTIME, ts, NULL) < 0) {
 	LOG_TIMER_MGR_SETTIME_FAILED(timer->log_ref, errno);
 	ut_mem_exhausted();
     }
@@ -230,10 +232,10 @@ static void destroy_mtimers(struct timer_mgr *timer)
 void timer_mgr_destroy(struct timer_mgr *timer)
 {
     if (timer != NULL) {
-	epoll_reg_reset(&timer->epoll_reg);
-	UT_PROTECT_ERRNO(close(timer->fd));
+	xpoll_fd_reg_del(timer->xpoll, timer->timer_fd_reg_id);
+	ut_close(timer->timer_fd);
 	destroy_mtimers(timer);
-	LOG_TIMER_MGR_DESTROYED(timer->log_ref, timer->fd);
+	LOG_TIMER_MGR_DESTROYED(timer->log_ref, timer->timer_fd);
 	ut_free(timer);
     }
 }

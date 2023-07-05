@@ -23,10 +23,6 @@
 #define LOG_DNS_TIMED_OUT(s, domain_name) \
     LOG_DNS_ERROR(s, domain_name, "resolution timed out")
 
-#define LOG_DNS_EPOLL_FD_FAILED(reason_errno)                            \
-    log_debug("Failed to create DNS epoll instance; errno %d (%s).",	\
-	      reason_errno, strerror(reason_errno))
-
 #define LOG_DNS_CONF_FILE_ERROR(s)					\
     log_debug_sock(s, "DNS configuration file could not be read.")
 

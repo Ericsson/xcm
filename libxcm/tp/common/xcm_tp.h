@@ -11,6 +11,7 @@
 #include "xcm_addr_limits.h"
 #include "xcm_attr.h"
 #include "xcm_attr_limits.h"
+#include "xpoll.h"
 
 enum xcm_socket_type {
     xcm_socket_type_conn,
@@ -116,7 +117,7 @@ struct xcm_socket {
     enum xcm_socket_type type;
     int64_t sock_id;
     bool is_blocking;
-    int epoll_fd;
+    struct xpoll* xpoll;
     int condition;
 #ifdef XCM_CTL
     struct ctl *ctl;
@@ -137,7 +138,8 @@ struct xcm_socket {
 
 struct xcm_socket *xcm_tp_socket_create(const struct xcm_tp_proto *proto,
 					enum xcm_socket_type type,
-					int epoll_fd, bool is_blocking);
+					struct xpoll *xpoll,
+					bool is_blocking);
 void xcm_tp_socket_destroy(struct xcm_socket *s);
 
 int xcm_tp_socket_init(struct xcm_socket *s, struct xcm_socket *parent);

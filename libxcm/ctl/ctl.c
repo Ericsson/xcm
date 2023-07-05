@@ -7,7 +7,6 @@
 
 #include "common_ctl.h"
 #include "ctl_proto.h"
-#include "epoll_reg_set.h"
 #include "log_ctl.h"
 #include "util.h"
 #include "xcm.h"
@@ -18,7 +17,6 @@
 #include <linux/un.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -28,6 +26,8 @@
 struct client
 {
     int fd;
+    int fd_reg_id;
+
     bool is_response_pending;
     struct ctl_proto_msg pending_response;
 };
@@ -37,10 +37,10 @@ struct ctl
     struct xcm_socket *socket;
 
     int server_fd;
+    int server_fd_reg_id;
+
     struct client clients[MAX_CLIENTS];
     int num_clients;
-
-    struct epoll_reg_set reg_set;
 };
 
 static int create_ux(struct xcm_socket *s)
@@ -101,11 +101,11 @@ struct ctl *ctl_create(struct xcm_socket *socket)
 
     struct ctl *ctl = ut_calloc(sizeof(struct ctl));
 
-    ctl->server_fd = server_fd;
     ctl->socket = socket;
 
-    epoll_reg_set_init(&ctl->reg_set, socket->epoll_fd, socket);
-    epoll_reg_set_add(&ctl->reg_set, ctl->server_fd, EPOLLIN);
+    ctl->server_fd = server_fd;
+    ctl->server_fd_reg_id =
+	xpoll_fd_reg_add(ctl->socket->xpoll, ctl->server_fd, EPOLLIN);
 
     return ctl;
 }
@@ -114,7 +114,7 @@ static void remove_client(struct ctl *ctl, int client_idx)
 {
     struct client *rclient = &ctl->clients[client_idx];
 
-    epoll_reg_set_del(&ctl->reg_set, rclient->fd);
+    xpoll_fd_reg_del(ctl->socket->xpoll, rclient->fd_reg_id);
 
     ut_close(rclient->fd);
 
@@ -124,7 +124,7 @@ static void remove_client(struct ctl *ctl, int client_idx)
 	memcpy(rclient, &ctl->clients[last_idx], sizeof(struct client));
 
     if (ctl->num_clients == MAX_CLIENTS)
-	epoll_reg_set_add(&ctl->reg_set, ctl->server_fd, EPOLLIN);
+	xpoll_fd_reg_mod(ctl->socket->xpoll, ctl->server_fd_reg_id, EPOLLIN);
 
     ctl->num_clients--;
 
@@ -145,6 +145,8 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 	int rc = getsockname(ctl->server_fd, (struct sockaddr *)&laddr,
 			     &laddr_len);
 
+
+	xpoll_fd_reg_del(ctl->socket->xpoll, ctl->server_fd_reg_id);
 
 	ut_close(ctl->server_fd);
 
@@ -244,7 +246,7 @@ static int process_client(struct client *client, struct ctl *ctl)
 
 	client->is_response_pending = false;
 
-	epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLIN);
+	xpoll_fd_reg_mod(ctl->socket->xpoll, client->fd_reg_id, EPOLLIN);
     } else {
 	struct ctl_proto_msg req = {};
 
@@ -266,7 +268,7 @@ static int process_client(struct client *client, struct ctl *ctl)
 	}
 
 	client->is_response_pending = true;
-	epoll_reg_set_mod(&ctl->reg_set, client->fd, EPOLLOUT);
+	xpoll_fd_reg_mod(ctl->socket->xpoll, client->fd_reg_id, EPOLLOUT);
 
 	struct ctl_proto_msg *res = &client->pending_response;
 
@@ -300,15 +302,15 @@ static void accept_client(struct ctl *ctl)
 	return;
     }
 
-    epoll_reg_set_add(&ctl->reg_set, client_fd, EPOLLIN);
-
     struct client *nclient = &ctl->clients[ctl->num_clients];
     ctl->num_clients++;
     nclient->fd = client_fd;
+    nclient->fd_reg_id =
+	xpoll_fd_reg_add(ctl->socket->xpoll, nclient->fd, EPOLLIN);
     nclient->is_response_pending = false;
 
     if (ctl->num_clients == MAX_CLIENTS)
-	epoll_reg_set_del(&ctl->reg_set, ctl->server_fd);
+	xpoll_fd_reg_mod(ctl->socket->xpoll, ctl->server_fd_reg_id, 0);
 
     LOG_CLIENT_ACCEPTED(ctl->socket, nclient->fd, ctl->num_clients);
 

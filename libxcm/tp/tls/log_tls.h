@@ -15,12 +15,8 @@
     log_debug_sock(s, "Attempting to finish TLS handshake, in TLS %s role.", \
 		   (client) ? "client" : "server")
 
-#define LOG_TLS_CONN_ESTABLISHED(s, fd, proto_name, cipher_name)	\
-    do {								\
-	LOG_CONN_ESTABLISHED("TLS", s, fd);				\
-	log_debug_sock(s, "Protocol: %s Cipher: %s.", proto_name,	\
-		       cipher_name);					\
-    } while (0)
+#define LOG_TLS_CONN_ESTABLISHED(s)			     \
+    log_debug_sock(s, "TLS-layer connection established.")
 
 #define LOG_TLS_VERIFY_MISSING_PEER_NAMES(s)				\
     log_debug_sock(s, "Hostname verification enabled, but no peer names " \

@@ -22,6 +22,7 @@
 struct tls_socket
 {
     char laddr[XCM_ADDR_MAX + 1];
+
     struct xcm_socket *btls_socket;
 
     struct xcm_tp_attr *attrs;
@@ -45,9 +46,6 @@ struct tls_socket
 };
 
 #define TOTLS(s) XCM_TP_GETPRIV(s, struct tls_socket)
-
-#define TLS_SET_STATE(_s, _state)		\
-    TP_SET_STATE(_s, TOTLS(_s), _state)
 
 static int tls_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int tls_connect(struct xcm_socket *s, const char *remote_addr);
@@ -122,7 +120,7 @@ static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
     struct tls_socket *ts = TOTLS(s);
 
     struct xcm_socket *btls_socket =
-	xcm_tp_socket_create(btls_proto(), s->type, s->epoll_fd, false);
+	xcm_tp_socket_create(btls_proto(), s->type, s->xpoll, false);
 
     if (btls_socket == NULL)
 	goto err;
@@ -142,6 +140,8 @@ static int tls_init(struct xcm_socket *s, struct xcm_socket *parent)
 
     ts->btls_socket = btls_socket;
 
+    LOG_INIT(s);
+
     return 0;
 
 err_destroy:
@@ -152,16 +152,18 @@ err:
 
 static void deinit(struct xcm_socket *s)
 {
-    if (s != NULL) {
-	struct tls_socket *ts = TOTLS(s);
+    struct tls_socket *ts = TOTLS(s);
 
-	xcm_tp_socket_destroy(ts->btls_socket);
-	ut_free(ts->attrs);
+    LOG_DEINIT(s);
 
-	if (s->type == xcm_socket_type_conn) {
-	    mbuf_deinit(&ts->conn.send_mbuf);
-	    mbuf_deinit(&ts->conn.receive_mbuf);
-	}
+    xcm_tp_socket_destroy(ts->btls_socket);
+    ts->btls_socket = NULL;
+
+    ut_free(ts->attrs);
+
+    if (s->type == xcm_socket_type_conn) {
+	mbuf_deinit(&ts->conn.send_mbuf);
+	mbuf_deinit(&ts->conn.receive_mbuf);
     }
 }
 
@@ -174,15 +176,18 @@ static int tls_connect(struct xcm_socket *s, const char *remote_addr)
     char btls_addr[XCM_ADDR_MAX+1];
 
     if (tls_to_btls(remote_addr, btls_addr, sizeof(btls_addr)) < 0) {
-	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err;
+	LOG_ADDR_PARSE_ERR(s, remote_addr, errno);
+	goto err_close;
     }
 
     if (xcm_tp_socket_connect(ts->btls_socket, btls_addr) < 0)
-	goto err;
+	goto err_deinit;
 
     return 0;
-err:
+
+err_close:
+    xcm_tp_socket_close(ts->btls_socket);
+err_deinit:
     deinit(s);
     return -1;
 }
@@ -198,18 +203,20 @@ static int tls_server(struct xcm_socket *s, const char *local_addr)
     char btls_addr[XCM_ADDR_MAX+1];
 
     if (tls_to_btls(local_addr, btls_addr, sizeof(btls_addr)) < 0) {
-	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err;
+	LOG_ADDR_PARSE_ERR(s, local_addr, errno);
+	goto err_close;
     }
 
     if (xcm_tp_socket_server(ts->btls_socket, btls_addr) < 0)
-	goto err;
+	goto err_deinit;
 
     LOG_SERVER_CREATED(s);
 
     return 0;
- 
- err:
+
+err_close:
+    xcm_tp_socket_close(ts->btls_socket);
+err_deinit:
     deinit(s);
     return -1;
 }
@@ -220,7 +227,7 @@ static int tls_close(struct xcm_socket *s)
 
     int rc = 0;
 
-    if (s) {
+    if (s != NULL) {
 	struct tls_socket *ts = TOTLS(s);
 
 	rc = xcm_tp_socket_close(ts->btls_socket);
@@ -455,7 +462,7 @@ static int tls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 
 static void tls_update(struct xcm_socket *s)
 {
-    LOG_UPDATE_REQ(s, s->epoll_fd);
+    LOG_UPDATE_REQ(s, xpoll_get_fd(s->xpoll));
 
     struct tls_socket *ts = TOTLS(s);
 
@@ -497,6 +504,9 @@ static const char *tls_get_remote_addr(struct xcm_socket *s,
 {
     struct tls_socket *ts = TOTLS(s);
 
+    if (ts->btls_socket == NULL)
+	return NULL;
+
     if (strlen(ts->conn.raddr) == 0) {
 	const char *btls_addr  =
 	    xcm_tp_socket_get_remote_addr(ts->btls_socket, suppress_tracing);
@@ -527,6 +537,9 @@ static const char *tls_get_local_addr(struct xcm_socket *s,
 				      bool suppress_tracing)
 {
     struct tls_socket *ts = TOTLS(s);
+
+    if (ts->btls_socket == NULL)
+	return NULL;
 
     if (strlen(ts->laddr) == 0) {
 	const char *btls_addr  =

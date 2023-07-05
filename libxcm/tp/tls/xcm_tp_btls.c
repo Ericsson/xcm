@@ -3,11 +3,9 @@
  * Copyright(c) 2020-2021 Ericsson AB
  */
 
-#include "active_fd.h"
 #include "common_tp.h"
 #include "ctx_store.h"
 #include "dns_attr.h"
-#include "epoll_reg.h"
 #include "item.h"
 #include "log_tls.h"
 #include "log_tp.h"
@@ -24,6 +22,7 @@
 #include <limits.h>
 #include <netinet/in.h>
 #include <openssl/asn1.h>
+#include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/obj_mac.h>
 #include <openssl/ossl_typ.h>
@@ -59,10 +58,7 @@
 enum conn_state {
     conn_state_none,
     conn_state_initialized,
-    conn_state_resolving,
-    conn_state_tcp_connecting,
-    conn_state_tls_connecting,
-    conn_state_tls_accepting,
+    conn_state_tls_handshaking,
     conn_state_ready,
     conn_state_bad,
     conn_state_closed
@@ -72,8 +68,8 @@ struct btls_socket
 {
     char laddr[XCM_ADDR_MAX+1];
 
-    /* IPv6 scope id */
-    int64_t scope;
+    struct xcm_tp_attr *attrs;
+    size_t attrs_len;
 
     bool tls_auth;
     bool tls_client;
@@ -91,40 +87,29 @@ struct btls_socket
     struct item key;
     struct item tc;
 
-    struct epoll_reg fd_reg;
+    struct xcm_socket *btcp_socket;
 
     SSL_CTX *ssl_ctx;
 
     union {
 	struct {
 	    SSL *ssl;
+
 	    enum conn_state state;
 
-	    /* only used during DNS resolution */
-	    int fd4;
-	    int fd6;
+	    int badness_reason;
 
-	    struct epoll_reg active_fd_reg;
-
-	    /* DNS resolution */
-	    struct xcm_addr_host remote_host;
-	    uint16_t remote_port;
-	    struct xcm_dns_query *query;
-
-	    struct dns_opts dns_opts;
-	    struct tcp_opts tcp_opts;
+	    int bell_reg_id;
 
 	    int ssl_condition;
-	    int ssl_event;
+	    int ssl_wants;
 
-	    int badness_reason;
 	    char raddr[XCM_ADDR_MAX+1];
 
 	    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
 	} conn;
 	struct {
 	    bool created;
-	    int fd;
 	} server;
     };
 };
@@ -155,8 +140,6 @@ static void btls_get_attrs(struct xcm_socket* s,
 			  size_t *attr_list_len);
 static size_t btls_priv_size(enum xcm_socket_type type);
 
-static void try_finish_in_progress(struct xcm_socket *s);
-
 const static struct xcm_tp_ops btls_ops = {
     .init = btls_init,
     .connect = btls_connect,
@@ -176,9 +159,126 @@ const static struct xcm_tp_ops btls_ops = {
     .priv_size = btls_priv_size
 };
 
+static const char *state_name(enum conn_state state)
+{
+    switch (state)
+    {
+    case conn_state_none: return "none";
+    case conn_state_initialized: return "initialized";
+    case conn_state_tls_handshaking: return "tls handshaking";
+    case conn_state_ready: return "ready";
+    case conn_state_closed: return "closed";
+    case conn_state_bad: return "bad";
+    default: return "unknown";
+    }
+}
+
 static size_t btls_priv_size(enum xcm_socket_type type)
 {
     return sizeof(struct btls_socket);
+}
+
+static int bio_btcp_write(BIO *b, const char *buf, int len)
+{
+    struct xcm_socket *btcp_socket = BIO_get_data(b);
+
+    BIO_clear_retry_flags(b);
+
+    errno = 0;
+
+    int rc = xcm_tp_socket_send(btcp_socket, buf, len);
+
+    if (rc < 0) {
+	if (errno == EAGAIN)
+	    BIO_set_retry_read(b);
+	else if (errno == EPIPE)
+	    BIO_set_flags(b, BIO_get_flags(b) | BIO_FLAGS_IN_EOF);
+    }
+
+    return rc;
+}
+
+static int bio_btcp_read(BIO *b, char *buf, int capacity) {
+    struct xcm_socket *btcp_socket = BIO_get_data(b);
+
+    if (buf == NULL)
+	return 0;
+
+    BIO_clear_retry_flags(b);
+
+    errno = 0;
+
+    int rc = xcm_tp_socket_receive(btcp_socket, buf, capacity);
+
+    if (rc < 0 && errno == EAGAIN)
+	BIO_set_retry_read(b);
+    else if (rc == 0)
+	BIO_set_flags(b, BIO_get_flags(b) | BIO_FLAGS_IN_EOF);
+
+    return rc;
+}
+
+static int bio_btcp_flush(BIO *b)
+{
+    struct xcm_socket *btcp_socket = BIO_get_data(b);
+
+    int rc = xcm_tp_socket_finish(btcp_socket);
+
+    return rc == 0 ? 1 : 0;
+}
+
+static long bio_btcp_ctrl(BIO *b, int cmd, long num, void *ptr) {
+    //printf("Received ctrl cmd %d\n", cmd);
+
+    switch (cmd) {
+    case BIO_CTRL_DUP:
+	ut_assert(0);
+	return 0;
+    case BIO_CTRL_FLUSH:
+	return bio_btcp_flush(b);
+    case BIO_CTRL_EOF:
+        return (BIO_get_flags(b) & BIO_FLAGS_IN_EOF) != 0;
+    case BIO_CTRL_GET_CLOSE:
+        return BIO_get_shutdown(b);
+        break;
+    case BIO_CTRL_SET_CLOSE:
+	BIO_set_shutdown(b, (int)num);
+        break;
+    }
+
+    return 0;
+}
+
+static int bio_btcp_new(BIO *b) {
+    BIO_set_init(b, 1);
+    BIO_set_data(b, NULL);
+    BIO_set_flags(b, 0);
+    return 1;
+}
+
+static int bio_btcp_free(BIO *b)
+{
+    return 1;
+}
+
+static BIO_METHOD *bio_btcp_method;
+
+static void reg_ssl_bio(void)
+{
+    int bio_btcp_type = BIO_get_new_index() | BIO_TYPE_SOURCE_SINK;
+
+    ut_assert(bio_btcp_type != -1);
+
+    bio_btcp_method = BIO_meth_new(bio_btcp_type, "bio_btcp");
+
+    if (bio_btcp_method == NULL)
+	ut_mem_exhausted();
+
+    BIO_meth_set_write(bio_btcp_method, bio_btcp_write);
+    BIO_meth_set_read(bio_btcp_method, bio_btcp_read);
+    BIO_meth_set_ctrl(bio_btcp_method, bio_btcp_ctrl);
+    BIO_meth_set_create(bio_btcp_method, bio_btcp_new);
+    BIO_meth_set_destroy(bio_btcp_method, bio_btcp_free);
 }
 
 static void init_ssl(void)
@@ -189,11 +289,7 @@ static void init_ssl(void)
 
     SSL_load_error_strings();
 
-    /* OpenSSL BIO doesn't use MSG_NOSIGNAL when sending to sockets,
-       so to avoid having the client die from SIGPIPE on sending to
-       closed connection, we have to have to ignore on an application
-       level */
-    signal(SIGPIPE, SIG_IGN);
+    reg_ssl_bio();
 }
 
 static void reg(void) __attribute__((constructor));
@@ -204,69 +300,9 @@ static void reg(void)
     init_ssl();
 }
 
-static void assert_conn_socket(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    switch (bts->conn.state) {
-    case conn_state_none:
-	ut_assert(0);
-	break;
-    case conn_state_initialized:
-	ut_assert(bts->conn.fd4 == -1);
-	ut_assert(bts->conn.fd6 == -1);
-	break;
-    case conn_state_resolving:
-	ut_assert(bts->conn.fd4 >= 0);
-	ut_assert(bts->conn.fd6 >= 0);
-	ut_assert(bts->conn.query != NULL);
-	break;
-    case conn_state_ready:
-	ut_assert(bts->conn.fd4 == -1);
-	ut_assert(bts->conn.fd6 == -1);
-
-	if (bts->conn.ssl_condition != 0) {
-	    ut_assert(bts->conn.ssl_condition == XCM_SO_RECEIVABLE ||
-		      bts->conn.ssl_condition == XCM_SO_SENDABLE);
-	    ut_assert(bts->conn.ssl_event == EPOLLIN ||
-		      bts->conn.ssl_event == EPOLLOUT);
-	} else
-	    ut_assert(bts->conn.ssl_event == EPOLLIN ||
-		      bts->conn.ssl_event == EPOLLOUT ||
-		      bts->conn.ssl_event == 0);
-	break;
-    case conn_state_tcp_connecting:
-	ut_assert(bts->conn.ssl_event == 0);
-	break;
-    case conn_state_tls_connecting:
-    case conn_state_tls_accepting:
-	ut_assert(bts->conn.ssl_event);
-	break;
-    case conn_state_bad:
-	ut_assert(bts->conn.badness_reason != 0);
-	break;
-    case conn_state_closed:
-	break;
-    default:
-	ut_assert(0);
-	break;
-    }
-}
-
 static void assert_socket(struct xcm_socket *s)
 {
     ut_assert(XCM_TP_GETOPS(s) == &btls_ops);
-
-    switch (s->type) {
-    case xcm_socket_type_conn:
-	assert_conn_socket(s);
-	break;
-    case xcm_socket_type_server:
-	break;
-    default:
-	ut_assert(0);
-	break;
-    }
 }
 
 static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
@@ -290,14 +326,24 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
 	bts->valid_peer_names = slist_clone(parent_bts->valid_peer_names);
 }
 
+static struct xcm_tp_proto *btcp_proto(void)
+{
+    static struct xcm_tp_proto *cached_proto = NULL;
+
+    struct xcm_tp_proto *proto =
+	__atomic_load_n(&cached_proto, __ATOMIC_RELAXED);
+
+    if (proto == NULL) {
+	proto = xcm_tp_proto_by_name(XCM_BTCP_PROTO);
+	__atomic_store_n(&cached_proto, proto, __ATOMIC_RELAXED);
+    }
+
+    return proto;
+}
+
 static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 {
     struct btls_socket *bts = TOBTLS(s);
-
-    if (parent != NULL)
-	bts->scope = TOBTLS(parent)->scope;
-    else
-	bts->scope = -1;
 
     bts->tls_auth = true;
     bts->check_time = true;
@@ -306,129 +352,53 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     item_init(&bts->key);
     item_init(&bts->tc);
 
-    switch (s->type) {
-    case xcm_socket_type_server:
-	bts->server.fd = -1;
-	break;
-    case xcm_socket_type_conn: {
-	int active_fd = active_fd_get();
-	if (active_fd < 0)
-	    return -1;
+    bts->btcp_socket =
+	xcm_tp_socket_create(btcp_proto(), s->type, s->xpoll, false);
 
+    if (bts->btcp_socket == NULL)
+	return -1;
+
+    struct xcm_socket *btcp_parent = NULL;
+
+    if (parent != NULL)
+	btcp_parent = TOBTLS(parent)->btcp_socket;
+
+    if (xcm_tp_socket_init(bts->btcp_socket, btcp_parent) < 0)
+	return -1;
+
+    if (s->type == xcm_socket_type_conn) {
 	bts->tls_client = true;
 
 	bts->conn.state = conn_state_initialized;
 
-	bts->conn.fd4 = -1;
-	bts->conn.fd6 = -1;
-
-	epoll_reg_init(&bts->conn.active_fd_reg, s->epoll_fd, active_fd, s);
-
-	dns_opts_init(&bts->conn.dns_opts);
-
-	/* Connections spawned from a server socket never use DNS */
-	if (parent != NULL)
-	    dns_opts_disable_timeout(&bts->conn.dns_opts);
-
-	if (!xcm_dns_supports_timeout_param())
-	    dns_opts_disable_timeout(&bts->conn.dns_opts);
-
-	tcp_opts_init(&bts->conn.tcp_opts);
+	bts->conn.bell_reg_id = xpoll_bell_reg_add(s->xpoll, false);
 
 	if (parent != NULL)
 	    inherit_tls_conf(s, parent);
-
-	break;
-    }
     }
 
-    epoll_reg_init(&bts->fd_reg, s->epoll_fd, -1, s);
+    LOG_INIT(s);
 
     return 0;
 }
 
-static int conn_fd(struct xcm_socket *s)
+static void conn_deinit(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
-
-    if (bts->conn.ssl == NULL)
-	return -1;
-
-    /* On some versions of OpenSSL, calling SSL_get_fd() before a BIO
-       has been configured (e.g., via SSL_set_fd()) adds an error to
-       the OpenSSL error stack. */
-    if (SSL_get_rbio(bts->conn.ssl) == NULL)
-	return -1;
-
-    return SSL_get_fd(bts->conn.ssl);
-}
-
-static int server_fd(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    return bts->server.fd;
-}
-
-static int socket_fd(struct xcm_socket *s)
-{
-    switch (s->type) {
-    case xcm_socket_type_conn:
-	return conn_fd(s);
-    case xcm_socket_type_server:
-	return server_fd(s);
-    default:
-	ut_assert(0);
-	return -1;
-    }
-}
-
-static int conn_deinit(struct xcm_socket *s, bool owner)
-{
-    int rc = 0;
-
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (bts->conn.state == conn_state_ready && owner)
-	SSL_shutdown(bts->conn.ssl);
-
-    int fd = conn_fd(s);
-
-    ut_close_if_valid(fd);
 
     SSL_free(bts->conn.ssl);
-    /* have socket_fd()/conn_fd() still callable (i.e. for logging) */
-    bts->conn.ssl = NULL;
 
-    int active_fd = bts->conn.active_fd_reg.fd;
-    epoll_reg_reset(&bts->conn.active_fd_reg);
-    active_fd_put(active_fd);
-
-    xcm_dns_query_free(bts->conn.query);
-
-    ut_close_if_valid(bts->conn.fd4);
-    ut_close_if_valid(bts->conn.fd6);
-
-    return rc;
+    xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
 }
 
-static void server_deinit(struct xcm_socket *s, bool owner)
+static void deinit(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    ut_close_if_valid(bts->server.fd);
-}
-
-static void deinit(struct xcm_socket *s, bool owner)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    epoll_reg_reset(&bts->fd_reg);
+    LOG_DEINIT(s);
 
     if (s->type == xcm_socket_type_conn)
-	conn_deinit(s, owner);
-    else
-	server_deinit(s, owner);
+	conn_deinit(s);
 
     item_deinit(&bts->cert);
     item_deinit(&bts->key);
@@ -438,29 +408,17 @@ static void deinit(struct xcm_socket *s, bool owner)
 
     if (bts->ssl_ctx)
 	ctx_store_put(bts->ssl_ctx);
+
+    xcm_tp_socket_destroy(bts->btcp_socket);
+    bts->btcp_socket = NULL;
+
+    ut_free(bts->attrs);
 }
 
-static const char *state_name(enum conn_state state)
-{
-    switch (state)
-    {
-    case conn_state_none: return "none";
-    case conn_state_initialized: return "initialized";
-    case conn_state_resolving: return "resolving";
-    case conn_state_tcp_connecting: return "tcp connecting";
-    case conn_state_tls_connecting: return "tls connecting";
-    case conn_state_tls_accepting: return "tls accepting";
-    case conn_state_ready: return "ready";
-    case conn_state_bad: return "bad";
-    case conn_state_closed: return "closed";
-    default: return "unknown";
-    }
-}
-
-/* There are two ways the connection may be closed; either the
-   remote peer just close the TCP connection, or it's done in
-   a proper way on the SSL layer first, then TCP close. XCM
-   currently doesn't care about which one happened. */
+/* There are two ways the connection may be closed; either the remote
+   peer just close the TCP connection, or it's done in a proper way on
+   the SSL layer first, then TCP close. XCM doesn't care about which
+   one happened. */
 static void process_ssl_close(struct xcm_socket *s)
 {
     LOG_RCV_EOF(s);
@@ -487,12 +445,12 @@ static void process_ssl_event(struct xcm_socket *s, int condition,
     case SSL_ERROR_WANT_READ:
 	LOG_TLS_OPENSSL_WANTS_READ(s);
 	bts->conn.ssl_condition = condition;
-	bts->conn.ssl_event = EPOLLIN;
+	bts->conn.ssl_wants = XCM_SO_RECEIVABLE;
 	break;
     case SSL_ERROR_WANT_WRITE:
 	LOG_TLS_OPENSSL_WANTS_WRITE(s);
 	bts->conn.ssl_condition = condition;
-	bts->conn.ssl_event = EPOLLOUT;
+	bts->conn.ssl_wants = XCM_SO_SENDABLE;
 	break;
     case SSL_ERROR_ZERO_RETURN:
 	process_ssl_close(s);
@@ -513,7 +471,7 @@ static void process_ssl_event(struct xcm_socket *s, int condition,
 		LOG_TLS_SPURIOUS_EINPROGRESS(s);
 		/* we try again to see if we can finish TCP connect,
 		   even though we should have already */
-		bts->conn.ssl_event = EPOLLIN;
+		bts->conn.ssl_wants = XCM_SO_RECEIVABLE;
 	    } else if (ssl_errno == EPIPE || ssl_errno == 0) {
 		/* early close seems to yield errno == 0 */
 		LOG_TLS_REMOTE_CLOSED_CONN(s);
@@ -596,218 +554,34 @@ static void verify_peer_cert(struct xcm_socket *s)
     }
 }
 
-static int bind_local_addr(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (strlen(bts->laddr) == 0)
-	return 0;
-
-    struct sockaddr_storage addr;
-
-    if (tp_btls_to_sockaddr(bts->laddr, (struct sockaddr *)&addr) < 0) {
-	LOG_CLIENT_BIND_ADDR_ERROR(s, bts->laddr);
-	return -1;
-    }
-
-    if (bind(conn_fd(s), (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-	LOG_CLIENT_BIND_FAILED(s, bts->laddr, conn_fd(s), errno);
-	return -1;
-    }
-
-    bts->laddr[0] = '\0';
-
-    return 0;
-}
-
-static void try_finish_connect(struct xcm_socket *s);
-
-static int conf_scope(struct xcm_socket *s, int64_t *scope,
-		      const struct xcm_addr_ip *ip)
-{
-    if (*scope >= 0 && ip->family == AF_INET) {
-	LOG_SCOPE_SET_ON_IPV4_SOCKET(s);
-	errno = EINVAL;
-	return -1;
-    }
-
-    if (*scope == -1 && ip->family == AF_INET6)
-	*scope = 0;
-
-    return 0;
-}
-
-static int conn_select_fd(struct xcm_socket *s, sa_family_t family)
-{
-    struct btls_socket *bts = TOBTLS(s);
-    int used;
-    int unused;
-
-    if (family == AF_INET) {
-	used = bts->conn.fd4;
-	unused = bts->conn.fd6;
-    } else { /* AF_INET6 */
-	used = bts->conn.fd6;
-	unused = bts->conn.fd4;
-    }
-
-    ut_assert(used >= 0);
-
-    if (SSL_set_fd(bts->conn.ssl, used) != 1)
-	return -1;
-
-    ut_close_if_valid(unused);
-
-    bts->conn.fd4 = -1;
-    bts->conn.fd6 = -1;
-
-    return 0;
-}
-
-static void begin_connect(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-    ut_assert(bts->conn.remote_host.type == xcm_addr_type_ip);
-
-    UT_SAVE_ERRNO;
-
-    if (conn_select_fd(s, bts->conn.remote_host.ip.family) < 0)
-	goto err;
-
-    if (bind_local_addr(s) < 0)
-	goto err;
-
-    if (tcp_opts_effectuate(&bts->conn.tcp_opts, conn_fd(s)) <  0)
-	goto err;
-
-    if (conf_scope(s, &bts->scope, &bts->conn.remote_host.ip) < 0)
-	goto err;
-
-    struct sockaddr_storage servaddr;
-    tp_ip_to_sockaddr(&bts->conn.remote_host.ip, bts->conn.remote_port,
-		      bts->scope, (struct sockaddr*)&servaddr);
-
-    if (connect(conn_fd(s), (struct sockaddr*)&servaddr,
-		sizeof(servaddr)) < 0) {
-	if (errno != EINPROGRESS) {
-	    LOG_CONN_FAILED(s, errno);
-	    goto err;
-	} else
-	    LOG_CONN_IN_PROGRESS(s);
-    } else
-	BTLS_SET_STATE(s, conn_state_tls_connecting);
-
-    UT_RESTORE_ERRNO_DC;
-
-    assert_socket(s);
-
-    epoll_reg_set_fd(&bts->fd_reg, conn_fd(s));
-
-    try_finish_connect(s);
-
-    return;
-
- err:
-    BTLS_SET_STATE(s, conn_state_bad);
-    UT_RESTORE_ERRNO(bad_errno);
-    bts->conn.badness_reason = bad_errno;
-}
-
-static void try_finish_resolution(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-    struct xcm_addr_ip ip;
-
-    UT_SAVE_ERRNO;
-    int rc = xcm_dns_query_result(bts->conn.query, &ip, 1);
-    UT_RESTORE_ERRNO(query_errno);
-
-    if (rc < 0) {
-	if (query_errno == EAGAIN)
-	    return;
-
-	BTLS_SET_STATE(s, conn_state_bad);
-	ut_assert(query_errno != EAGAIN);
-	ut_assert(query_errno != 0);
-	bts->conn.badness_reason = query_errno;
-    } else {
-	BTLS_SET_STATE(s, conn_state_tcp_connecting);
-	bts->conn.remote_host.type = xcm_addr_type_ip;
-	bts->conn.remote_host.ip = ip;
-	begin_connect(s);
-    }
-
-    /* It's important to close the query after begin_connect(), since
-       this will result in a different fd number compared to the dns
-       query's pipe fd. This in turn is important not to confuse the
-       application, with two kernel objects with the same number
-       (although at different times. */
-    xcm_dns_query_free(bts->conn.query);
-    bts->conn.query = NULL;
-}
-
 static void try_finish_tls_handshake(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
-    
+
+    if (bts->conn.state != conn_state_tls_handshaking)
+	return;
+
     LOG_TLS_HANDSHAKE(s, bts->tls_client);
 
     bts->conn.ssl_condition = 0;
-    bts->conn.ssl_event = 0;
+    bts->conn.ssl_wants = 0;
 
     int (*handshake)(SSL *ssl) = bts->tls_client ? SSL_connect : SSL_accept;
 
     UT_SAVE_ERRNO;
     int rc = handshake(bts->conn.ssl);
-    UT_RESTORE_ERRNO(accept_errno);
+    UT_RESTORE_ERRNO(handshake_errno);
 
     if (rc < 1)
-	process_ssl_event(s, 0, rc, accept_errno);
+	process_ssl_event(s, 0, rc, handshake_errno);
     else {
 	BTLS_SET_STATE(s, conn_state_ready);
 
 	if (bts->tls_auth)
 	    verify_peer_cert(s);
+	
 	if (bts->conn.state == conn_state_ready)
-	    LOG_TLS_CONN_ESTABLISHED(s, conn_fd(s),
-				     SSL_get_version(bts->conn.ssl),
-				     SSL_get_cipher_name(bts->conn.ssl));
-    }
-}
-
-static void try_finish_connect(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-    switch (bts->conn.state) {
-    case conn_state_resolving:
-	xcm_dns_query_process(bts->conn.query);
-	try_finish_resolution(s);
-	break;
-    case conn_state_tcp_connecting: {
-	LOG_TCP_CONN_CHECK(s);
-	UT_SAVE_ERRNO;
-	int rc = ut_established(conn_fd(s));
-	UT_RESTORE_ERRNO(connect_errno);
-	if (rc < 0) {
-	    if (connect_errno == EINPROGRESS) {
-		LOG_CONN_IN_PROGRESS(s);
-		return;
-	    }
-	    LOG_CONN_FAILED(s, connect_errno);
-	    BTLS_SET_STATE(s, conn_state_bad);
-	    bts->conn.badness_reason = connect_errno;
-	    ut_assert(connect_errno != 0);
-	    return;
-	}
-	LOG_TCP_CONN_ESTABLISHED(s, conn_fd(s));
-	BTLS_SET_STATE(s, conn_state_tls_connecting);
-    }
-    case conn_state_tls_connecting: {
-	try_finish_tls_handshake(s);
-	break;
-    }
-    default:
-	break;
+	    LOG_TLS_CONN_ESTABLISHED(s);
     }
 }
 
@@ -926,25 +700,22 @@ static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
     SSL_set_verify(ssl, mode, NULL);
 }
 
-static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
+static int set_bio(struct xcm_socket *s)
 {
-    *fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+    BIO *btcp_bio = BIO_new(bio_btcp_method);
 
-    if (*fd < 0) {
-	LOG_SOCKET_CREATION_FAILED(errno);
+    if (btcp_bio == NULL) {
+	errno = ENOMEM;
 	return -1;
     }
 
-    return 0;
-}
-
-static int create_conn_socket(struct xcm_socket *s, sa_family_t family)
-{
     struct btls_socket *bts = TOBTLS(s);
 
-    int *fd = family == AF_INET ? &bts->conn.fd4 : &bts->conn.fd6;
+    BIO_set_data(btcp_bio, bts->btcp_socket);
 
-    return create_socket(s, fd, family);
+    SSL_set_bio(bts->conn.ssl, btcp_bio, btcp_bio);
+
+    return 0;
 }
 
 static int btls_connect(struct xcm_socket *s, const char *remote_addr)
@@ -954,12 +725,13 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
     LOG_CONN_REQ(s, remote_addr);
 
     if (finalize_tls_conf(s) < 0)
-	goto err;
+	goto err_close;
 
-    if (xcm_addr_parse_btls(remote_addr, &bts->conn.remote_host,
-			   &bts->conn.remote_port) < 0) {
-	LOG_ADDR_PARSE_ERR(remote_addr, errno);
-	goto err;
+    char btcp_addr[XCM_ADDR_MAX+1];
+
+    if (btls_to_btcp(remote_addr, btcp_addr, sizeof(btcp_addr)) < 0) {
+	LOG_ADDR_PARSE_ERR(s, remote_addr, errno);
+	goto err_close;
     }
 
     ut_assert(bts->tls_auth == item_is_set(&bts->tc));
@@ -970,12 +742,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, s);
 
     if (!bts->ssl_ctx)
-	goto err;
+	goto err_close;
 
     bts->conn.ssl = SSL_new(bts->ssl_ctx);
     if (bts->conn.ssl == NULL) {
 	errno = ENOMEM;
-	goto err;
+	goto err_close;
     }
 
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
@@ -985,68 +757,50 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 	       bts->check_time);
 
     if (bts->verify_peer_name)  {
-	if (bts->conn.remote_host.type == xcm_addr_type_name &&
-	    bts->valid_peer_names == NULL) {
+	struct xcm_addr_host host;
+	uint16_t port;
+
+	int rc = xcm_addr_parse_btls(remote_addr, &host, &port);
+	ut_assert(rc == 0);
+
+	if (host.type == xcm_addr_type_name && bts->valid_peer_names == NULL) {
 	    bts->valid_peer_names = slist_create();
-	    slist_append(bts->valid_peer_names, bts->conn.remote_host.name);
+	    slist_append(bts->valid_peer_names, host.name);
 	}
 
 	if (enable_hostname_validation(s) < 0)
-	    goto err;
+	    goto err_close;
     }
 
-    if (bts->conn.remote_host.type == xcm_addr_type_name) {
-	/* The XCM API call (e.g., xcm_finish()) completing the DNS
-	   resolution process may be made from a different network
-	   namespace than the original xcm_connect() call, and thus
-	   socket creation cannot be deferred. The API promises that
-	   the network namespace of the thread calling xcm_connect()
-	   will be used for the outgoing connection. An alternative
-	   method would be to track the identity (inode) of the
-	   calling thread's network namespace (at both xcm_connect()
-	   and the next XCM API call), but that's more complicated and
-	   likely also more costly than just creating both a IPv4 and
-	   IPv6 socket, already at this point. Both an AF_INET and an
-	   AF_INET6 socket is needed since the IP protocol version to
-	   actually be used is not yet known. */
-	if (create_conn_socket(s, AF_INET) < 0 ||
-	    create_conn_socket(s, AF_INET6) < 0)
-	    goto err;
-
-	BTLS_SET_STATE(s, conn_state_resolving);
-	bts->conn.query =
-	    xcm_dns_resolve(bts->conn.remote_host.name, s->epoll_fd,
-			    bts->conn.dns_opts.timeout, s);
-	if (bts->conn.query == NULL)
-	    goto err;
-    } else {
-	if (create_conn_socket(s, bts->conn.remote_host.ip.family) < 0)
-	    goto err;
-
-	if (bts->verify_peer_name && bts->valid_peer_names == NULL) {
-	    LOG_TLS_VERIFY_MISSING_HOSTNAME(s);
-	    errno = EINVAL;
-	    goto err;
-	}
-	BTLS_SET_STATE(s, conn_state_tcp_connecting);
-	begin_connect(s);
+    if (bts->verify_peer_name && bts->valid_peer_names == NULL) {
+	LOG_TLS_VERIFY_MISSING_HOSTNAME(s);
+	errno = EINVAL;
+	goto err_close;
     }
 
-    try_finish_connect(s);
+    if (xcm_tp_socket_connect(bts->btcp_socket, btcp_addr) < 0)
+	goto err_deinit;
+
+    if (set_bio(s) < 0)
+	goto err_close;
+
+    BTLS_SET_STATE(s, conn_state_tls_handshaking);
+
+    try_finish_tls_handshake(s);
 
     if (bts->conn.state == conn_state_bad) {
 	errno = bts->conn.badness_reason;
-	goto err;
+	goto err_close;
     }
 
     return 0;
 
- err:
-    deinit(s, true);
+err_close:
+    xcm_tp_socket_close(bts->btcp_socket);
+err_deinit:
+    deinit(s);
     return -1;
 }
-
-#define TCP_CONN_BACKLOG (32)
 
 static int btls_server(struct xcm_socket *s, const char *local_addr)
 {
@@ -1054,15 +808,15 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
 
     LOG_SERVER_REQ(s, local_addr);
 
-    struct xcm_addr_host host;
-    uint16_t port;
-    if (xcm_addr_parse_btls(local_addr, &host, &port) < 0) {
-	LOG_ADDR_PARSE_ERR(local_addr, errno);
-	goto err;
+    char btcp_addr[XCM_ADDR_MAX+1];
+
+    if (btls_to_btcp(local_addr, btcp_addr, sizeof(btcp_addr)) < 0) {
+	LOG_ADDR_PARSE_ERR(s, local_addr, errno);
+	goto err_close;
     }
 
     if (finalize_tls_conf(s) < 0)
-	goto err;
+	goto err_close;
     
     /*
      * A SSL_CTX is kept with the server socket, even though it's not
@@ -1080,82 +834,64 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
     bts->ssl_ctx =
 	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, s);
     if (bts->ssl_ctx == NULL)
-	goto err;
+	goto err_close;
 
     ut_assert(bts->tls_auth == item_is_set(&bts->tc));
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
 
-    if (xcm_dns_resolve_sync(&host, s) < 0)
-	goto err;
-
-    if (create_socket(s, &bts->server.fd, host.ip.family) < 0)
-	goto err;
-
-    if (port > 0 && tcp_effectuate_reuse_addr(bts->server.fd) < 0) {
-	LOG_SERVER_REUSEADDR_FAILED(errno);
-	goto err;
-    }
-
-    if (tcp_effectuate_dscp(bts->server.fd) < 0)
-	goto err;
-
-    if (conf_scope(s, &bts->scope, &host.ip) < 0)
-	goto err;
-
-    struct sockaddr_storage addr;
-    tp_ip_to_sockaddr(&host.ip, port, bts->scope, (struct sockaddr *)&addr);
-
-    if (bind(bts->server.fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-	LOG_SERVER_BIND_FAILED(errno);
-	goto err;
-    }
-
-    if (listen(bts->server.fd, TCP_CONN_BACKLOG) < 0) {
-	LOG_SERVER_LISTEN_FAILED(errno);
-	goto err;
-    }
-
-    epoll_reg_set_fd(&bts->fd_reg, bts->server.fd);
-
-    LOG_SERVER_CREATED_FD(s, bts->server.fd);
+    if (xcm_tp_socket_server(bts->btcp_socket, btcp_addr) < 0)
+	goto err_deinit;
 
     bts->server.created = true;
 
+    LOG_SERVER_CREATED(s);
+
     return 0;
- 
- err:
-    deinit(s, true);
+
+err_close:
+    xcm_tp_socket_close(bts->btcp_socket);
+err_deinit:
+    deinit(s);
     return -1;
 }
 
 static int btls_close(struct xcm_socket *s)
 {
+    LOG_CLOSING(s);
+
+    int rc = 0;
+
     if (s != NULL) {
+	struct btls_socket *bts = TOBTLS(s);
+
 	assert_socket(s);
-	LOG_CLOSING(s);
-	deinit(s, true);
+
+	if (s->type == xcm_socket_type_conn &&
+	    bts->conn.state == conn_state_ready)
+	    SSL_shutdown(bts->conn.ssl);
+
+	rc = xcm_tp_socket_close(bts->btcp_socket);
+
+	deinit(s);
     }
-    return 0;
+
+    return rc;
 }
 
 static void btls_cleanup(struct xcm_socket *s)
 {
+    LOG_CLEANING_UP(s);
+
     if (s != NULL) {
+	struct btls_socket *bts = TOBTLS(s);
+
 	assert_socket(s);
-	LOG_CLEANING_UP(s);
-	deinit(s, false);
+
+	xcm_tp_socket_cleanup(bts->btcp_socket);
+
+	deinit(s);
     }
-}
-
-static void try_finish_accept(struct xcm_socket *s)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (bts->conn.state != conn_state_tls_accepting)
-	return;
-
-    try_finish_tls_handshake(s);
 }
 
 static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
@@ -1167,21 +903,9 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     LOG_ACCEPT_REQ(server_s);
 
-    if (strlen(conn_bts->laddr) > 0) {
-	errno = EACCES;
-	LOG_CLIENT_BIND_ON_ACCEPT(server_s);
+    if (xcm_tp_socket_accept(conn_bts->btcp_socket,
+			     server_bts->btcp_socket) < 0)
 	goto err_deinit;
-    }
-
-    int conn_fd;
-    if ((conn_fd = ut_accept(server_bts->server.fd, NULL, NULL,
-			     SOCK_NONBLOCK)) < 0) {
-	LOG_ACCEPT_FAILED(server_s, errno);
-	goto err_deinit;
-    }
-
-    if (tcp_opts_effectuate(&conn_bts->conn.tcp_opts, conn_fd) <  0)
-	goto err_close;
 
     if (finalize_tls_conf(conn_s) < 0)
 	goto err_close;
@@ -1213,14 +937,11 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (conn_bts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
 	goto err_close;
 
-    if (SSL_set_fd(conn_bts->conn.ssl, conn_fd) != 1)
-	goto err_close;
+    set_bio(conn_s);
 
-    epoll_reg_set_fd(&conn_bts->fd_reg, conn_fd);
+    BTLS_SET_STATE(conn_s, conn_state_tls_handshaking);
 
-    BTLS_SET_STATE(conn_s, conn_state_tls_accepting);
-
-    try_finish_accept(conn_s);
+    try_finish_tls_handshake(conn_s);
 
     if (conn_bts->conn.state == conn_state_bad) {
 	errno = conn_bts->conn.badness_reason;
@@ -1229,10 +950,10 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     return 0;
 
- err_close:
-    ut_close(conn_fd);
- err_deinit:
-    deinit(conn_s, true);
+err_close:
+    xcm_tp_socket_close(conn_bts->btcp_socket);
+err_deinit:
+    deinit(conn_s);
     return -1;
 }
 
@@ -1249,7 +970,7 @@ static int btls_send(struct xcm_socket *__restrict s,
 
     TP_RET_ERR_IF_STATE(s, bts, conn_state_closed, EPIPE);
 
-    try_finish_in_progress(s);
+    try_finish_tls_handshake(s);
 
     TP_RET_ERR_UNLESS_STATE(s, bts, conn_state_ready, EAGAIN);
 
@@ -1257,7 +978,7 @@ static int btls_send(struct xcm_socket *__restrict s,
 	return 0;
 
     bts->conn.ssl_condition = 0;
-    bts->conn.ssl_event = 0;
+    bts->conn.ssl_wants = 0;
 
     UT_SAVE_ERRNO;
     int rc = SSL_write(bts->conn.ssl, buf, len);
@@ -1296,7 +1017,7 @@ static int btls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 
     LOG_RCV_REQ(s, buf, capacity);
 
-    try_finish_in_progress(s);
+    try_finish_tls_handshake(s);
 
     TP_RET_ERR_IF_STATE(s, bts, conn_state_bad, bts->conn.badness_reason);
 
@@ -1305,7 +1026,7 @@ static int btls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
     TP_RET_ERR_UNLESS_STATE(s, bts, conn_state_ready, EAGAIN);
 
     bts->conn.ssl_condition = 0;
-    bts->conn.ssl_event = 0;
+    bts->conn.ssl_wants = 0;
 
     UT_SAVE_ERRNO;
     int rc = SSL_read(bts->conn.ssl, buf, capacity);
@@ -1336,51 +1057,49 @@ static void conn_update(struct xcm_socket *s)
     struct btls_socket *bts = TOBTLS(s);
 
     bool ready = false;
-    int event = 0;
+
+    bts->btcp_socket->condition = 0;
 
     switch (bts->conn.state) {
-    case conn_state_resolving:
-	ready = xcm_dns_query_completed(bts->conn.query);
-	break;
-    case conn_state_tcp_connecting:
-	event = EPOLLOUT;
-	break;
-    case conn_state_tls_connecting:
-    case conn_state_tls_accepting:
-	event = bts->conn.ssl_event;
+    case conn_state_tls_handshaking:
+	ut_assert(bts->conn.ssl_wants);
+	bts->btcp_socket->condition = bts->conn.ssl_wants;
 	break;
     case conn_state_ready:
 	if (s->condition == 0)
 	    break;
-	if (s->condition&XCM_SO_RECEIVABLE &&
+	else if (s->condition&XCM_SO_RECEIVABLE &&
 	    SSL_pending(bts->conn.ssl) > 0)
 	    ready = true;
 	else if (bts->conn.ssl_condition == 0)
 	     /* No SSL_read()/write() issued */
 	    ready = true;
 	else if (s->condition == bts->conn.ssl_condition)
-	    event = bts->conn.ssl_event;
+	    bts->btcp_socket->condition = bts->conn.ssl_wants;
 	else if (s->condition == (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE)) {
 	    if (bts->conn.ssl_condition == XCM_SO_SENDABLE) {
 		/* SSL_write() has been attempted */
-		if (bts->conn.ssl_event == EPOLLIN) /* reneg */
-		    event = EPOLLIN;
-		else if (bts->conn.ssl_event == EPOLLOUT) /* backpressure */
-		    event = EPOLLIN|EPOLLOUT;
+		if (bts->conn.ssl_wants == XCM_SO_RECEIVABLE)
+		     /* reneg */
+		    bts->btcp_socket->condition = XCM_SO_RECEIVABLE;
+		else if (bts->conn.ssl_wants == XCM_SO_SENDABLE)
+		    /* backpressure */
+		    bts->btcp_socket->condition =
+			(XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
 	    } else {
 		/* The TLS connection may be waiting for some in-band
 		   signaling to occur here, in which case we should
 		   really only wait for EPOLLIN, rather than
 		   both. However, that should only occur during TLS
 		   1.2 renegotiation, and thus be rare indeed. */
-		event = EPOLLIN|EPOLLOUT;
+		bts->btcp_socket->condition =
+		    (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
 	    }
 	} else
 	    /* No overlap between what the user want to await for, and
 	       what operations SSL_read()/write operation has been
 	       issued */
 	    ready = true;
-
 	break;
     case conn_state_closed:
     case conn_state_bad:
@@ -1392,33 +1111,28 @@ static void conn_update(struct xcm_socket *s)
     }
 
     if (ready) {
-	epoll_reg_ensure(&bts->conn.active_fd_reg, EPOLLIN);
+	xpoll_bell_reg_mod(s->xpoll, bts->conn.bell_reg_id, true);
 	return;
     }
 
-    epoll_reg_reset(&bts->conn.active_fd_reg);
+    xpoll_bell_reg_mod(s->xpoll, bts->conn.bell_reg_id, false);
 
-    if (event)
-	epoll_reg_ensure(&bts->fd_reg, event);
-    else
-	epoll_reg_reset(&bts->fd_reg);
+    xcm_tp_socket_update(bts->btcp_socket);
 }
 
 static void server_update(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    if (s->condition & XCM_SO_ACCEPTABLE)
-	epoll_reg_ensure(&bts->fd_reg, EPOLLIN);
-    else
-	epoll_reg_reset(&bts->fd_reg);
+    bts->btcp_socket->condition = s->condition;
+    xcm_tp_socket_update(bts->btcp_socket);
 }
 
 static void btls_update(struct xcm_socket *s)
 {
     assert_socket(s);
 
-    LOG_UPDATE_REQ(s, s->epoll_fd);
+    LOG_UPDATE_REQ(s, xpoll_get_fd(s->xpoll));
 
     switch (s->type) {
     case xcm_socket_type_conn:
@@ -1441,13 +1155,10 @@ static int btls_finish(struct xcm_socket *s)
     if (s->type == xcm_socket_type_server)
 	return 0;
 
-    try_finish_in_progress(s);
+    try_finish_tls_handshake(s);
 
     switch (bts->conn.state) {
-    case conn_state_resolving:
-    case conn_state_tcp_connecting:
-    case conn_state_tls_connecting:
-    case conn_state_tls_accepting:
+    case conn_state_tls_handshaking:
 	errno = EAGAIN;
 	LOG_FINISH_SAY_BUSY(s, bts->conn.state);
 	return -1;
@@ -1468,67 +1179,56 @@ static int btls_finish(struct xcm_socket *s)
 static const char *btls_get_remote_addr(struct xcm_socket *s,
 				       bool suppress_tracing)
 {
-    struct btls_socket *bts = TOBTLS(s);
+    struct btls_socket *ts = TOBTLS(s);
 
-    int fd = socket_fd(s);
-    if (fd < 0)
+    if (ts->btcp_socket == NULL)
 	return NULL;
-    
-    struct sockaddr_storage raddr;
-    socklen_t raddr_len = sizeof(raddr);
 
-    if (getpeername(fd, (struct sockaddr*)&raddr, &raddr_len) < 0) {
-	if (!suppress_tracing)
-	    LOG_REMOTE_SOCKET_NAME_FAILED(s, errno);
-	return NULL;
+    if (strlen(ts->conn.raddr) == 0) {
+	const char *btcp_addr  =
+	    xcm_tp_socket_get_remote_addr(ts->btcp_socket, suppress_tracing);
+
+	if (btcp_addr == NULL)
+	    return NULL;
+
+	int rc = btcp_to_btls(btcp_addr, ts->conn.raddr,
+			     sizeof(ts->conn.raddr));
+	ut_assert(rc == 0);
     }
 
-    tp_sockaddr_to_btls_addr(&raddr, bts->conn.raddr,
-			     sizeof(bts->conn.raddr));
-
-    return bts->conn.raddr;
+    return ts->conn.raddr;
 }
 
 static int btls_set_local_addr(struct xcm_socket *s, const char *local_addr)
 {
-    struct btls_socket *bts = TOBTLS(s);
+    struct btls_socket *ts = TOBTLS(s);
 
-    if (bts->conn.state != conn_state_initialized) {
-	errno = EACCES;
+    char btcp_local_addr[XCM_ADDR_MAX + 1];
+    if (btls_to_btcp(local_addr, btcp_local_addr, sizeof(btcp_local_addr)) < 0)
 	return -1;
-    }
 
-    if (strlen(local_addr) > XCM_ADDR_MAX) {
-	errno = EINVAL;
-	return -1;
-    }
-
-    strcpy(bts->laddr, local_addr);
-
-    return 0;
+    return xcm_tp_socket_set_local_addr(ts->btcp_socket, btcp_local_addr);
 }
 
 static const char *btls_get_local_addr(struct xcm_socket *s,
 				       bool suppress_tracing)
 {
-    struct btls_socket *bts = TOBTLS(s);
+    struct btls_socket *ts = TOBTLS(s);
 
-    int fd = socket_fd(s);
-    if (fd < 0)
+    if (ts->btcp_socket == NULL)
 	return NULL;
 
-    struct sockaddr_storage laddr;
-    socklen_t laddr_len = sizeof(laddr);
+    if (strlen(ts->laddr) == 0) {
+	const char *btcp_addr  =
+	    xcm_tp_socket_get_local_addr(ts->btcp_socket, suppress_tracing);
 
-    if (getsockname(socket_fd(s), (struct sockaddr*)&laddr, &laddr_len) < 0) {
-	if (!suppress_tracing)
-	    LOG_REMOTE_SOCKET_NAME_FAILED(s, errno);
-	return NULL;
+	if (btcp_addr == NULL)
+	    return NULL;
+
+	btcp_to_btls(btcp_addr, ts->laddr, sizeof(ts->laddr));
     }
 
-    tp_sockaddr_to_btls_addr(&laddr, bts->laddr, sizeof(bts->laddr));
-
-    return bts->laddr;
+    return ts->laddr;
 }
 
 static int64_t btls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
@@ -1538,12 +1238,6 @@ static int64_t btls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     ut_assert(cnt < XCM_TP_NUM_BYTESTREAM_CNTS);
 
     return bts->conn.cnts[cnt];
-}
-
-static void try_finish_in_progress(struct xcm_socket *s)
-{
-    try_finish_accept(s);
-    try_finish_connect(s);
 }
 
 static int set_client_attr(struct xcm_socket *s, void *context,
@@ -1606,134 +1300,6 @@ static int get_check_time_attr(struct xcm_socket *s, void *context,
 			       void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->check_time, value, capacity);
-}
-
-#define GEN_TCP_FIELD_GET(field_name)					\
-    static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   void *context,		\
-					   void *value, size_t capacity) \
-    {									\
-	return tcp_get_ ## field_name ##_attr(socket_fd(s), value);	\
-    }
-
-GEN_TCP_FIELD_GET(rtt)
-GEN_TCP_FIELD_GET(total_retrans)
-GEN_TCP_FIELD_GET(segs_in)
-GEN_TCP_FIELD_GET(segs_out)
-
-#define GEN_TCP_SET(attr_name, attr_type)				\
-    static int set_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  void *context,		\
-					  const void *value, size_t len) \
-    {									\
-	struct btls_socket *bts = TOBTLS(s);				\
-									\
-	attr_type v = *((const attr_type *)value);			\
-									\
-	return tcp_set_ ## attr_name(&bts->conn.tcp_opts, v);		\
-    }
-
-#define GEN_TCP_GET(attr_name, attr_type)				\
-    static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  void *context,		\
-					  void *value, size_t capacity)	\
-    {									\
-	struct btls_socket *bts = TOBTLS(s);				\
-									\
-    memcpy(value, &bts->conn.tcp_opts.attr_name, sizeof(attr_type));	\
-									\
-    return sizeof(attr_type);						\
-}
-
-#define GEN_TCP_ACCESS(attr_name, attr_type) \
-    GEN_TCP_SET(attr_name, attr_type) \
-    GEN_TCP_GET(attr_name, attr_type)
-
-GEN_TCP_ACCESS(keepalive, bool)
-GEN_TCP_ACCESS(keepalive_time, int64_t)
-GEN_TCP_ACCESS(keepalive_interval, int64_t)
-GEN_TCP_ACCESS(keepalive_count, int64_t)
-GEN_TCP_ACCESS(user_timeout, int64_t)
-
-static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
-				const void *value, size_t len)
-{
-    struct btls_socket *ts = TOBTLS(s);
-
-    if (ts->conn.state != conn_state_initialized) {
-	errno = EACCES;
-	return -1;
-    }
-
-    double timeout;
-    xcm_tp_set_double_attr(value, len, &timeout);
-
-    if (dns_opts_set_timeout(&ts->conn.dns_opts, timeout) < 0)
-	return -1;
-
-    return 0;
-}
-
-static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
-				void *value, size_t capacity)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    double timeout;
-
-    if (dns_opts_get_timeout(&bts->conn.dns_opts, &timeout) < 0)
-	return -1;
-
-    return xcm_tp_get_double_attr(timeout, value, capacity);
-}
-
-static int set_scope_attr(struct xcm_socket *s, void *context,
-			  const void *value, size_t len)
-{
-    struct btls_socket *bts = TOBTLS(s);
-
-    if ((s->type == xcm_socket_type_conn &&
-	 bts->conn.state != conn_state_initialized) ||
-	(s->type == xcm_socket_type_server && bts->server.created)) {
-	errno = EACCES;
-	return -1;
-    }
-
-    int64_t scope;
-    memcpy(&scope, value, sizeof(int64_t));
-
-    /* An already-existing scope id means it was inherited from a
-       parent socket (i.e., the server socket). Passing different
-       ipv6.scope in the xcm_accept_a() call is nonsensical, and thus
-       disallowed. */
-    if (bts->scope >= 0 && bts->scope != scope) {
-	LOG_SCOPE_CHANGED_ON_ACCEPT(s, bts->scope, scope);
-	errno = EINVAL;
-	return -1;
-    }
-
-    if (scope < 0 || scope > UINT32_MAX) {
-	errno = EINVAL;
-	return -1;
-    }
-
-    bts->scope = scope;
-
-    return 0;
-}
-
-static int get_scope_attr(struct xcm_socket *s, void *context,
-			  void *value, size_t capacity)
-{
-    int64_t scope = TOBTLS(s)->scope;
-
-    if (scope >= 0) {
-	memcpy(value, &(TOBTLS(s)->scope), sizeof(int64_t));
-	return sizeof(int64_t);
-    } else { /* IPv4 */
-	errno = ENOENT;
-	return -1;
-    }
 }
 
 static int set_file_attr(struct xcm_socket *s, const void *filename,
@@ -2063,7 +1629,6 @@ static int get_actual_peer_names_attr(struct xcm_socket *s, void *context,
     return strlen(value) + 1;
 }
 
-
 static int get_peer_names_attr(struct xcm_socket *s, void *context,
 			       void *value, size_t capacity)
 {
@@ -2119,7 +1684,7 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
 
 /* The common attributes are split in two to maintain some order when the
    attributes are listed over the control interface */
-#define XCM_COMMON_ATTRS						\
+#define TLS_COMMON_ATTRS						\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CLIENT, xcm_attr_type_bool,	\
 			set_client_attr, get_client_attr),		\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
@@ -2144,57 +1709,89 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC, xcm_attr_type_bin, \
 			set_tc_attr, get_tc_attr)
 
-#define IP_COMMON_ATTRS							\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_IPV6_SCOPE, xcm_attr_type_int64,	\
-			set_scope_attr, get_scope_attr)
-
-static struct xcm_tp_attr conn_attrs[] = {
-    XCM_COMMON_ATTRS,
+static struct xcm_tp_attr btls_conn_attrs[] = {
+    TLS_COMMON_ATTRS,
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
-			xcm_attr_type_bin, get_peer_subject_key_id),
-    IP_COMMON_ATTRS,
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_TIMEOUT, xcm_attr_type_double,
-			set_dns_timeout_attr, get_dns_timeout_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
-			get_rtt_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,
-			get_total_retrans_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_IN, xcm_attr_type_int64,
-			get_segs_in_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_OUT, xcm_attr_type_int64,
-			get_segs_out_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE, xcm_attr_type_bool,
-			set_keepalive_attr, get_keepalive_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_TIME, xcm_attr_type_int64,
-			set_keepalive_time_attr, get_keepalive_time_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_INTERVAL, xcm_attr_type_int64,
-			set_keepalive_interval_attr,
-			get_keepalive_interval_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_COUNT, xcm_attr_type_int64,
-			set_keepalive_count_attr, get_keepalive_count_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_USER_TIMEOUT, xcm_attr_type_int64,
-			set_user_timeout_attr, get_user_timeout_attr)
+			xcm_attr_type_bin, get_peer_subject_key_id)
 };
 
-static struct xcm_tp_attr server_attrs[] = {
-    XCM_COMMON_ATTRS,
-    IP_COMMON_ATTRS
+static struct xcm_tp_attr btls_server_attrs[] = {
+    TLS_COMMON_ATTRS
 };
+
+static int set_attr_proxy(struct xcm_socket *s, void *context,
+			  const void *value, size_t len)
+{
+    struct btls_socket *bts = TOBTLS(s);
+    const struct xcm_tp_attr *btcp_attr = context;
+
+    return btcp_attr->set(bts->btcp_socket, btcp_attr->context, value, len);
+}
+
+static int get_attr_proxy(struct xcm_socket *s, void *context,
+			  void *value, size_t capacity)
+{
+    struct btls_socket *bts = TOBTLS(s);
+    const struct xcm_tp_attr *btcp_attr = context;
+
+    return btcp_attr->get(bts->btcp_socket, btcp_attr->context,
+			  value, capacity);
+}
+
+static void assure_attrs(struct xcm_socket *s)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if (bts->attrs != NULL)
+	return;
+
+    const struct xcm_tp_attr *btcp_attrs;
+    size_t btcp_attrs_len = 0;
+    xcm_tp_socket_get_attrs(bts->btcp_socket, &btcp_attrs, &btcp_attrs_len);
+
+    const struct xcm_tp_attr *btls_attrs;
+    size_t btls_attrs_len;
+
+    if (s->type == xcm_socket_type_conn) {
+	btls_attrs = btls_conn_attrs;
+	btls_attrs_len = UT_ARRAY_LEN(btls_conn_attrs);
+    } else {
+	btls_attrs = btls_server_attrs;
+	btls_attrs_len = UT_ARRAY_LEN(btls_server_attrs);
+    }
+
+    size_t attrs_len = btcp_attrs_len + btls_attrs_len;
+
+    bts->attrs = ut_malloc(sizeof(struct xcm_tp_attr) * attrs_len);
+    bts->attrs_len = attrs_len;
+
+    size_t i;
+    for (i = 0; i < btls_attrs_len; i++)
+	bts->attrs[i] = btls_attrs[i];
+
+    for (i = 0; i < btcp_attrs_len; i++) {
+	struct xcm_tp_attr *tls_attr = &bts->attrs[btls_attrs_len + i];
+	const struct xcm_tp_attr *btcp_attr = &btcp_attrs[i];
+
+	*tls_attr = (struct xcm_tp_attr) {
+	    .type = btcp_attr->type,
+	    .context = (void *)btcp_attr,
+	    .set = btcp_attr->set != NULL ? set_attr_proxy : NULL,
+	    .get = btcp_attr->get != NULL ? get_attr_proxy : NULL
+	};
+
+	strcpy(tls_attr->name, btcp_attr->name);
+    }
+}
 
 static void btls_get_attrs(struct xcm_socket* s,
 			   const struct xcm_tp_attr **attr_list,
 			   size_t *attr_list_len)
 {
-    switch (s->type) {
-    case xcm_socket_type_conn:
-	*attr_list = conn_attrs;
-	*attr_list_len = UT_ARRAY_LEN(conn_attrs);
-	break;
-    case xcm_socket_type_server:
-	*attr_list = server_attrs;
-	*attr_list_len = UT_ARRAY_LEN(server_attrs);
-	break;
-    default:
-	ut_assert(0);
-    }
+    assure_attrs(s);
+
+    struct btls_socket *bts = TOBTLS(s);
+
+    *attr_list = bts->attrs;
+    *attr_list_len = bts->attrs_len;
 }

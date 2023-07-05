@@ -19,7 +19,7 @@ int xcm_want(struct xcm_socket *s, int condition, int *fds,
     if (xcm_await(s, condition) < 0)
 	return -1;
 
-    fds[0] = s->epoll_fd;
+    fds[0] = xpoll_get_fd(s->xpoll);
     events[0] = XCM_FD_READABLE;
 
     LOG_WANT(s, condition, fds, events, 1);

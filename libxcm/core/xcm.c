@@ -5,11 +5,11 @@
 
 #include "xcm.h"
 
-#include "log_epoll.h"
 #include "util.h"
 #include "xcm_attr_names.h"
 #include "xcm_tp.h"
 #include "xcm_version.h"
+#include "xpoll.h"
 
 #include <poll.h>
 #include <stdint.h>
@@ -17,7 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/epoll.h>
 
 #define XCM_ENV_DEBUG "XCM_DEBUG"
 
@@ -58,7 +57,7 @@ static int socket_wait(struct xcm_socket *conn_s, int condition)
     await(conn_s, condition);
 
     struct pollfd pfd = {
-	.fd = conn_s->epoll_fd,
+	.fd = xpoll_get_fd(conn_s->xpoll),
 	.events = POLLIN
     };
 
@@ -160,35 +159,29 @@ static struct xcm_socket *socket_create(const struct xcm_tp_proto *proto,
 					enum xcm_socket_type type,
 					bool is_blocking)
 {
-    int epoll_fd = epoll_create1(0);
+    struct xcm_socket *s =
+	xcm_tp_socket_create(proto, type, NULL, is_blocking);
 
-    if (epoll_fd < 0) {
-	LOG_EPOLL_FD_FAILED(errno);
-	goto err;
+    struct xpoll *xpoll = xpoll_create(s);
+
+    if (xpoll == NULL) {
+	xcm_tp_socket_destroy(s);
+	return NULL;
     }
 
-    LOG_EPOLL_FD_CREATED(epoll_fd);
-
-    struct xcm_socket *s =
-	xcm_tp_socket_create(proto, type, epoll_fd, is_blocking);
-
-    if (!s)
-	goto err_close;
+    s->xpoll = xpoll;
 
     return s;
-
-err_close:
-    ut_close(epoll_fd);
-err:
-    return NULL;
 }
 
 void socket_destroy(struct xcm_socket *s)
 {
     if (s != NULL) {
-	int epoll_fd = s->epoll_fd;
+	struct xpoll *xpoll = s->xpoll;
+
 	xcm_tp_socket_destroy(s);
-	ut_close(epoll_fd);
+
+	xpoll_destroy(xpoll);
     }
 }
 
@@ -430,7 +423,7 @@ int xcm_fd(struct xcm_socket *s)
 {
     TP_RET_ERR_IF(s->is_blocking, EINVAL);
 
-    return s->epoll_fd;
+    return xpoll_get_fd(s->xpoll);
 }
 
 int xcm_finish(struct xcm_socket *s)

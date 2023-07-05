@@ -8,6 +8,8 @@
 
 #include "xcm_addr.h"
 
+#include "xpoll.h"
+
 #include <stdbool.h>
 
 #define XCM_DNS_MAX_RESULT_IPS (32)
@@ -15,7 +17,7 @@
 struct xcm_dns_query;
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
-				      int epoll_fd, double timeout,
+				      struct xpoll *xpoll, double timeout,
 				      void *log_ref);
 
 bool xcm_dns_query_completed(struct xcm_dns_query *query);

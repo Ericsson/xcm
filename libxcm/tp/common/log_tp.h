@@ -25,6 +25,9 @@
     log_debug_sock(s, "Connection going from state \"%s\" to \"%s\"",	\
 		   state_name(from_state), state_name(to_state))
 
+#define LOG_INIT(s) \
+    log_debug_sock(s, "Socket initialized.")
+
 #define LOG_CONN_REQ(s, addr)					\
     log_debug_sock(s, "Attempting to connect to \"%s\".", addr)
 
@@ -55,9 +58,9 @@
 #define LOG_CONN_IN_PROGRESS(s) \
     log_debug_sock(s, "Connection establishment is in progress.")
 
-#define LOG_ADDR_PARSE_ERR(addr, reason_errno)			\
-    log_debug("Parsing of address \"%s\" failed; errno %d (%s).", addr, \
-	      reason_errno, strerror(reason_errno))
+#define LOG_ADDR_PARSE_ERR(s, addr, reason_errno)			\
+    log_debug_sock(s, "Parsing of address \"%s\" failed; errno %d (%s).", \
+		   addr, reason_errno, strerror(reason_errno))
 
 #define LOG_SERVER_REQ(s, addr)						\
     log_debug_sock(s, "Attempting to create server socket bound to \"%s\".", addr)
@@ -109,6 +112,9 @@
 
 #define LOG_CLEANING_UP(s) \
     log_debug_sock(s, "Cleaning up socket.")
+
+#define LOG_DEINIT(s) \
+    log_debug_sock(s, "Deinitializing socket.")
 
 #define LOG_ACCEPT_REQ(s)					\
     log_debug_sock(s, "Attempting to accept new connection.")

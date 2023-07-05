@@ -150,6 +150,9 @@ void tp_sockaddr_to_btls_addr(struct sockaddr_storage *sock_addr,
 GEN_ADDR_CONV(btcp, tcp)
 GEN_ADDR_CONV(tcp, btcp)
 
+GEN_ADDR_CONV(btcp, btls)
+GEN_ADDR_CONV(btls, btcp)
+
 GEN_ADDR_CONV(btls, tls)
 GEN_ADDR_CONV(tls, btls)
 

@@ -5,7 +5,6 @@
 
 #include "xcm_dns.h"
 
-#include "epoll_reg_set.h"
 #include "log_dns.h"
 #include "timer_mgr.h"
 #include "util.h"
@@ -37,10 +36,11 @@ struct xcm_dns_query
 
     enum query_state state;
 
-    struct epoll_reg_set reg;
+    struct xpoll *xpoll;
 
     ares_channel channel;
     int channel_fds[ARES_GETSOCK_MAXNUM];
+    int channel_fd_reg_ids[ARES_GETSOCK_MAXNUM];
     int channel_fd_mask;
 
     struct timer_mgr *timer_mgr;
@@ -65,10 +65,24 @@ clear_ares_timer(struct xcm_dns_query *query)
     timer_mgr_cancel(query->timer_mgr, &query->ares_timer_id);
 }
 
-static void
-update_epoll_fd(struct xcm_dns_query *query)
+static void unreg_all_channel_fds(struct xcm_dns_query *query)
 {
-    epoll_reg_set_reset(&query->reg);
+    int i;
+
+    for (i = 0; i < ARES_GETSOCK_MAXNUM; i++) {
+	int *reg_id = &query->channel_fd_reg_ids[i];
+
+	if (*reg_id >= 0) {
+	    xpoll_fd_reg_del(query->xpoll, *reg_id);
+	    *reg_id = -1;
+	}
+    }
+}
+
+static void
+update_xpoll(struct xcm_dns_query *query)
+{
+    unreg_all_channel_fds(query);
 
     if (query->state == query_state_in_progress) {
 	query->channel_fd_mask =
@@ -82,8 +96,11 @@ update_epoll_fd(struct xcm_dns_query *query)
 		event |= EPOLLIN;
 	    if (ARES_GETSOCK_WRITABLE(query->channel_fd_mask, i))
 		event |= EPOLLOUT;
+
 	    if (event != 0)
-		epoll_reg_set_add(&query->reg, query->channel_fds[i], event);
+		query->channel_fd_reg_ids[i] =
+		    xpoll_fd_reg_add(query->xpoll, query->channel_fds[i],
+				     event);
 	}
 
 	struct timeval max_wait;
@@ -157,7 +174,8 @@ static void query_cb(void *arg, int status, int timeouts,
     }
 }
 
-struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
+struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
+				      struct xpoll *xpoll,
 				      double timeout, void *log_ref)
 {
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
@@ -167,19 +185,22 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
 
     *query = (struct xcm_dns_query) {
 	.domain_name = ut_strdup(domain_name),
+	.xpoll = xpoll,
 	.log_ref = log_ref,
 	.state = query_state_in_progress,
 	.ares_timer_id = TIMER_MGR_INVALID_TIMER_ID
     };
 
-    query->timer_mgr = timer_mgr_create(epoll_fd, log_ref);
+    query->timer_mgr = timer_mgr_create(xpoll, log_ref);
     if (query->timer_mgr == NULL)
 	goto err;
 
     query->overall_timer_id =
 	timer_mgr_schedule(query->timer_mgr, timeout);
 
-    epoll_reg_set_init(&query->reg, epoll_fd, log_ref);
+    int i;
+    for (i = 0; i < ARES_GETSOCK_MAXNUM; i++)
+	query->channel_fd_reg_ids[i] = -1;
 
     struct ares_options options = {
 	.timeout = PER_QUERY_TIMEOUT * 1000
@@ -198,7 +219,7 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
 
     ares_getaddrinfo(query->channel, domain_name, NULL, NULL, query_cb, query);
 
-    update_epoll_fd(query);
+    update_xpoll(query);
 
     return query;
 
@@ -244,7 +265,7 @@ static void process_in_progress(struct xcm_dns_query *query)
 	LOG_DNS_TIMED_OUT(query->log_ref, query->domain_name);
     }
 
-    update_epoll_fd(query);
+    update_xpoll(query);
 }
 
 void xcm_dns_query_process(struct xcm_dns_query *query)
@@ -277,7 +298,7 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 
 	memcpy(ips, query->ips, sizeof(struct xcm_addr_ip) * len);
 
-	epoll_reg_set_reset(&query->reg);
+	unreg_all_channel_fds(query);
 
 	return len;
     }
@@ -290,12 +311,12 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 void xcm_dns_query_free(struct xcm_dns_query *query)
 {
     if (query != NULL) {
+	unreg_all_channel_fds(query);
+
 	/* Note: destroying the channel will trigger the query
 	   callbacks, which in turn will access various query struct
 	   fields. */
 	ares_destroy(query->channel);
-
-	epoll_reg_set_reset(&query->reg);
 
 	timer_mgr_destroy(query->timer_mgr);
 
@@ -311,20 +332,19 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 
     int rc = -1;
 
-    int epoll_fd = epoll_create1(0);
-    if (epoll_fd < 0) {
-	LOG_DNS_EPOLL_FD_FAILED(errno);
+    struct xpoll *xpoll = xpoll_create(NULL);
+
+    if (xpoll == NULL)
 	goto out;
-    }
 
     struct xcm_dns_query *query =
-	xcm_dns_resolve(host->name, epoll_fd, SYNC_DNS_TIMEOUT, log_ref);
+	xcm_dns_resolve(host->name, xpoll, SYNC_DNS_TIMEOUT, log_ref);
 
     if (query == NULL)
-	goto out_epoll_close;
+	goto out_destroy_xpoll;
 
     struct pollfd fd = {
-	.fd = epoll_fd,
+	.fd = xpoll_get_fd(xpoll),
 	.events = POLLIN
     };
 
@@ -349,8 +369,8 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 
 out_query_free:
     xcm_dns_query_free(query);
-out_epoll_close:
-    ut_close(epoll_fd);
+out_destroy_xpoll:
+    xpoll_destroy(xpoll);
 out:
     return rc;
 }

@@ -126,11 +126,11 @@ static struct xcm_tp_proto *tls_proto(void)
 
 static struct xcm_socket *create_sub_socket(struct xcm_tp_proto *proto,
 					    enum xcm_socket_type type,
-					    int epoll_fd,
+					    struct xpoll *xpoll,
 					    struct xcm_socket *parent)
 {
     struct xcm_socket *s =
-	xcm_tp_socket_create(proto, type, epoll_fd, false);
+	xcm_tp_socket_create(proto, type, xpoll, false);
 
     if (s == NULL)
 	goto err;
@@ -159,26 +159,33 @@ static int utls_init(struct xcm_socket *s, struct xcm_socket *parent)
     }
 
     us->ux_socket =
-	create_sub_socket(ux_proto(), s->type, s->epoll_fd, ux_parent);
+	create_sub_socket(ux_proto(), s->type, s->xpoll, ux_parent);
     us->tls_socket =
-	create_sub_socket(tls_proto(), s->type, s->epoll_fd, tls_parent);
+	create_sub_socket(tls_proto(), s->type, s->xpoll, tls_parent);
 
     if (us->ux_socket == NULL || us->tls_socket == NULL) {
 	xcm_tp_socket_destroy(us->ux_socket);
 	return -1;
     }
 
+    LOG_INIT(s);
+
     return 0;
 }
 
 static void deinit(struct xcm_socket *s)
 {
-    if (s != NULL) {
-	struct utls_socket *us = TOUTLS(s);
-	xcm_tp_socket_destroy(us->ux_socket);
-	xcm_tp_socket_destroy(us->tls_socket);
-	ut_free(us->attrs);
-    }
+    LOG_DEINIT(s);
+
+    struct utls_socket *us = TOUTLS(s);
+
+    xcm_tp_socket_destroy(us->ux_socket);
+    us->ux_socket = NULL;
+
+    xcm_tp_socket_destroy(us->tls_socket);
+    us->tls_socket = NULL;
+
+    ut_free(us->attrs);
 }
 
 static size_t utls_priv_size(enum xcm_socket_type type)
@@ -210,7 +217,7 @@ static int utls_connect(struct xcm_socket *s, const char *remote_addr)
     char tls_addr[XCM_ADDR_MAX+1];
 
     if (utls_to_tls(remote_addr, tls_addr, sizeof(tls_addr)) < 0) {
-	LOG_ADDR_PARSE_ERR(remote_addr, errno);
+	LOG_ADDR_PARSE_ERR(s, remote_addr, errno);
 	goto err_close_both;
     }
 
@@ -269,7 +276,7 @@ static int utls_server(struct xcm_socket *s, const char *local_addr)
     struct xcm_addr_host host;
     uint16_t port;
     if (xcm_addr_parse_utls(local_addr, &host, &port) < 0) {
-	LOG_ADDR_PARSE_ERR(local_addr, errno);
+	LOG_ADDR_PARSE_ERR(s, local_addr, errno);
 	goto err_close_both;
     }
 
@@ -330,7 +337,7 @@ static int utls_close(struct xcm_socket *s)
 
     int rc = 0;
 
-    if (s) {
+    if (s != NULL) {
 	struct utls_socket *us = TOUTLS(s);
 
 	if (xcm_tp_socket_close(us->ux_socket) < 0)
@@ -407,7 +414,7 @@ static void sync_update(struct xcm_socket *s, struct xcm_socket *sub_socket)
 
 static void utls_update(struct xcm_socket *s)
 {
-    LOG_UPDATE_REQ(s, s->epoll_fd);
+    LOG_UPDATE_REQ(s, xpoll_get_fd(s->xpoll));
 
     if (s->type == xcm_socket_type_conn)
 	sync_update(s, active_sub_conn(s));
@@ -446,8 +453,12 @@ static const char *utls_get_transport(struct xcm_socket *s)
 static const char *utls_get_remote_addr(struct xcm_socket *s,
 					bool suppress_tracing)
 {
-    return xcm_tp_socket_get_remote_addr(active_sub_conn(s),
-					 suppress_tracing);
+    struct xcm_socket *active = active_sub_conn(s);
+
+    if (active == NULL)
+	return NULL;
+
+    return xcm_tp_socket_get_remote_addr(active, suppress_tracing);
 }
 
 static int utls_set_local_addr(struct xcm_socket *s, const char *local_addr)
