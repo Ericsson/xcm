@@ -382,23 +382,24 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     return 0;
 }
 
-static void conn_deinit(struct xcm_socket *s)
+static void conn_deinit(struct xcm_socket *s, bool owner)
 {
     struct btls_socket *bts = TOBTLS(s);
 
     SSL_free(bts->conn.ssl);
 
-    xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
+    if (owner)
+	xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
 }
 
-static void deinit(struct xcm_socket *s)
+static void deinit(struct xcm_socket *s, bool owner)
 {
     struct btls_socket *bts = TOBTLS(s);
 
     LOG_DEINIT(s);
 
     if (s->type == xcm_socket_type_conn)
-	conn_deinit(s);
+	conn_deinit(s, owner);
 
     item_deinit(&bts->cert);
     item_deinit(&bts->key);
@@ -798,7 +799,7 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 err_close:
     xcm_tp_socket_close(bts->btcp_socket);
 err_deinit:
-    deinit(s);
+    deinit(s, true);
     return -1;
 }
 
@@ -852,7 +853,7 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
 err_close:
     xcm_tp_socket_close(bts->btcp_socket);
 err_deinit:
-    deinit(s);
+    deinit(s, true);
     return -1;
 }
 
@@ -873,7 +874,7 @@ static int btls_close(struct xcm_socket *s)
 
 	rc = xcm_tp_socket_close(bts->btcp_socket);
 
-	deinit(s);
+	deinit(s, true);
     }
 
     return rc;
@@ -890,7 +891,7 @@ static void btls_cleanup(struct xcm_socket *s)
 
 	xcm_tp_socket_cleanup(bts->btcp_socket);
 
-	deinit(s);
+	deinit(s, false);
     }
 }
 
@@ -953,7 +954,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 err_close:
     xcm_tp_socket_close(conn_bts->btcp_socket);
 err_deinit:
-    deinit(conn_s);
+    deinit(conn_s, true);
     return -1;
 }
 

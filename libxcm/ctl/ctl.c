@@ -146,7 +146,8 @@ void ctl_destroy(struct ctl *ctl, bool owner)
 			     &laddr_len);
 
 
-	xpoll_fd_reg_del(ctl->socket->xpoll, ctl->server_fd_reg_id);
+	if (owner)
+	    xpoll_fd_reg_del(ctl->socket->xpoll, ctl->server_fd_reg_id);
 
 	ut_close(ctl->server_fd);
 

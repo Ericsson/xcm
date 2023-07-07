@@ -238,17 +238,18 @@ static int btcp_init(struct xcm_socket *s, struct xcm_socket *parent)
     return 0;
 }
 
-static void deinit(struct xcm_socket *s)
+static void deinit(struct xcm_socket *s, bool owner)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
     LOG_DEINIT(s);
 
-    if (bts->fd_reg_id >= 0)
+    if (bts->fd_reg_id >= 0 && owner)
 	xpoll_fd_reg_del(s->xpoll, bts->fd_reg_id);
 
     if (s->type == xcm_socket_type_conn) {
-	xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
+	if (owner)
+	    xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
 
 	xcm_dns_query_free(bts->conn.query);
 
@@ -504,7 +505,7 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
     return 0;
 
 err:
-    deinit(s);
+    deinit(s, true);
     return -1;
 }
 
@@ -563,7 +564,7 @@ static int btcp_server(struct xcm_socket *s, const char *local_addr)
     return 0;
 
 err:
-    deinit(s);
+    deinit(s, true);
     return -1;
 }
 
@@ -573,7 +574,7 @@ static int btcp_close(struct xcm_socket *s)
 	LOG_CLOSING(s);
 
 	assert_socket(s);
-	deinit(s);
+	deinit(s, true);
     }
 
     return 0;
@@ -585,7 +586,7 @@ static void btcp_cleanup(struct xcm_socket *s)
 	LOG_CLEANING_UP(s);
 
 	assert_socket(s);
-	deinit(s);
+	deinit(s, false);
     }
 }
 
@@ -627,7 +628,7 @@ static int btcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
  err_close:
     ut_close(conn_fd);
  err_deinit:
-    deinit(conn_s);
+    deinit(conn_s, true);
     return -1;
 }
 
