@@ -234,7 +234,7 @@ static int process_client(struct client *client, struct ctl *ctl)
     if (client->is_response_pending) {
 	UT_SAVE_ERRNO;
 	int rc = send(client->fd, &client->pending_response,
-		      sizeof(client->pending_response), 0);
+		      sizeof(client->pending_response), MSG_NOSIGNAL);
 	UT_RESTORE_ERRNO(send_errno);
 
 	if (rc < 0) {
