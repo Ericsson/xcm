@@ -2181,51 +2181,77 @@ TESTCASE(xcm, invalid_await_and_fd_argument)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, invalid_address)
+static int run_invalid_net_address_test(const char *addr)
 {
-    /* max DNS name is 253 characters */
+    CHKNULLERRNO(xcm_server(addr), EINVAL);
+    CHKNULLERRNO(xcm_connect(addr, 0), EINVAL);
+
+    return UTEST_SUCCESS;
+}
+
+static int run_invalid_net_addresses_test(const char *proto)
+{
     char oversized_domain_name[255];
     const char *part = "a.";
 
     int i;
-    for (i=0; i<(sizeof(oversized_domain_name)-1) / strlen(part); i++)
-	strcpy(oversized_domain_name+i*strlen(part), part);
+    for (i=0; i < (sizeof(oversized_domain_name)-1) / strlen(part); i++)
+	strcpy(oversized_domain_name + i * strlen(part), part);
 
-    char oversized_tcp[1024];
-    snprintf(oversized_tcp, sizeof(oversized_tcp), "tcp:%s:4711",
-	     oversized_domain_name);
+    char addr[1024];
+    snprintf(addr, sizeof(addr), "%s:%s:4711", proto, oversized_domain_name);
 
-    CHKNULLERRNO(xcm_server(oversized_tcp), EINVAL);
+    if (run_invalid_net_address_test(addr) != UTEST_SUCCESS)
+	return UTEST_FAILED;
 
-    CHKNULLERRNO(xcm_connect("ux:", 0), EINVAL);
+    snprintf(addr, sizeof(addr), "%s:kex%%:33", proto);
+    if (run_invalid_net_address_test(addr) != UTEST_SUCCESS)
+	return UTEST_FAILED;
 
-    CHKNULLERRNO(xcm_server("tcp:kex%:33"), EINVAL);
-    CHKNULLERRNO(xcm_server("tcp:foo"), EINVAL);
-    CHKNULLERRNO(xcm_server("tcp:[example.com]:99"), EINVAL);
+    snprintf(addr, sizeof(addr), "%s:foo", proto);
+    if (run_invalid_net_address_test(addr) != UTEST_SUCCESS)
+	return UTEST_FAILED;
+
+    snprintf(addr, sizeof(addr), "%s:a$df:4711", proto);
+    if (run_invalid_net_address_test(addr) != UTEST_SUCCESS)
+	return UTEST_FAILED;
+
+    snprintf(addr, sizeof(addr), "%s:1.2.3.4:65536", proto);
+    if (run_invalid_net_address_test(addr) != UTEST_SUCCESS)
+	return UTEST_FAILED;
+
+    snprintf(addr, sizeof(addr), "%s:[example.com]:99", proto);
+    if (run_invalid_net_address_test(addr) != UTEST_SUCCESS)
+	return UTEST_FAILED;
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, invalid_address)
+{
+    if (run_invalid_net_address_test("ux:") != UTEST_SUCCESS)
+	return UTEST_FAILED;
+
+    if (run_invalid_net_address_test("uxf:") != UTEST_SUCCESS)
+	return UTEST_FAILED;
+
+    if (run_invalid_net_addresses_test("tcp") != UTEST_SUCCESS)
+	return UTEST_FAILED;
+    if (run_invalid_net_addresses_test("btcp") != UTEST_SUCCESS)
+	return UTEST_FAILED;
 
 #ifdef XCM_SCTP
-    char oversized_sctp[1024];
-    snprintf(oversized_sctp, sizeof(oversized_sctp), "sctp:%s:4711",
-	     oversized_domain_name);
-    CHKNULLERRNO(xcm_server(oversized_sctp), EINVAL);
-
-    CHKNULLERRNO(xcm_server("sctp:a$df"), EINVAL);
-
-    CHKNULLERRNO(xcm_server("sctp:foo%:99"), EINVAL);
+    if (run_invalid_net_addresses_test("sctp") != UTEST_SUCCESS)
+	return UTEST_FAILED;
 #endif
 
 #ifdef XCM_TLS
-    char oversized_tls[1024];
-    snprintf(oversized_tls, sizeof(oversized_tls), "tls:%s:4711",
-	     oversized_domain_name);
-    CHKNULLERRNO(xcm_server(oversized_tls), EINVAL);
-    CHKNULLERRNO(xcm_server("tls:a$df"), EINVAL);
-    CHKNULLERRNO(xcm_server("tls:[www.google.com]:99"), EINVAL);
-
-    char oversized_utls[1024];
-    snprintf(oversized_utls, sizeof(oversized_utls), "utls:%s:4711",
-	     oversized_domain_name);
-    CHKNULLERRNO(xcm_server(oversized_utls), EINVAL);
+    if (run_invalid_net_addresses_test("tls") != UTEST_SUCCESS)
+	return UTEST_FAILED;
+    if (run_invalid_net_addresses_test("utls") != UTEST_SUCCESS)
+	return UTEST_FAILED;
+    if (run_invalid_net_addresses_test("btls") != UTEST_SUCCESS)
+	return UTEST_FAILED;
 #endif
 
     return UTEST_SUCCESS;
