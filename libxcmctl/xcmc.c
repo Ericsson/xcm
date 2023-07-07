@@ -125,7 +125,7 @@ int xcmc_attr_get(struct xcmc_session *session, const char *attr_name,
     };
     strcpy(req.get_attr_req.attr_name, attr_name);
 
-    if (send(session->fd, &req, sizeof(req), 0) != sizeof(req))
+    if (send(session->fd, &req, sizeof(req), MSG_NOSIGNAL) != sizeof(req))
 	return -1;
 
     struct ctl_proto_msg res;
@@ -160,7 +160,7 @@ int xcmc_attr_get_all(struct xcmc_session *session, xcmc_attr_cb cb,
 	.type = ctl_proto_type_get_all_attr_req
     };
 
-    if (send(session->fd, &req, sizeof(req), 0) != sizeof(req))
+    if (send(session->fd, &req, sizeof(req), MSG_NOSIGNAL) != sizeof(req))
 	return -1;
 
     struct ctl_proto_msg res;
