@@ -7,6 +7,7 @@
 
 #include "util.h"
 #include "xcm_addr.h"
+#include "xcm_attr.h"
 #include "xcm_attr_names.h"
 
 #ifdef XCM_CTL
@@ -260,11 +261,12 @@ void xcm_tp_socket_enable_ctl(struct xcm_socket *s)
 #endif
 }
 
-void xcm_tp_socket_get_attrs(struct xcm_socket *s,
-			     const struct xcm_tp_attr **attr_list,
-			     size_t *attr_list_len)
+void xcm_tp_socket_attr_foreach(struct xcm_socket *s,
+				xcm_attr_foreach_cb foreach_cb, 
+				void *user)
 {
-    XCM_TP_CALL(get_attrs, s, attr_list, attr_list_len);
+    if (XCM_TP_SUPPORTS_OP(s, attr_foreach))
+	XCM_TP_CALL(attr_foreach, s, foreach_cb, user);
 }
 
 int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity)
@@ -317,22 +319,21 @@ int xcm_tp_get_bin_attr(const char *value, size_t len, void *buf,
     return len;
 }
 
-static int get_type_attr(struct xcm_socket *s, void *context, 
-			 void *value, size_t capacity)
+static int get_type_attr(struct xcm_socket *s, void *value, size_t capacity)
 {
     return xcm_tp_get_str_attr(xcm_tp_socket_type_name(s->type),
 			       value, capacity);
 }
 
-static int get_transport_attr(struct xcm_socket *s, void *context,
-			      void *value, size_t capacity)
+static int get_transport_attr(struct xcm_socket *s, void *value,
+			      size_t capacity)
 {
     return xcm_tp_get_str_attr(xcm_tp_socket_get_transport(s),
 			       value, capacity);
 }
 
-static int set_service_attr(struct xcm_socket *s, void *context,
-			    const void *value, size_t len)
+static int set_service_attr(struct xcm_socket *s, const void *value,
+			    size_t len)
 {
     if (strcmp(value, XCM_SERVICE_ANY) == 0)
 	return 0;
@@ -347,8 +348,8 @@ static int set_service_attr(struct xcm_socket *s, void *context,
     return -1;
 }
 
-static int get_service_attr(struct xcm_socket *s, void *context,
-			    void *value, size_t capacity)
+static int get_service_attr(struct xcm_socket *s, void *value,
+			    size_t capacity)
 {
     const char *service = xcm_tp_socket_is_bytestream(s) ?
 	XCM_SERVICE_BYTESTREAM : XCM_SERVICE_MESSAGING;
@@ -363,26 +364,23 @@ static int addr_to_attr(const char *addr, void *value, size_t capacity)
     return xcm_tp_get_str_attr(addr, value, capacity);
 }
 
-static int set_local_attr(struct xcm_socket *s, void *context,
-			  const void *value, size_t len)
+static int set_local_attr(struct xcm_socket *s, const void *value, size_t len)
 {
     return xcm_tp_socket_set_local_addr(s, value);
 }
 
-static int get_local_attr(struct xcm_socket *s, void *context,
-			  void *value, size_t capacity)
+static int get_local_attr(struct xcm_socket *s, void *value, size_t capacity)
 {
     return addr_to_attr(xcm_local_addr(s), value, capacity);
 }
 
-static int get_remote_attr(struct xcm_socket *s, void *context,
-			   void *value, size_t capacity)
+static int get_remote_attr(struct xcm_socket *s, void *value, size_t capacity)
 {
     return addr_to_attr(xcm_remote_addr(s), value, capacity);
 }
 
-static int set_blocking_attr(struct xcm_socket *s, void *context,
-			     const void *value, size_t len)
+static int set_blocking_attr(struct xcm_socket *s, const void *value,
+			     size_t len)
 {
     bool is_blocking;
 
@@ -394,14 +392,14 @@ static int set_blocking_attr(struct xcm_socket *s, void *context,
     return 0;
 }
 
-static int get_blocking_attr(struct xcm_socket *s, void *context,
-			     void *value, size_t capacity)
+static int get_blocking_attr(struct xcm_socket *s, void *value,
+			     size_t capacity)
 {
     return xcm_tp_get_bool_attr(s->is_blocking, value, capacity);
 }
 
-static int get_max_msg_attr(struct xcm_socket *s, void *context,
-			    void *value, size_t capacity)
+static int get_max_msg_attr(struct xcm_socket *s, void *value,
+			    size_t capacity)
 {
     if (s->type != xcm_socket_type_conn) {
 	errno = ENOENT;
@@ -422,7 +420,6 @@ static int get_max_msg_attr(struct xcm_socket *s, void *context,
 
 #define GEN_CNT_ATTR_GETTER(cnt_name)					\
     static int get_ ## cnt_name ## _attr(struct xcm_socket *s,		\
-					 void *context,			\
 					 void *value,			\
 					 size_t capacity)		\
     {									\
@@ -509,27 +506,43 @@ static struct xcm_tp_attr server_attrs[] = {
 			get_local_attr)
 };
 
-void xcm_tp_get_attrs(enum xcm_socket_type type, bool bytestream,
-		      const struct xcm_tp_attr **attr_list,
-		      size_t *attr_list_len)
+void xcm_tp_common_attr_foreach(struct xcm_socket *s,
+				xcm_attr_foreach_cb foreach_cb,
+				void *cb_data)
 {
-    switch (type) {
+    const struct xcm_tp_attr *attr_list;
+    size_t attr_list_len;
+
+    switch (s->type) {
     case xcm_socket_type_conn:
-	if (bytestream) {
-	    *attr_list = bytestream_conn_attrs;
-	    *attr_list_len = UT_ARRAY_LEN(bytestream_conn_attrs);
+	if (xcm_tp_socket_is_bytestream(s)) {
+	    attr_list = bytestream_conn_attrs;
+	    attr_list_len = UT_ARRAY_LEN(bytestream_conn_attrs);
 	} else {
-	    *attr_list = msg_conn_attrs;
-	    *attr_list_len = UT_ARRAY_LEN(msg_conn_attrs);
+	    attr_list = msg_conn_attrs;
+	    attr_list_len = UT_ARRAY_LEN(msg_conn_attrs);
 	}
 	break;
     case xcm_socket_type_server:
-	*attr_list = server_attrs;
-	*attr_list_len = UT_ARRAY_LEN(server_attrs);
+	attr_list = server_attrs;
+	attr_list_len = UT_ARRAY_LEN(server_attrs);
 	break;
     default:
 	ut_assert(0);
     }
+
+    xcm_tp_attr_list_foreach(attr_list, attr_list_len, s, foreach_cb, cb_data);
+}
+
+void xcm_tp_attr_list_foreach(const struct xcm_tp_attr *attrs,
+			      size_t attrs_len,
+			      struct xcm_socket *attr_socket,
+			      xcm_attr_foreach_cb cb, void *cb_data)
+{
+    bool cont;
+    size_t i;
+    for (cont = true, i = 0; cont && i < attrs_len; i++)
+	cont = cb(&attrs[i], attr_socket, cb_data);
 }
 
 #define MAX_PROTOS (8)

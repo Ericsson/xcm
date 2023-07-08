@@ -60,9 +60,6 @@ static const char *uxf_get_local_addr(struct xcm_socket *conn_s,
 				      bool suppress_tracing);
 static size_t ux_max_msg(struct xcm_socket *conn_s);
 static int64_t ux_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void ux_get_attrs(struct xcm_socket *s,
-			 const struct xcm_tp_attr **attr_list,
-			 size_t *attr_list_len);
 static size_t ux_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops ux_ops = {
@@ -80,7 +77,6 @@ static struct xcm_tp_ops ux_ops = {
     .get_local_addr = ux_get_local_addr,
     .max_msg = ux_max_msg,
     .get_cnt = ux_get_cnt,
-    .get_attrs = ux_get_attrs,
     .priv_size = ux_priv_size
 };
 
@@ -99,7 +95,6 @@ static struct xcm_tp_ops uxf_ops = {
     .get_local_addr = uxf_get_local_addr,
     .max_msg = ux_max_msg,
     .get_cnt = ux_get_cnt,
-    .get_attrs = ux_get_attrs,
     .priv_size = ux_priv_size
 };
 
@@ -569,11 +564,4 @@ static int64_t ux_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     ut_assert(cnt < XCM_TP_NUM_MESSAGING_CNTS);
 
     return us->cnts[cnt];
-}
-
-static void ux_get_attrs(struct xcm_socket *s,
-			 const struct xcm_tp_attr **attr_list,
-			 size_t *attr_list_len)
-{
-    *attr_list_len = 0;
 }

@@ -39,9 +39,6 @@ struct utls_socket
 
     struct xcm_socket *ux_socket;
     struct xcm_socket *tls_socket;
-
-    struct xcm_tp_attr *attrs;
-    size_t attrs_len;
 };
 
 #define TOUTLS(s) XCM_TP_GETPRIV(s, struct utls_socket)
@@ -65,9 +62,8 @@ static const char *utls_get_local_addr(struct xcm_socket *socket,
 static size_t utls_max_msg(struct xcm_socket *conn_s);
 static int64_t utls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static void utls_enable_ctl(struct xcm_socket *s);
-static void utls_get_attrs(struct xcm_socket* s,
-			   const struct xcm_tp_attr **attr_list,
-			   size_t *attr_list_len);
+static void utls_attr_foreach(struct xcm_socket *s,
+			      xcm_attr_foreach_cb foreach_cb, void *cb_data);
 static size_t utls_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops utls_ops = {
@@ -88,7 +84,7 @@ static struct xcm_tp_ops utls_ops = {
     .max_msg = utls_max_msg,
     .get_cnt = utls_get_cnt,
     .enable_ctl = utls_enable_ctl,
-    .get_attrs = utls_get_attrs,
+    .attr_foreach = utls_attr_foreach,
     .priv_size = utls_priv_size
 };
 
@@ -184,8 +180,6 @@ static void deinit(struct xcm_socket *s)
 
     xcm_tp_socket_destroy(us->tls_socket);
     us->tls_socket = NULL;
-
-    ut_free(us->attrs);
 }
 
 static size_t utls_priv_size(enum xcm_socket_type type)
@@ -550,6 +544,8 @@ static void utls_enable_ctl(struct xcm_socket *s)
 #endif
 }
 
+#if 0
+
 union real_attr_info
 {
     struct {
@@ -667,4 +663,16 @@ static void utls_get_attrs(struct xcm_socket *s,
 
     *attr_list = us->attrs;
     *attr_list_len = us->attrs_len;
+}
+#endif
+
+static void utls_attr_foreach(struct xcm_socket *s,
+			      xcm_attr_foreach_cb foreach_cb, void *cb_data)
+{
+    struct utls_socket *us = TOUTLS(s);
+
+    if (us->ux_socket != NULL)
+	xcm_tp_socket_attr_foreach(us->ux_socket, foreach_cb, cb_data);
+    if (us->tls_socket != NULL)
+	xcm_tp_socket_attr_foreach(us->tls_socket, foreach_cb, cb_data);
 }

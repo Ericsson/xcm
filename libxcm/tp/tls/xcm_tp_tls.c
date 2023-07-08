@@ -25,9 +25,6 @@ struct tls_socket
 
     struct xcm_socket *btls_socket;
 
-    struct xcm_tp_attr *attrs;
-    size_t attrs_len;
-
     union {
 	struct {
 	    bool bad;
@@ -64,9 +61,8 @@ static const char *tls_get_local_addr(struct xcm_socket *conn_s,
 				      bool suppress_tracing);
 static size_t tls_max_msg(struct xcm_socket *conn_s);
 static int64_t tls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void tls_get_attrs(struct xcm_socket* s,
-			  const struct xcm_tp_attr **attr_list,
-			  size_t *attr_list_len);
+static void tls_attr_foreach(struct xcm_socket *s,
+			     xcm_attr_foreach_cb foreach_cb, void *cb_data);
 static size_t tls_priv_size(enum xcm_socket_type type);
 
 const static struct xcm_tp_ops tls_ops = {
@@ -85,7 +81,7 @@ const static struct xcm_tp_ops tls_ops = {
     .get_local_addr = tls_get_local_addr,
     .max_msg = tls_max_msg,
     .get_cnt = tls_get_cnt,
-    .get_attrs = tls_get_attrs,
+    .attr_foreach = tls_attr_foreach,
     .priv_size = tls_priv_size
 };
 
@@ -158,8 +154,6 @@ static void deinit(struct xcm_socket *s)
 
     xcm_tp_socket_destroy(ts->btls_socket);
     ts->btls_socket = NULL;
-
-    ut_free(ts->attrs);
 
     if (s->type == xcm_socket_type_conn) {
 	mbuf_deinit(&ts->conn.send_mbuf);
@@ -572,63 +566,10 @@ static int64_t tls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     return ts->conn.cnts[cnt];
 }
 
-static int set_attr_proxy(struct xcm_socket *s, void *context,
-			  const void *value, size_t len)
-{
-    struct tls_socket *ts = TOTLS(s);
-    const struct xcm_tp_attr *btls_attr = context;
-
-    return btls_attr->set(ts->btls_socket, btls_attr->context, value, len);
-}
-
-static int get_attr_proxy(struct xcm_socket *s, void *context,
-			  void *value, size_t capacity)
-{
-    struct tls_socket *ts = TOTLS(s);
-    const struct xcm_tp_attr *btls_attr = context;
-
-    return btls_attr->get(ts->btls_socket, btls_attr->context,
-			  value, capacity);
-}
-
-static void assure_attrs(struct xcm_socket *s)
+static void tls_attr_foreach(struct xcm_socket *s,
+			     xcm_attr_foreach_cb foreach_cb, void *cb_data)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    if (ts->attrs != NULL)
-	return;
-
-    const struct xcm_tp_attr *btls_attrs;
-    size_t btls_attrs_len = 0;
-    xcm_tp_socket_get_attrs(ts->btls_socket, &btls_attrs, &btls_attrs_len);
-
-    ts->attrs =	ut_malloc(sizeof(struct xcm_tp_attr) * btls_attrs_len);
-    ts->attrs_len = btls_attrs_len;
-
-    size_t i;
-    for (i = 0; i < btls_attrs_len; i++) {
-	struct xcm_tp_attr *tls_attr = &ts->attrs[i];
-	const struct xcm_tp_attr *btls_attr = &btls_attrs[i];
-
-	*tls_attr = (struct xcm_tp_attr) {
-	    .type = btls_attr->type,
-	    .context = (void *)btls_attr,
-	    .set = btls_attr->set != NULL ? set_attr_proxy : NULL,
-	    .get = btls_attr->get != NULL ? get_attr_proxy : NULL
-	};
-
-	strcpy(tls_attr->name, btls_attr->name);
-    }
-}
-
-static void tls_get_attrs(struct xcm_socket* s,
-			  const struct xcm_tp_attr **attr_list,
-			  size_t *attr_list_len)
-{
-    assure_attrs(s);
-
-    struct tls_socket *ts = TOTLS(s);
-
-    *attr_list = ts->attrs;
-    *attr_list_len = ts->attrs_len;
+    xcm_tp_socket_attr_foreach(ts->btls_socket, foreach_cb, cb_data);
 }

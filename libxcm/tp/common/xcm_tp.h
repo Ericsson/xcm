@@ -28,11 +28,8 @@ struct xcm_tp_attr
 {
     char name[XCM_ATTR_NAME_MAX];
     enum xcm_attr_type type;
-    void *context;
-    int (*set)(struct xcm_socket *s, void *context, const void *value,
-	       size_t len);
-    int (*get)(struct xcm_socket *s, void *context, void *value,
-	       size_t capacity);
+    int (*set)(struct xcm_socket *s, const void *value, size_t len);
+    int (*get)(struct xcm_socket *s, void *value, size_t capacity);
 };
 
 enum xcm_tp_cnt
@@ -61,10 +58,14 @@ enum xcm_tp_cnt
     cnts[xcm_tp_cnt_ ## short_name ## _bytes] += (len)
 
 #define XCM_TP_DECL_RW_ATTR(attr_name, attr_type, attr_set_fun, attr_get_fun) \
-    { attr_name, attr_type, NULL, attr_set_fun, attr_get_fun }
+    { attr_name, attr_type, attr_set_fun, attr_get_fun }
 
 #define XCM_TP_DECL_RO_ATTR(attr_name, attr_type, attr_get_fun)		\
     XCM_TP_DECL_RW_ATTR(attr_name, attr_type, NULL, attr_get_fun)
+
+typedef bool (*xcm_attr_foreach_cb)(const struct xcm_tp_attr *attr,
+				    struct xcm_socket *attr_socket,
+				    void *cb_data);
 
 struct xcm_tp_ops {
     /* The 'init' function is called by the framework prior to any
@@ -96,9 +97,8 @@ struct xcm_tp_ops {
     size_t (*max_msg)(struct xcm_socket *s);
     int64_t (*get_cnt)(struct xcm_socket *s, enum xcm_tp_cnt cnt);
     void (*enable_ctl)(struct xcm_socket *s);
-    void (*get_attrs)(struct xcm_socket *s,
-		      const struct xcm_tp_attr **attr_list,
-		      size_t *attr_list_len);
+    void (*attr_foreach)(struct xcm_socket *s,
+			 xcm_attr_foreach_cb foreach_cb, void *user);
     size_t (*priv_size)(enum xcm_socket_type type);
 };
 
@@ -163,15 +163,19 @@ int xcm_tp_socket_set_local_addr(struct xcm_socket *s, const char *local_addr);
 const char *xcm_tp_socket_get_local_addr(struct xcm_socket *s,
 					 bool suppress_tracing);
 size_t xcm_tp_socket_max_msg(struct xcm_socket *conn_s);
-void xcm_tp_socket_get_attrs(struct xcm_socket *s,
-			     const struct xcm_tp_attr **attr_list,
-			     size_t *attr_list_len);
+void xcm_tp_socket_attr_foreach(struct xcm_socket *s,
+				xcm_attr_foreach_cb foreach_cb, void *user);
 int64_t xcm_tp_socket_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 void xcm_tp_socket_enable_ctl(struct xcm_socket *s);
 
-void xcm_tp_get_attrs(enum xcm_socket_type type, bool bytestream,
-		      const struct xcm_tp_attr **attr_list,
-		      size_t *attr_list_len);
+void xcm_tp_common_attr_foreach(struct xcm_socket *s,
+				xcm_attr_foreach_cb foreach_cb,
+				void *cb_data);
+
+void xcm_tp_attr_list_foreach(const struct xcm_tp_attr *attrs,
+			      size_t attrs_len,
+			      struct xcm_socket *attr_socket,
+			      xcm_attr_foreach_cb cb, void *cb_data);
 
 void xcm_tp_register(const char *proto_name, const struct xcm_tp_ops *ops);
 struct xcm_tp_proto *xcm_tp_proto_by_name(const char *proto_name);

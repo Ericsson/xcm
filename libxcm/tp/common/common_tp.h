@@ -7,6 +7,7 @@
 #define COMMON_TP_H
 
 #include "xcm_addr.h"
+#include "xcm_tp.h"
 
 #include <errno.h>
 #include <stdbool.h>

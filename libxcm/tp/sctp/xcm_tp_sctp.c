@@ -91,9 +91,6 @@ static const char *sctp_get_local_addr(struct xcm_socket *socket,
 				       bool suppress_tracing);
 static size_t sctp_max_msg(struct xcm_socket *conn_s);
 static int64_t sctp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void sctp_get_attrs(struct xcm_socket *s,
-			   const struct xcm_tp_attr **attr_list,
-			   size_t *attr_list_len);
 static size_t sctp_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops sctp_ops = {
@@ -111,7 +108,6 @@ static struct xcm_tp_ops sctp_ops = {
     .get_local_addr = sctp_get_local_addr,
     .max_msg = sctp_max_msg,
     .get_cnt = sctp_get_cnt,
-    .get_attrs = sctp_get_attrs,
     .priv_size = sctp_priv_size
 };
 
@@ -848,11 +844,4 @@ static int64_t sctp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     ut_assert(cnt < XCM_TP_NUM_MESSAGING_CNTS);
 
     return ss->conn.cnts[cnt];
-}
-
-static void sctp_get_attrs(struct xcm_socket *s,
-			   const struct xcm_tp_attr **attr_list,
-			   size_t *attr_list_len)
-{
-    *attr_list_len = 0;
 }

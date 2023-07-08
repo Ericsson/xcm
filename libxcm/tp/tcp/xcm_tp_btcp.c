@@ -96,9 +96,8 @@ static int btcp_set_local_addr(struct xcm_socket *s, const char *local_addr);
 static const char *btcp_get_local_addr(struct xcm_socket *socket,
 				      bool suppress_tracing);
 static int64_t btcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void btcp_get_attrs(struct xcm_socket *s,
-			  const struct xcm_tp_attr **attr_list,
-			  size_t *attr_list_len);
+static void btcp_attr_foreach(struct xcm_socket *s,
+			      xcm_attr_foreach_cb foreach_cb, void *user);
 static size_t btcp_priv_size(enum xcm_socket_type type);
 
 static void try_establish(struct xcm_socket *s);
@@ -118,7 +117,7 @@ static struct xcm_tp_ops btcp_ops = {
     .set_local_addr = btcp_set_local_addr,
     .get_local_addr = btcp_get_local_addr,
     .get_cnt = btcp_get_cnt,
-    .get_attrs = btcp_get_attrs,
+    .attr_foreach = btcp_attr_foreach,
     .priv_size = btcp_priv_size
 };
 
@@ -909,7 +908,6 @@ static int64_t btcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
 
 #define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   void *context,		\
 					   void *value, size_t capacity) \
     {									\
 	return tcp_get_ ## field_name ##_attr(TOBTCP(s)->fd, value);	\
@@ -923,7 +921,6 @@ GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_SET(attr_name, attr_type)				\
     static int set_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  void *context,		\
 					  const void *value, size_t len) \
     {									\
 	struct btcp_socket *bts = TOBTCP(s);				\
@@ -935,7 +932,6 @@ GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_GET(attr_name, attr_type)				\
     static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
-					  void *context,		\
 					  void *value, size_t capacity)	\
     {									\
     struct btcp_socket *bts = TOBTCP(s);					\
@@ -955,8 +951,8 @@ GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
 
-static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
-				const void *value, size_t len)
+static int set_dns_timeout_attr(struct xcm_socket *s, const void *value,
+				size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -974,8 +970,8 @@ static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
     return 0;
 }
 
-static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
-				void *value, size_t capacity)
+static int get_dns_timeout_attr(struct xcm_socket *s, void *value,
+				size_t capacity)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -986,8 +982,7 @@ static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
     return xcm_tp_get_double_attr(timeout, value, capacity);
 }
 
-static int set_scope_attr(struct xcm_socket *s, void *context,
-			  const void *value, size_t len)
+static int set_scope_attr(struct xcm_socket *s, const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -1021,8 +1016,7 @@ static int set_scope_attr(struct xcm_socket *s, void *context,
     return 0;
 }
 
-static int get_scope_attr(struct xcm_socket *s, void *context,
-			  void *value, size_t capacity)
+static int get_scope_attr(struct xcm_socket *s, void *value, size_t capacity)
 {
     int64_t scope = TOBTCP(s)->scope;
 
@@ -1068,20 +1062,20 @@ static struct xcm_tp_attr server_attrs[] = {
     COMMON_ATTRS
 };
 
-static void btcp_get_attrs(struct xcm_socket *s,
-			   const struct xcm_tp_attr **attr_list,
-			   size_t *attr_list_len)
+static void btcp_attr_foreach(struct xcm_socket *s,
+			      xcm_attr_foreach_cb foreach_cb, void *cb_data)
 {
-    switch (s->type) {
-    case xcm_socket_type_conn:
-	*attr_list = conn_attrs;
-	*attr_list_len = UT_ARRAY_LEN(conn_attrs);
-	break;
-    case xcm_socket_type_server:
-	*attr_list = server_attrs;
-	*attr_list_len = UT_ARRAY_LEN(server_attrs);
-	break;
-    default:
-	ut_assert(0);
+    const struct xcm_tp_attr *attr_list;
+    size_t attr_list_len;
+
+    if (s->type == xcm_socket_type_conn) {
+	attr_list = conn_attrs;
+	attr_list_len = UT_ARRAY_LEN(conn_attrs);
+    } else {
+	attr_list = server_attrs;
+	attr_list_len = UT_ARRAY_LEN(server_attrs);
     }
+
+    xcm_tp_attr_list_foreach(attr_list, attr_list_len, s, foreach_cb,
+			     cb_data);
 }

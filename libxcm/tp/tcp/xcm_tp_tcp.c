@@ -27,9 +27,6 @@ struct tcp_socket
 
     struct xcm_socket *btcp_socket;
 
-    struct xcm_tp_attr *attrs;
-    size_t attrs_len;
-
     struct {
 	bool bad;
 	int badness_reason;
@@ -67,9 +64,8 @@ static const char *tcp_get_local_addr(struct xcm_socket *s,
 				      bool suppress_tracing);
 static size_t tcp_max_msg(struct xcm_socket *conn_s);
 static int64_t tcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void tcp_get_attrs(struct xcm_socket *s,
-			  const struct xcm_tp_attr **attr_list,
-			  size_t *attr_list_len);
+static void tcp_attr_foreach(struct xcm_socket *s,
+			     xcm_attr_foreach_cb foreach_cb, void *user);
 static size_t tcp_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops tcp_ops = {
@@ -88,7 +84,7 @@ static struct xcm_tp_ops tcp_ops = {
     .get_local_addr = tcp_get_local_addr,
     .max_msg = tcp_max_msg,
     .get_cnt = tcp_get_cnt,
-    .get_attrs = tcp_get_attrs,
+    .attr_foreach = tcp_attr_foreach,
     .priv_size = tcp_priv_size
 };
 
@@ -161,8 +157,6 @@ static void deinit(struct xcm_socket *s)
 
     xcm_tp_socket_destroy(ts->btcp_socket);
     ts->btcp_socket = NULL;
-
-    ut_free(ts->attrs);
 
     if (s->type == xcm_socket_type_conn) {
 	mbuf_deinit(&ts->conn.send_mbuf);
@@ -573,63 +567,10 @@ static int64_t tcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     return ts->conn.cnts[cnt];
 }
 
-static int set_attr_proxy(struct xcm_socket *s, void *context,
-			  const void *value, size_t len)
-{
-    struct tcp_socket *ts = TOTCP(s);
-    const struct xcm_tp_attr *btcp_attr = context;
-
-    return btcp_attr->set(ts->btcp_socket, btcp_attr->context, value, len);
-}
-
-static int get_attr_proxy(struct xcm_socket *s, void *context,
-			  void *value, size_t capacity)
-{
-    struct tcp_socket *ts = TOTCP(s);
-    const struct xcm_tp_attr *btcp_attr = context;
-
-    return btcp_attr->get(ts->btcp_socket, btcp_attr->context,
-			  value, capacity);
-}
-
-static void assure_attrs(struct xcm_socket *s)
+static void tcp_attr_foreach(struct xcm_socket *s,
+			     xcm_attr_foreach_cb foreach_cb, void *user)
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    if (ts->attrs != NULL)
-	return;
-
-    const struct xcm_tp_attr *btcp_attrs;
-    size_t btcp_attrs_len = 0;
-    xcm_tp_socket_get_attrs(ts->btcp_socket, &btcp_attrs, &btcp_attrs_len);
-
-    ts->attrs =	ut_malloc(sizeof(struct xcm_tp_attr) * btcp_attrs_len);
-    ts->attrs_len = btcp_attrs_len;
-
-    size_t i;
-    for (i = 0; i < btcp_attrs_len; i++) {
-	struct xcm_tp_attr *tcp_attr = &ts->attrs[i];
-	const struct xcm_tp_attr *btcp_attr = &btcp_attrs[i];
-
-	*tcp_attr = (struct xcm_tp_attr) {
-	    .type = btcp_attr->type,
-	    .context = (void *)btcp_attr,
-	    .set = btcp_attr->set != NULL ? set_attr_proxy : NULL,
-	    .get = btcp_attr->get != NULL ? get_attr_proxy : NULL
-	};
-
-	strcpy(tcp_attr->name, btcp_attr->name);
-    }
-}
-
-static void tcp_get_attrs(struct xcm_socket* s,
-			  const struct xcm_tp_attr **attr_list,
-			  size_t *attr_list_len)
-{
-    assure_attrs(s);
-
-    struct tcp_socket *ts = TOTCP(s);
-
-    *attr_list = ts->attrs;
-    *attr_list_len = ts->attrs_len;
+    xcm_tp_socket_attr_foreach(ts->btcp_socket, foreach_cb, user);
 }
