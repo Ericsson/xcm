@@ -20,8 +20,8 @@ config.guess
 config.sub
 configure
 depcomp
-*/.deps/*
-*/.dirstamp
+**/.deps/*
+**/.dirstamp
 common/config.h
 common/config.h.in
 common/stamp-h1
@@ -31,6 +31,7 @@ libtool
 install-sh
 ltmain.sh
 libxcm/git_version.c
+include/xcm_version.h
 m4/
 
 client
