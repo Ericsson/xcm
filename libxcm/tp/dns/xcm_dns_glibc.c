@@ -6,10 +6,10 @@
 
 #include "xcm_dns.h"
 
-#include "epoll_reg.h"
 #include "log_dns.h"
 #include "util.h"
 #include "xcm_addr.h"
+#include "xpoll.h"
 
 #include <netdb.h>
 #include <signal.h>
@@ -32,10 +32,12 @@ struct xcm_dns_query
 
     struct gaicb *request;
 
+    struct xpoll *xpoll;
+
     enum query_state state;
 
     int pipefds[2];
-    struct epoll_reg reg;
+    int pipe_reg_id;
 
     struct xcm_addr_ip ip;
 
@@ -135,18 +137,20 @@ static void try_retrieve_query_result(struct xcm_dns_query *query)
     }
 }
 
-struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
+struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
+				      struct xpoll *xpoll,
 				      double timeout, void *log_ref)
 {
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
     query->request = ut_malloc(sizeof(struct gaicb));
     query->domain_name = ut_strdup(domain_name);
+    query->xpoll = xpoll;
 
     if (pipe(query->pipefds) < 0)
 	goto err_free;
 
-    epoll_reg_init(&query->reg, epoll_fd, query->pipefds[0], log_ref);
-    epoll_reg_add(&query->reg, EPOLLIN);
+    query->pipe_reg_id =
+	xpoll_fd_reg_add(query->xpoll, query->pipefds[0], EPOLLIN);
 
     query->log_ref = log_ref;
 
@@ -155,14 +159,14 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name, int epoll_fd,
     LOG_DNS_RESOLUTION_ATTEMPT(log_ref, domain_name);
 
     if (initiate_query(query) < 0)
-	goto err_reset;
+	goto err_reg_del;
 
     try_retrieve_query_result(query);
 
     return query;
 
- err_reset:
-    epoll_reg_reset(&query->reg);
+ err_reg_del:
+    xpoll_fd_reg_del(query->xpoll, query->pipe_reg_id);
     ut_close(query->pipefds[0]);
     ut_close(query->pipefds[1]);
  err_free:
@@ -192,7 +196,7 @@ void xcm_dns_query_process(struct xcm_dns_query *query)
 }
 
 int xcm_dns_query_result(struct xcm_dns_query *query,
-			 struct xcm_addr_ip *ip)
+			 struct xcm_addr_ip *ips, int capacity)
 {
     switch (query->state) {
     case query_state_resolving:
@@ -202,9 +206,11 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 	errno = ENOENT;
 	return -1;
     case query_state_successful:
-	*ip = query->ip;
-	epoll_reg_del(&query->reg);
-	return 0;
+	ut_assert(capacity >= 1);
+	ips[0] = query->ip;
+	xpoll_fd_reg_del(query->xpoll, query->pipe_reg_id);
+	query->pipe_reg_id = -1;
+	return 1;
     default:
 	ut_assert(0);
 	return 0;
@@ -240,7 +246,8 @@ void xcm_dns_query_free(struct xcm_dns_query *query)
     if (query) {
 	cancel_request(query);
 
-	epoll_reg_reset(&query->reg);
+	if (query->pipe_reg_id >= 0)
+	    xpoll_fd_reg_del(query->xpoll, query->pipe_reg_id);
 
 	ut_close(query->pipefds[0]);
 	ut_close(query->pipefds[1]);
