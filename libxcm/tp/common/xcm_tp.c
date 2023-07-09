@@ -107,25 +107,53 @@ static void consider_ctl(struct xcm_socket *s, bool permanently_failed_op,
 
 int xcm_tp_socket_connect(struct xcm_socket *s, const char *remote_addr)
 {
+    return XCM_TP_CALL(connect, s, remote_addr);
+}
+
+int xcm_tp_socket_connect_u(struct xcm_socket *s, const char *remote_addr)
+{
     do_ctl(s);
 
     int rc = XCM_TP_CALL(connect, s, remote_addr);
-    if (rc == 0)
+
+    if (rc == 0) {
 	xcm_tp_socket_update(s);
+	xcm_tp_socket_enable_ctl(s);
+    }
+
     return rc;
 }
 
 int xcm_tp_socket_server(struct xcm_socket *s, const char *local_addr)
 {
+    return XCM_TP_CALL(server, s, local_addr);
+}
+
+int xcm_tp_socket_server_u(struct xcm_socket *s, const char *local_addr)
+{
     do_ctl(s);
 
     int rc = XCM_TP_CALL(server, s, local_addr);
-    if (rc == 0)
+
+    if (rc == 0) {
 	xcm_tp_socket_update(s);
+	xcm_tp_socket_enable_ctl(s);
+    }
+
     return rc;
 }
 
 int xcm_tp_socket_close(struct xcm_socket *s)
+{
+    int rc = 0;
+
+    if (s != NULL)
+	rc = XCM_TP_CALL(close, s);
+
+    return rc;
+}
+
+int xcm_tp_socket_close_u(struct xcm_socket *s)
 {
     int rc = 0;
 
@@ -140,6 +168,12 @@ int xcm_tp_socket_close(struct xcm_socket *s)
 
 void xcm_tp_socket_cleanup(struct xcm_socket *s)
 {
+    if (s != NULL)
+	XCM_TP_CALL(cleanup, s);
+}
+
+void xcm_tp_socket_cleanup_u(struct xcm_socket *s)
+{
     if (s != NULL) {
 #ifdef XCM_CTL
 	ctl_destroy(s->ctl, false);
@@ -151,10 +185,18 @@ void xcm_tp_socket_cleanup(struct xcm_socket *s)
 int xcm_tp_socket_accept(struct xcm_socket *conn_s,
 			 struct xcm_socket *server_s)
 {
+    return XCM_TP_CALL(accept, conn_s, server_s);
+}
+
+int xcm_tp_socket_accept_u(struct xcm_socket *conn_s,
+			   struct xcm_socket *server_s)
+{
     int rc = XCM_TP_CALL(accept, conn_s, server_s);
 
-    if (rc == 0)
+    if (rc == 0) {
 	xcm_tp_socket_update(conn_s);
+	xcm_tp_socket_enable_ctl(conn_s);
+    }
 
     consider_ctl(server_s, rc < 0 && errno != EAGAIN,
 		 rc < 0 && errno == EAGAIN);
@@ -167,6 +209,12 @@ int xcm_tp_socket_accept(struct xcm_socket *conn_s,
 int xcm_tp_socket_send(struct xcm_socket *__restrict s,
 		       const void *__restrict buf, size_t len)
 {
+    return XCM_TP_CALL(send, s, buf, len);
+}
+
+int xcm_tp_socket_send_u(struct xcm_socket *__restrict s,
+			 const void *__restrict buf, size_t len)
+{
     int rc = XCM_TP_CALL(send, s, buf, len);
 
     consider_ctl(s, rc < 0 && errno != EAGAIN, rc < 0 && errno == EAGAIN);
@@ -176,6 +224,11 @@ int xcm_tp_socket_send(struct xcm_socket *__restrict s,
 }
 
 int xcm_tp_socket_receive(struct xcm_socket *s, void *buf, size_t capacity)
+{
+    return XCM_TP_CALL(receive, s, buf, capacity);
+}
+
+int xcm_tp_socket_receive_u(struct xcm_socket *s, void *buf, size_t capacity)
 {
     int rc = XCM_TP_CALL(receive, s, buf, capacity);
 
@@ -193,6 +246,11 @@ void xcm_tp_socket_update(struct xcm_socket *s)
 }
     
 int xcm_tp_socket_finish(struct xcm_socket *s)
+{
+    return XCM_TP_CALL(finish, s);
+}
+
+int xcm_tp_socket_finish_u(struct xcm_socket *s)
 {
     int rc = XCM_TP_CALL(finish, s);
 

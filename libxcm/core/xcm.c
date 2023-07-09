@@ -69,7 +69,7 @@ static int socket_wait(struct xcm_socket *conn_s, int condition)
 static int socket_finish(struct xcm_socket *s)
 {
     int f_rc;
-    while ((f_rc = xcm_tp_socket_finish(s)) < 0 &&
+    while ((f_rc = xcm_tp_socket_finish_u(s)) < 0 &&
 	   (errno == EAGAIN || errno == EINPROGRESS)) {
 	if (socket_wait(s, 0) < 0)
 	    return -1;
@@ -205,7 +205,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
     if (set_attrs(s, NULL, attrs) < 0)
 	goto err_close;
 
-    if (xcm_tp_socket_connect(s, remote_addr) < 0)
+    if (xcm_tp_socket_connect_u(s, remote_addr) < 0)
 	goto err_destroy;
 
     if (s->is_blocking && socket_finish(s) < 0) {
@@ -213,12 +213,10 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
 	goto err_close;
     }
 
-    xcm_tp_socket_enable_ctl(s);
-
     return s;
 
 err_close:
-    xcm_tp_socket_close(s);
+    xcm_tp_socket_close_u(s);
 err_destroy:
     socket_destroy(s);
 err:
@@ -250,15 +248,13 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
     if (set_attrs(s, NULL, attrs) < 0)
 	goto err_close;
 
-    if (xcm_tp_socket_server(s, local_addr) < 0)
+    if (xcm_tp_socket_server_u(s, local_addr) < 0)
 	goto err_destroy;
-
-    xcm_tp_socket_enable_ctl(s);
 
     return s;
 
 err_close:
-    xcm_tp_socket_close(s);
+    xcm_tp_socket_close_u(s);
 err_destroy:
     socket_destroy(s);
 err:
@@ -268,7 +264,7 @@ err:
 int xcm_close(struct xcm_socket *s)
 {
     if (s != NULL) {
-	int rc = xcm_tp_socket_close(s);
+	int rc = xcm_tp_socket_close_u(s);
 	socket_destroy(s);
 	return rc;
     } else
@@ -278,7 +274,7 @@ int xcm_close(struct xcm_socket *s)
 void xcm_cleanup(struct xcm_socket *s)
 {
     if (s != NULL) {
-	xcm_tp_socket_cleanup(s);
+	xcm_tp_socket_cleanup_u(s);
 	socket_destroy(s);
     }
 }
@@ -311,7 +307,7 @@ restart:
     if (set_attrs(conn_s, server_s, attrs) < 0)
 	goto err_close;
 
-    if (xcm_tp_socket_accept(conn_s, server_s) < 0) {
+    if (xcm_tp_socket_accept_u(conn_s, server_s) < 0) {
 	if (is_blocking && errno == EAGAIN) {
 	    socket_destroy(conn_s);
 	    goto restart;
@@ -322,12 +318,10 @@ restart:
     if (is_blocking && socket_finish(conn_s) < 0)
 	goto err_close;
 
-    xcm_tp_socket_enable_ctl(conn_s);
-
     return conn_s;
 
 err_close:
-    xcm_tp_socket_close(conn_s);
+    xcm_tp_socket_close_u(conn_s);
 err_destroy:
     socket_destroy(conn_s);
 err:
@@ -340,7 +334,7 @@ static int bytestream_bsend(struct xcm_socket *conn_s, const void *buf,
     int sent = 0;
     do {
 	int left = len - sent;
-	int rc = xcm_tp_socket_send(conn_s, buf + sent, left);
+	int rc = xcm_tp_socket_send_u(conn_s, buf + sent, left);
 
 	if (rc < 0) {
 	    if (errno != EAGAIN)
@@ -357,7 +351,7 @@ static int bytestream_bsend(struct xcm_socket *conn_s, const void *buf,
 static int msg_bsend(struct xcm_socket *conn_s, const void *buf, size_t len)
 {
     for (;;) {
-	int s_rc = xcm_tp_socket_send(conn_s, buf, len);
+	int s_rc = xcm_tp_socket_send_u(conn_s, buf, len);
 
 	if (s_rc < 0) {
 	    if (errno != EAGAIN)
@@ -386,7 +380,7 @@ int xcm_send(struct xcm_socket *__restrict conn_s,
 
 	return rc;
     } else
-	return xcm_tp_socket_send(conn_s, buf, len);
+	return xcm_tp_socket_send_u(conn_s, buf, len);
 }
 
 int xcm_receive(struct xcm_socket *__restrict conn_s,
@@ -398,13 +392,13 @@ int xcm_receive(struct xcm_socket *__restrict conn_s,
 	for (;;) {
 	    if (socket_wait(conn_s, XCM_SO_RECEIVABLE) < 0)
 		return -1;
-	    int s_rc = xcm_tp_socket_receive(conn_s, buf, capacity);
+	    int s_rc = xcm_tp_socket_receive_u(conn_s, buf, capacity);
 
 	    if (s_rc >= 0 || errno != EAGAIN)
 		return s_rc;
 	}
     } else
-	return xcm_tp_socket_receive(conn_s, buf, capacity);
+	return xcm_tp_socket_receive_u(conn_s, buf, capacity);
 }
 
 int xcm_await(struct xcm_socket *s, int condition)
@@ -430,9 +424,7 @@ int xcm_finish(struct xcm_socket *s)
 {
     TP_RET_ERR_IF(s->is_blocking, EINVAL);
 
-    int rc = xcm_tp_socket_finish(s);
-
-    xcm_tp_socket_update(s);
+    int rc = xcm_tp_socket_finish_u(s);
 
     return rc;
 }
