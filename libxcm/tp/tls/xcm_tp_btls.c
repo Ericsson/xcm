@@ -1067,7 +1067,7 @@ static void conn_update(struct xcm_socket *s)
 	if (s->condition == 0)
 	    break;
 	else if (s->condition&XCM_SO_RECEIVABLE &&
-	    SSL_pending(bts->conn.ssl) > 0)
+		 SSL_has_pending(bts->conn.ssl))
 	    ready = true;
 	else if (bts->conn.ssl_condition == 0)
 	     /* No SSL_read()/write() issued */
@@ -1075,7 +1075,9 @@ static void conn_update(struct xcm_socket *s)
 	else if (s->condition == bts->conn.ssl_condition)
 	    bts->btcp_socket->condition = bts->conn.ssl_wants;
 	else if (s->condition == (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE)) {
-	    if (bts->conn.ssl_condition == XCM_SO_SENDABLE) {
+	    if (SSL_has_pending(bts->conn.ssl))
+		ready = true;
+	    else if (bts->conn.ssl_condition == XCM_SO_SENDABLE) {
 		/* SSL_write() has been attempted */
 		if (bts->conn.ssl_wants == XCM_SO_RECEIVABLE)
 		     /* reneg */
@@ -1085,11 +1087,9 @@ static void conn_update(struct xcm_socket *s)
 		    bts->btcp_socket->condition =
 			(XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
 	    } else {
-		/* The TLS connection may be waiting for some in-band
-		   signaling to occur here, in which case we should
-		   really only wait for EPOLLIN, rather than
-		   both. However, that should only occur during TLS
-		   1.2 renegotiation, and thus be rare indeed. */
+		/* The TLS connection is waiting for some in-band
+		   signaling to occur, which shouldn't really happen
+		   since renegotiation is disabled. */
 		bts->btcp_socket->condition =
 		    (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
 	    }
