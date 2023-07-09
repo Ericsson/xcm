@@ -1256,18 +1256,33 @@ extern "C" {
  * To minimize latency, the SCTP transport disables the Nagle
  * algorithm.
  *
+ * @subsection btcp_transport BTCP Transport
+ *
+ * The BTCP transport provides a reliable two-way byte stream service
+ * over TCP.
+ *
+ * Unlike the @ref tcp_transport, BTCP doesn't use a framing header or
+ * anything else on the wire protocol level that is specific to
+ * XCM. In other words, it's a "raw" TCP connection.
+ *
+ * Other than the above-mentioned differences, BTCP is identical to
+ * the @ref tcp_transport, including supported @ref tcp_attr.
+ *
  * @subsection btls_transport BTLS Transport
  *
- * The BTLS transport uses the Transport Layer Security (TLS) protocol
- * to provide a secure, private, two-way authenticated byte
- * stream service over TCP.
+ * The BTLS transport provides a direct mapping to the Transport Layer
+ * Security (TLS) protocol over TCP. It provides a secure, private,
+ * two-way authenticated byte stream service.
  *
- * Unlike the @ref tls_transport, BTLS doesn't have a framing header
- * or anything else on the wire protocol level that is specific to
- * XCM. It's a "raw" TLS connection.
+ * BTLS has the same relationship to the @ref tls_transport as the
+ * @ref tcp_transport has to the @ref tcp_transport.
+ *
+ * BTLS doesn't add a framing header or any other XCM BTLS-level
+ * protocol artefacts on top of the TLS session. In other words, it's
+ * a "raw" TLS connection.
  *
  * Other than providing a byte stream, it's identical to the @ref
- * tls_transport.
+ * tls_transport, including supported @ref tcp_attr and @ref tls_attr.
  *
  * @section namespaces Linux Network and IPC Namespaces
  *
