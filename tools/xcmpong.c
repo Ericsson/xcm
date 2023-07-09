@@ -447,8 +447,8 @@ static void send_term(struct xcm_socket *conn, send_fun xsend, int epoll_fd)
 }
 
 
-uint64_t query_cpu(struct xcm_socket *conn, send_fun xsend,
-		   receive_fun xreceive, int epoll_fd)
+static uint64_t query_cpu(struct xcm_socket *conn, send_fun xsend,
+			  receive_fun xreceive, int epoll_fd)
 {
     if (xcm_set_blocking(conn, true) < 0)
 	ut_die("Failed to set blocking mode");

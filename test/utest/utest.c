@@ -37,7 +37,7 @@ void testsuite_register(const char *name,
     assert(suites_len <= MAX_NUM_SUITES);
 }
 
-struct testsuite *lookup_suite(const char *name)
+static struct testsuite *lookup_suite(const char *name)
 {
     size_t i;
     for (i=0; i<suites_len; i++)
@@ -154,7 +154,7 @@ double utest_ftime(void)
     return t.tv_sec+((double)t.tv_nsec)/1e9;
 }
 
-void set_proc_name(struct testcase *tc)
+static void set_proc_name(struct testcase *tc)
 {
     char name[16];
     if (snprintf(name, sizeof(name), "%s:%s", tc->suite->name, tc->name) >=
@@ -306,8 +306,8 @@ static bool match(const char *name, struct testcase *tc) {
     return strcmp(cname, name) == 0;
 }
 
-struct testcase *find_testcase(struct testcase *tcs, size_t tcs_len,
-			       const char *name)
+static struct testcase *find_testcase(struct testcase *tcs, size_t tcs_len,
+				      const char *name)
 {
     for (size_t i=0; i<tcs_len; i++) {
 	struct testcase *tc = &tcs[i];

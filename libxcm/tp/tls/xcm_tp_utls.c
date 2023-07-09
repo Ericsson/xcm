@@ -196,7 +196,7 @@ static void map_tls_to_ux(const char *tls_addr, char *ux_addr, size_t capacity)
     ut_assert(rc == 0);
 }
 
-void remove_sub_socket(struct xcm_socket **s)
+static void remove_sub_socket(struct xcm_socket **s)
 {
     xcm_tp_socket_destroy(*s);
     *s = NULL;

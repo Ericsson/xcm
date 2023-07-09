@@ -586,8 +586,8 @@ static const char *get_cert_dir(void)
     return cert_dir != NULL ? cert_dir : DEFAULT_CERT_DIR;
 }
 
-void get_file(const char *default_tmpl, const char *ns_tmpl,
-	      const char *ns, const char *cert_dir, struct item *item)
+static void get_file(const char *default_tmpl, const char *ns_tmpl,
+		     const char *ns, const char *cert_dir, struct item *item)
 {
     char *path;
 
@@ -601,17 +601,20 @@ void get_file(const char *default_tmpl, const char *ns_tmpl,
     ut_free(path);
 }
 
-void get_cert_file(const char *ns, const char *cert_dir, struct item *cert)
+void static get_cert_file(const char *ns, const char *cert_dir,
+			  struct item *cert)
 {
     get_file(DEFAULT_CERT_FILE, NS_CERT_FILE, ns, cert_dir, cert);
 }
 
-void get_key_file(const char *ns, const char *cert_dir, struct item *key)
+static void get_key_file(const char *ns, const char *cert_dir,
+			 struct item *key)
 {
     get_file(DEFAULT_KEY_FILE, NS_KEY_FILE, ns, cert_dir, key);
 }
 
-void get_tc_file(const char *ns, const char *cert_dir, struct item *tc)
+static void get_tc_file(const char *ns, const char *cert_dir,
+			struct item *tc)
 {
     get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir, tc);
 }

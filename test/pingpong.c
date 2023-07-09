@@ -419,8 +419,8 @@ pid_t pingpong_run_async_server(const char *server_addr, int total_pings,
     exit(EXIT_SUCCESS);
 }
 
-pid_t run_client_handler(struct xcm_socket *conn, int num_pings,
-			 useconds_t sleep_between_pings)
+static pid_t run_client_handler(struct xcm_socket *conn, int num_pings,
+				useconds_t sleep_between_pings)
 {
     pid_t p = fork();
     if (p < 0)

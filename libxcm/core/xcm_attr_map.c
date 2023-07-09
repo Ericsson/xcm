@@ -35,8 +35,8 @@ static void assert_valid_len(enum xcm_attr_type type, size_t value_len)
     }
 }
 
-struct attr *attr_create(const char *name, enum xcm_attr_type type,
-			 const void *value, size_t value_len)
+static struct attr *attr_create(const char *name, enum xcm_attr_type type,
+				const void *value, size_t value_len)
 
 {
     assert_valid_len(type, value_len);
@@ -52,7 +52,7 @@ struct attr *attr_create(const char *name, enum xcm_attr_type type,
     return attr;
 }
 
-void attr_destroy(struct attr *attr)
+static void attr_destroy(struct attr *attr)
 {
     if (attr != NULL) {
 	ut_free(attr->name);
@@ -92,8 +92,8 @@ struct xcm_attr_map *xcm_attr_map_clone(const struct xcm_attr_map *original)
     return copy;
 }
 
-struct attr *lookup_attr(const struct xcm_attr_map *attr_map,
-			 const char *attr_name)
+static struct attr *lookup_attr(const struct xcm_attr_map *attr_map,
+				const char *attr_name)
 {
     struct attr *attr;
     LIST_FOREACH(attr, &attr_map->attrs, entry)
@@ -102,9 +102,11 @@ struct attr *lookup_attr(const struct xcm_attr_map *attr_map,
     return NULL;
 }
 
-const struct attr *lookup_attr_with_type(const struct xcm_attr_map *attr_map,
-					 const char *attr_name,
-					 enum xcm_attr_type type)
+static const struct attr *
+lookup_attr_with_type(const struct xcm_attr_map *attr_map,
+		      const char *attr_name,
+		      enum xcm_attr_type type
+)
 {
     struct attr *attr;
     LIST_FOREACH(attr, &attr_map->attrs, entry)
@@ -113,9 +115,10 @@ const struct attr *lookup_attr_with_type(const struct xcm_attr_map *attr_map,
     return NULL;
 }
 
-const void *lookup_value_with_type(const struct xcm_attr_map *attr_map,
-				   const char *attr_name,
-				   enum xcm_attr_type type)
+static const void *
+lookup_value_with_type(const struct xcm_attr_map *attr_map,
+		       const char *attr_name,
+		       enum xcm_attr_type type)
 {
     const struct attr *attr =
 	lookup_attr_with_type(attr_map, attr_name, type);

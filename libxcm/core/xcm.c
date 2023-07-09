@@ -174,7 +174,7 @@ static struct xcm_socket *socket_create(const struct xcm_tp_proto *proto,
     return s;
 }
 
-void socket_destroy(struct xcm_socket *s)
+static void socket_destroy(struct xcm_socket *s)
 {
     if (s != NULL) {
 	struct xpoll *xpoll = s->xpoll;

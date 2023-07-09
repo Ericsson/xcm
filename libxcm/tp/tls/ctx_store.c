@@ -346,7 +346,7 @@ out:
     return rc;
 }
 
-int install_tc(X509_STORE *store, const char *tc_data, void *log_ref)
+static int install_tc(X509_STORE *store, const char *tc_data, void *log_ref)
 {
     BIO *bio = str_to_bio(tc_data);
     int rc = -1;
