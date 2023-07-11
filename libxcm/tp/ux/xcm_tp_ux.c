@@ -130,8 +130,8 @@ static void deinit(struct xcm_socket *s, bool owner)
 
     ut_close_if_valid(us->fd);
 
-    if (us->fd_reg_id >= 0 && owner)
-	xpoll_fd_reg_del(s->xpoll, us->fd_reg_id);
+    if (owner)
+	xpoll_fd_reg_del_if_valid(s->xpoll, us->fd_reg_id);
 
     if (owner && strlen(us->path) > 0) {
 	UT_SAVE_ERRNO;

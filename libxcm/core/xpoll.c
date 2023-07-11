@@ -245,6 +245,12 @@ void xpoll_fd_reg_del(struct xpoll *xpoll, int reg_idx)
     deallocate_fd_reg_idx(xpoll, reg_idx);
 }
 
+void xpoll_fd_reg_del_if_valid(struct xpoll *xpoll, int reg_id)
+{
+    if (reg_id >= 0)
+	xpoll_fd_reg_del(xpoll, reg_id);
+}
+
 static void bell_regs_extend_capacity(struct xpoll *xpoll,
 				      int new_capacity)
 {
@@ -383,4 +389,10 @@ void xpoll_bell_reg_del(struct xpoll *xpoll, int reg_idx)
     deallocate_bell_reg_idx(xpoll, reg_idx);
 
     update_active_fd(xpoll);
+}
+
+void xpoll_bell_reg_del_if_valid(struct xpoll *xpoll, int reg_id)
+{
+    if (reg_id >= 0)
+	xpoll_bell_reg_del(xpoll, reg_id);
 }

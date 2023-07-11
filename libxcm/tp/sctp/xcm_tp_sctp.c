@@ -213,8 +213,7 @@ static void deinit(struct xcm_socket *s)
 
     LOG_DEINIT(s);
 
-    if (ss->fd_reg_id >= 0)
-	xpoll_fd_reg_del(s->xpoll, ss->fd_reg_id);
+    xpoll_fd_reg_del_if_valid(s->xpoll, ss->fd_reg_id);
 
     if (s->type == xcm_socket_type_conn) {
 	xpoll_bell_reg_del(s->xpoll, ss->conn.bell_reg_id);

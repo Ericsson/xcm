@@ -243,8 +243,8 @@ static void deinit(struct xcm_socket *s, bool owner)
 
     LOG_DEINIT(s);
 
-    if (bts->fd_reg_id >= 0 && owner)
-	xpoll_fd_reg_del(s->xpoll, bts->fd_reg_id);
+    if (owner)
+	xpoll_fd_reg_del_if_valid(s->xpoll, bts->fd_reg_id);
 
     if (s->type == xcm_socket_type_conn) {
 	if (owner)
