@@ -708,6 +708,7 @@ static int btcp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
     case conn_state_initialized:
 	ut_assert(0);
     case conn_state_ready:
+	break;
     }
 
     int rc = recv(bts->fd, buf, capacity, 0);
