@@ -199,6 +199,11 @@ extern "C" {
  * zero or more IPv6 addresses. XCM relies on the operating system to
  * prioritize between IPv4 and IPv6.
  *
+ * By default, XCM will only connect to the first (highest-priority)
+ * IP address provided by DNS. This behavior can be changed for all
+ * TCP-based transports using the "dns.algorithm" attribute. See
+ * @ref tcp_attr for more information.
+ *
  * @subsubsection ip_addr_format IPv4 Address Format
  *
  * XCM accepts IPv4 addresses in the dotted-decimal format
@@ -937,6 +942,7 @@ extern "C" {
  * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
  * ipv6.scope         | All         | Integer    | RW   | The IPv6 scope id used. Only available on IPv6 sockets. Writable only at socket creation. If left unset, it will take on the value of 0 (the global scope). Any other value denotes the network interface index to be used, for IPv6 link local addresses. See the if_nametoindex(3) manual page for how to map interface names to indices.
  * dns.timeout        | Connection  | Double     | RW   | The number of seconds until DNS times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
+ * dns.algorithm | Connection  | String     | RW   | The algorithm used for connecting to IP addresses retrieved from DNS. Writable only at the time of the xcm_connect_a() call. With the default method "single", all but the first (i.e., most preferred) address will be ignored. If the algorithm is set to "sequential", all IP addresses will be probed, in a serial manner, in the order provided by the DNS resolver. Setting the algorithm to "happy_eyeballs" will result in RFC 6555-like behavior, with two concurrent connection establishment tracks; one attempting to establish an IPv4 connection and the other an IPv6-based connection. The IPv6 track is given a 200 ms head start. When the "sequential" or "happy_eyeballs" algorithm is used, only the first 32 addresses provided by the resolver will be considered.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.

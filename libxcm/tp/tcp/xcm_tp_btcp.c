@@ -6,6 +6,7 @@
 #include "common_tp.h"
 #include "dns_attr.h"
 #include "log_tp.h"
+#include "tconnect.h"
 #include "tcp_attr.h"
 #include "util.h"
 #include "xcm.h"
@@ -51,18 +52,19 @@ struct btcp_socket
 
 	    int badness_reason;
 
-	    /* only used during DNS resolution */
-	    int fd4;
-	    int fd6;
-
 	    int bell_reg_id;
 
 	    /* for conn_state_resolving */
-	    struct xcm_addr_host remote_host;
+	    struct xcm_addr_ip remote_ips[XCM_DNS_MAX_RESULT_SIZE];
+	    uint16_t num_remote_ips;
 	    uint16_t remote_port;
 	    struct xcm_dns_query *query;
 
+	    /* for conn_state_connecting */
+	    struct tconnect *tconnect;
+
 	    struct dns_opts dns_opts;
+	    enum tconnect_algorithm dns_algorithm;
 	    struct tcp_opts tcp_opts;
 
 	    char raddr[XCM_ADDR_MAX+1];
@@ -157,19 +159,16 @@ static void assert_conn_socket(struct xcm_socket *s)
 	break;
     case conn_state_initialized:
 	ut_assert(bts->fd == -1);
-	ut_assert(bts->conn.fd4 == -1);
-	ut_assert(bts->conn.fd6 == -1);
 	break;
     case conn_state_resolving:
-	ut_assert(bts->conn.fd4 >= 0);
-	ut_assert(bts->conn.fd6 >= 0);
 	ut_assert(bts->conn.query != NULL);
 	break;
     case conn_state_connecting:
+	ut_assert(bts->conn.tconnect != NULL);
+	ut_assert(bts->fd == -1);
+	break;
     case conn_state_ready:
 	ut_assert(bts->fd >= 0);
-	ut_assert(bts->conn.fd4 == -1);
-	ut_assert(bts->conn.fd6 == -1);
 	break;
     case conn_state_bad:
 	ut_assert(bts->conn.badness_reason != 0);
@@ -213,9 +212,6 @@ static int btcp_init(struct xcm_socket *s, struct xcm_socket *parent)
     if (s->type == xcm_socket_type_conn) {
 	bts->conn.state = conn_state_initialized;
 
-	bts->conn.fd4 = -1;
-	bts->conn.fd6 = -1;
-
 	bts->conn.bell_reg_id =
 	    xpoll_bell_reg_add(s->xpoll, false);
 
@@ -250,38 +246,13 @@ static void deinit(struct xcm_socket *s, bool owner)
 	if (owner)
 	    xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
 
-	xcm_dns_query_free(bts->conn.query);
+	xcm_dns_query_destroy(bts->conn.query, owner);
 
-	ut_close_if_valid(bts->conn.fd4);
-	ut_close_if_valid(bts->conn.fd6);
+	tconnect_destroy(bts->conn.tconnect, owner);
     }
 
     ut_close_if_valid(bts->fd);
     bts->fd = -1;
-}
-
-static int bind_local_addr(struct xcm_socket *s)
-{
-    struct btcp_socket *bts = TOBTCP(s);
-
-    if (strlen(bts->laddr) == 0)
-	return 0;
-
-    struct sockaddr_storage addr;
-
-    if (tp_btcp_to_sockaddr(bts->laddr, (struct sockaddr *)&addr) < 0) {
-	LOG_CLIENT_BIND_ADDR_ERROR(s, bts->laddr);
-	return -1;
-    }
-
-    if (bind(bts->fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-	LOG_CLIENT_BIND_FAILED(s, bts->laddr, bts->fd, errno);
-	return -1;
-    }
-
-    bts->laddr[0] = '\0';
-
-    return 0;
 }
 
 static int conf_scope(struct xcm_socket *s, int64_t *scope,
@@ -299,69 +270,40 @@ static int conf_scope(struct xcm_socket *s, int64_t *scope,
     return 0;
 }
 
-static void conn_select_fd(struct xcm_socket *s, sa_family_t family)
-{
-    struct btcp_socket *bts = TOBTCP(s);
-    int used;
-    int unused;
-
-    ut_assert(bts->fd == -1);
-
-    if (family == AF_INET) {
-	used = bts->conn.fd4;
-	unused = bts->conn.fd6;
-    } else { /* AF_INET6 */
-	used = bts->conn.fd6;
-	unused = bts->conn.fd4;
-    }
-
-    ut_assert(used >= 0);
-
-    bts->fd = used;
-
-    ut_close_if_valid(unused);
-
-    bts->conn.fd4 = -1;
-    bts->conn.fd6 = -1;
-}
+static void try_finish_connect(struct xcm_socket *s);
 
 static void begin_connect(struct xcm_socket *s)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
-    ut_assert(bts->conn.remote_host.type == xcm_addr_type_ip);
-
-    conn_select_fd(s, bts->conn.remote_host.ip.family);
-
     UT_SAVE_ERRNO;
 
-    if (tcp_opts_effectuate(&bts->conn.tcp_opts, bts->fd) < 0)
-	goto err;
+    struct xcm_addr_ip *local_ip = NULL;
+    uint16_t local_port = 0;
 
-    if (bind_local_addr(s) < 0)
-	goto err;
+    struct xcm_addr_ip local_ip_data;
 
-    bts->fd_reg_id = xpoll_fd_reg_add(s->xpoll, bts->fd, 0);
+    if (strlen(bts->laddr) > 0) {
+	struct xcm_addr_host local_host;
 
-    if (conf_scope(s, &bts->scope, &bts->conn.remote_host.ip) < 0)
-	goto err;
-
-    struct sockaddr_storage servaddr;
-    tp_ip_to_sockaddr(&bts->conn.remote_host.ip, bts->conn.remote_port,
-		      bts->scope, (struct sockaddr *)&servaddr);
-
-    if (connect(bts->fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-	if (errno != EINPROGRESS) {
-	    LOG_CONN_FAILED(s, errno);
+	if (xcm_addr_parse_btcp(bts->laddr, &local_host, &local_port) < 0) {
+	    LOG_CLIENT_BIND_ADDR_ERROR(s, bts->laddr);
 	    goto err;
-	} else
-	    LOG_CONN_IN_PROGRESS(s);
-    } else {
-	BTCP_SET_STATE(s, conn_state_ready);
-	LOG_TCP_CONN_ESTABLISHED(s, bts->fd);
+	}
+
+	if (xcm_dns_resolve_sync(&local_host, s) < 0)
+	    goto err;
+
+	local_ip = &local_ip_data;
+	*local_ip = local_host.ip;
     }
 
-    UT_RESTORE_ERRNO_DC;
+    if (tconnect_connect(bts->conn.tconnect, local_ip, local_port, bts->scope,
+			 &bts->conn.tcp_opts, bts->conn.remote_ips,
+			 bts->conn.num_remote_ips, bts->conn.remote_port) < 0)
+	goto err;
+
+    try_finish_connect(s);
 
     assert_socket(s);
 
@@ -375,10 +317,10 @@ err:
 static void try_finish_resolution(struct xcm_socket *s)
 {
     struct btcp_socket *bts = TOBTCP(s);
-    struct xcm_addr_ip ip;
 
     UT_SAVE_ERRNO;
-    int rc = xcm_dns_query_result(bts->conn.query, &ip, 1);
+    int rc = xcm_dns_query_result(bts->conn.query, bts->conn.remote_ips,
+				  XCM_DNS_MAX_RESULT_SIZE);
     UT_RESTORE_ERRNO(query_errno);
 
     if (rc < 0) {
@@ -390,33 +332,43 @@ static void try_finish_resolution(struct xcm_socket *s)
 	ut_assert(query_errno != 0);
 	bts->conn.badness_reason = query_errno;
     } else {
+	ut_assert(rc > 0);
+	bts->conn.num_remote_ips = rc;
+
 	BTCP_SET_STATE(s, conn_state_connecting);
-	bts->conn.remote_host.type = xcm_addr_type_ip;
-	bts->conn.remote_host.ip = ip;
 	begin_connect(s);
     }
 
-    xcm_dns_query_free(bts->conn.query);
+    xcm_dns_query_destroy(bts->conn.query, true);
     bts->conn.query = NULL;
 }
 
-static void try_finish_btcp_connect(struct xcm_socket *s)
+static void try_finish_connect(struct xcm_socket *s)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
     LOG_TCP_CONN_CHECK(s);
+
     UT_SAVE_ERRNO;
-    int rc = ut_established(bts->fd);
+    int rc = tconnect_get_connected_fd(bts->conn.tconnect,
+				       &bts->fd, &bts->scope);
     UT_RESTORE_ERRNO(connect_errno);
 
     if (rc < 0) {
-	if (connect_errno != EINPROGRESS) {
+	if (connect_errno != EAGAIN) {
 	    LOG_CONN_FAILED(s, connect_errno);
 	    BTCP_SET_STATE(s, conn_state_bad);
 	    bts->conn.badness_reason = connect_errno;
 	} else
 	    LOG_CONN_IN_PROGRESS(s);
     } else {
+	bts->fd_reg_id = xpoll_fd_reg_add(s->xpoll, bts->fd, 0);
+
+	bts->conn.tcp_opts.fd = bts->fd;
+
+	tconnect_destroy(bts->conn.tconnect, true);
+	bts->conn.tconnect = NULL;
+
 	LOG_TCP_CONN_ESTABLISHED(s, bts->fd);
 	BTCP_SET_STATE(s, conn_state_ready);
     }
@@ -432,32 +384,19 @@ static void try_establish(struct xcm_socket *s)
 	try_finish_resolution(s);
 	break;
     case conn_state_connecting:
-	try_finish_btcp_connect(s);
+	try_finish_connect(s);
 	break;
     default:
 	break;
     }
 }
 
-static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
-{
-    *fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
-
-    if (*fd < 0) {
-	LOG_SOCKET_CREATION_FAILED(errno);
-	return -1;
-    }
-
-    return 0;
-}
-
-static int create_conn_socket(struct xcm_socket *s, sa_family_t family)
+static void conf_dns_algorithm(struct xcm_socket *s)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
-    int *fd = family == AF_INET ? &bts->conn.fd4 : &bts->conn.fd6;
-
-    return create_socket(s, fd, family);
+    if (bts->conn.dns_algorithm == tconnect_algorithm_none)
+	bts->conn.dns_algorithm = tconnect_algorithm_single;
 }
 
 static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
@@ -465,30 +404,32 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
     LOG_CONN_REQ(s, remote_addr);
 
     struct btcp_socket *bts = TOBTCP(s);
+    struct xcm_addr_host remote_host;
 
-    if (xcm_addr_parse_btcp(remote_addr, &bts->conn.remote_host,
+    if (xcm_addr_parse_btcp(remote_addr, &remote_host,
 			   &bts->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(s, remote_addr, errno);
 	goto err;
     }
 
-    if (bts->conn.remote_host.type == xcm_addr_type_name) {
-	/* see the BTLS transport for a discussion on why two sockets
-	   are needed, and why they need to be created already at this
-	   point */
-	if (create_conn_socket(s, AF_INET) < 0 || 
-	    create_conn_socket(s, AF_INET6) < 0)
-	    goto err;
+    conf_dns_algorithm(s);
 
+    bts->conn.tconnect =
+	tconnect_create(bts->conn.dns_algorithm, s->xpoll, s);
+
+    if (bts->conn.tconnect == NULL)
+	goto err;
+
+    if (remote_host.type == xcm_addr_type_name) {
 	BTCP_SET_STATE(s, conn_state_resolving);
 	bts->conn.query =
-	    xcm_dns_resolve(bts->conn.remote_host.name, s->xpoll,
+	    xcm_dns_resolve(remote_host.name, s->xpoll,
 			    bts->conn.dns_opts.timeout, s);
-	if (!bts->conn.query)
+	if (bts->conn.query == NULL)
 	    goto err;
     } else {
-	if (create_conn_socket(s, bts->conn.remote_host.ip.family) < 0)
-	    goto err;
+	bts->conn.remote_ips[0] = remote_host.ip;
+	bts->conn.num_remote_ips = 1;
 
 	BTCP_SET_STATE(s, conn_state_connecting);
 	begin_connect(s);
@@ -527,8 +468,13 @@ static int btcp_server(struct xcm_socket *s, const char *local_addr)
     if (xcm_dns_resolve_sync(&host, s) < 0)
 	goto err;
 
-    if (create_socket(s, &bts->fd, host.ip.family) < 0)
+    bts->fd =
+	socket(host.ip.family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+
+    if (bts->fd < 0) {
+	LOG_SOCKET_CREATION_FAILED(errno);
 	goto err;
+    }
 
     if (tcp_effectuate_dscp(bts->fd) < 0)
 	goto err;
@@ -601,6 +547,12 @@ static int btcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (strlen(conn_bts->laddr) > 0) {
 	errno = EACCES;
 	LOG_CLIENT_BIND_ON_ACCEPT(server_s);
+	goto err_deinit;
+    }
+
+    if (conn_bts->conn.dns_algorithm != tconnect_algorithm_none) {
+	errno = EACCES;
+	LOG_DNS_ALGORITHM_ON_ACCEPT(server_s);
 	goto err_deinit;
     }
 
@@ -745,7 +697,6 @@ static void conn_update(struct xcm_socket *s)
 	ready = xcm_dns_query_completed(bts->conn.query);
 	break;
     case conn_state_connecting:
-	fd_event = EPOLLOUT;
 	break;
     case conn_state_ready:
 	fd_event = 0;
@@ -983,6 +934,46 @@ static int get_dns_timeout_attr(struct xcm_socket *s, void *value,
     return xcm_tp_get_double_attr(timeout, value, capacity);
 }
 
+static int set_dns_algorithm_attr(struct xcm_socket *s, const void *value,
+				  size_t len)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    if (bts->conn.state != conn_state_initialized) {
+	errno = EACCES;
+	return -1;
+    }
+
+    enum tconnect_algorithm algorithm = tconnect_algorithm_enum(value);
+
+    if (algorithm == tconnect_algorithm_none) {
+	LOG_INVALID_DNS_ALGORITHM(s, value);
+	errno = EINVAL;
+	return -1;
+    }
+
+    bts->conn.dns_algorithm = algorithm;
+
+    return 0;
+}
+
+static int get_dns_algorithm_attr(struct xcm_socket *s, void *value,
+				  size_t capacity)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    enum tconnect_algorithm algorithm = bts->conn.dns_algorithm;
+
+    if (algorithm == tconnect_algorithm_none) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    const char *algorithm_str = tconnect_algorithm_str(algorithm);
+
+    return xcm_tp_get_str_attr(algorithm_str, value, capacity);
+}
+
 static int set_scope_attr(struct xcm_socket *s, const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
@@ -1037,6 +1028,8 @@ static int get_scope_attr(struct xcm_socket *s, void *value, size_t capacity)
 const static struct xcm_tp_attr conn_attrs[] = {
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_TIMEOUT, xcm_attr_type_double,
 			set_dns_timeout_attr, get_dns_timeout_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_ALGORITHM, xcm_attr_type_str,
+			set_dns_algorithm_attr, get_dns_algorithm_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,

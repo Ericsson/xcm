@@ -29,7 +29,7 @@ void *ut_realloc(void *ptr, size_t size);
 void *ut_calloc(size_t size);
 char *ut_strdup(const char *str);
 char *ut_strndup(const char *str, size_t n);
-void *ut_memdup(const char *ptr, size_t size);
+void *ut_memdup(const void *ptr, size_t size);
 void ut_free(void *ptr);
 void ut_mem_exhausted(void) __attribute__ ((__noreturn__));
 void ut_fatal(void) __attribute__ ((__noreturn__));
@@ -103,6 +103,9 @@ void _ut_lassert_failed(const char* expr, const char* file, int line);
 
 #define UT_SAVE_ERRNO				\
     int _oerrno = errno
+
+#define UT_SAVE_ERRNO_AGAIN			\
+    _oerrno = errno
 
 #define UT_RESTORE_ERRNO(saved_name)	\
     int saved_name = errno;		\

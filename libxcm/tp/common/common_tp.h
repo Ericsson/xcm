@@ -19,10 +19,6 @@ struct xcm_socket;
 void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
 		       int64_t scope, struct sockaddr *sockaddr);
 
-int tp_btcp_to_sockaddr(const char *btcp_addr, struct sockaddr *sockaddr);
-
-int tp_btls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr);
-
 void tp_sockaddr_to_sctp_addr(struct sockaddr_storage *sock_addr,
 			      char *xcm_addr, size_t capacity);
 

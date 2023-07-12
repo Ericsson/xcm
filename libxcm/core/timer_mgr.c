@@ -229,10 +229,11 @@ static void destroy_mtimers(struct timer_mgr *timer)
     }
 }
 
-void timer_mgr_destroy(struct timer_mgr *timer)
+void timer_mgr_destroy(struct timer_mgr *timer, bool owner)
 {
     if (timer != NULL) {
-	xpoll_fd_reg_del(timer->xpoll, timer->timer_fd_reg_id);
+	if (owner)
+	    xpoll_fd_reg_del(timer->xpoll, timer->timer_fd_reg_id);
 	ut_close(timer->timer_fd);
 	destroy_mtimers(timer);
 	LOG_TIMER_MGR_DESTROYED(timer->log_ref, timer->timer_fd);

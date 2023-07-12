@@ -35,36 +35,6 @@ void tp_ip_to_sockaddr(const struct xcm_addr_ip *xcm_ip, uint16_t port,
     }
 }
 
-static int proto_addr_to_sockaddr(const char *addr,
-				  int (*parse_fun)(const char *,
-						   struct xcm_addr_host *,
-						   uint16_t *),
-				  struct sockaddr *sockaddr)
-{
-    struct xcm_addr_host host;
-    uint16_t port;
-
-    if (parse_fun(addr, &host, &port) < 0)
-	return -1;
-
-    if (host.type != xcm_addr_type_ip)
-	return -1;
-
-    tp_ip_to_sockaddr(&host.ip, port, 0, sockaddr);
-
-    return 0;
-}
-
-int tp_btcp_to_sockaddr(const char *btcp_addr, struct sockaddr *sockaddr)
-{
-    return proto_addr_to_sockaddr(btcp_addr, xcm_addr_parse_btcp, sockaddr);
-}
-
-int tp_btls_to_sockaddr(const char *tls_addr, struct sockaddr *sockaddr)
-{
-    return proto_addr_to_sockaddr(tls_addr, xcm_addr_parse_btls, sockaddr);
-}
-
 static void sockaddr_to_ip(struct sockaddr_storage *sock_addr,
 			   struct xcm_addr_ip *xcm_ip, uint16_t *port)
 {

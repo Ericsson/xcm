@@ -34,6 +34,11 @@ const char *log_family_str(sa_family_t family)
     }
 }
 
+const char *log_xcm_ip_str(const struct xcm_addr_ip *ip)
+{
+    return log_ip_str(ip->family, ip->addr.ip6);
+}
+
 void log_attr_str_value(enum xcm_attr_type type, const void *value, size_t len,
 			char *buf, size_t capacity)
 {

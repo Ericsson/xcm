@@ -12,7 +12,7 @@
 
 #include <stdbool.h>
 
-#define XCM_DNS_MAX_RESULT_IPS (32)
+#define XCM_DNS_MAX_RESULT_SIZE (32)
 
 struct xcm_dns_query;
 
@@ -27,7 +27,7 @@ void xcm_dns_query_process(struct xcm_dns_query *query);
 int xcm_dns_query_result(struct xcm_dns_query *query,
 			 struct xcm_addr_ip *ips, int capacity);
 
-void xcm_dns_query_free(struct xcm_dns_query *query);
+void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner);
 
 int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref);
 

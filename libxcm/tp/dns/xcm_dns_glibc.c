@@ -241,13 +241,13 @@ static void cancel_request(struct xcm_dns_query *query)
 	abort();
 }
 
-void xcm_dns_query_free(struct xcm_dns_query *query)
+void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
 {
     if (query) {
 	cancel_request(query);
 
-	if (query->pipe_reg_id >= 0)
-	    xpoll_fd_reg_del(query->xpoll, query->pipe_reg_id);
+	if (owner)
+	    xpoll_fd_reg_del_if_valid(query->xpoll, query->pipe_reg_id);
 
 	ut_close(query->pipefds[0]);
 	ut_close(query->pipefds[1]);

@@ -207,18 +207,20 @@ static int sctp_init(struct xcm_socket *s, struct xcm_socket *parent)
     return 0;
 }
 
-static void deinit(struct xcm_socket *s)
+static void deinit(struct xcm_socket *s, bool owner)
 {
     struct sctp_socket *ss = TOSCTP(s);
 
     LOG_DEINIT(s);
 
-    xpoll_fd_reg_del_if_valid(s->xpoll, ss->fd_reg_id);
+    if (owner)
+	xpoll_fd_reg_del_if_valid(s->xpoll, ss->fd_reg_id);
 
     if (s->type == xcm_socket_type_conn) {
-	xpoll_bell_reg_del(s->xpoll, ss->conn.bell_reg_id);
+	if (owner)
+	    xpoll_bell_reg_del(s->xpoll, ss->conn.bell_reg_id);
 
-	xcm_dns_query_free(TOSCTP(s)->conn.query);
+	xcm_dns_query_destroy(TOSCTP(s)->conn.query, owner);
 
         ut_close_if_valid(ss->conn.fd4);
 	ut_close_if_valid(ss->conn.fd6);
@@ -417,7 +419,7 @@ static void try_finish_resolution(struct xcm_socket *s)
        query's pipe fd. This in turn is important not to confuse the
        application, with two kernel objects with the same number
        (although at different times. */
-    xcm_dns_query_free(ss->conn.query);
+    xcm_dns_query_destroy(ss->conn.query, true);
     ss->conn.query = NULL;
 }
 
@@ -498,7 +500,7 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
     return 0;
 
 err:
-    deinit(s);
+    deinit(s, true);
 
     return -1;
 }
@@ -551,7 +553,7 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
     return 0;
 
 err:
-    deinit(s);
+    deinit(s, true);
 
     return -1;
 }
@@ -562,7 +564,7 @@ static int sctp_close(struct xcm_socket *s)
 	LOG_CLOSING(s);
 
 	assert_socket(s);
-	deinit(s);
+	deinit(s, true);
     }
     return 0;
 }
@@ -573,7 +575,7 @@ static void sctp_cleanup(struct xcm_socket *s)
 	LOG_CLEANING_UP(s);
 
 	assert_socket(s);
-	deinit(s);
+	deinit(s, false);
     }
 }
 
@@ -609,7 +611,7 @@ static int sctp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
  err_close:
     ut_close(conn_fd);
  err_deinit:
-    deinit(conn_s);
+    deinit(conn_s, true);
 
     return -1;
 }

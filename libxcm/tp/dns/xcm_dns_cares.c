@@ -47,7 +47,7 @@ struct xcm_dns_query
     int64_t ares_timer_id;
     int64_t overall_timer_id;
 
-    struct xcm_addr_ip ips[XCM_DNS_MAX_RESULT_IPS];
+    struct xcm_addr_ip ips[XCM_DNS_MAX_RESULT_SIZE];
     int ips_len;
 
     void *log_ref;
@@ -160,7 +160,7 @@ static void query_cb(void *arg, int status, int timeouts,
 
     if (status == ARES_SUCCESS) {
 	query->ips_len = get_ips(query->domain_name, result, query->ips,
-				 XCM_DNS_MAX_RESULT_IPS, query->log_ref);
+				 XCM_DNS_MAX_RESULT_SIZE, query->log_ref);
 
 	ares_freeaddrinfo(result);
 
@@ -224,7 +224,7 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
     return query;
 
 err:
-    timer_mgr_destroy(query->timer_mgr);
+    timer_mgr_destroy(query->timer_mgr, true);
     ut_free(query->domain_name);
     ut_free(query);
     return NULL;
@@ -308,17 +308,18 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
     }
 }
 
-void xcm_dns_query_free(struct xcm_dns_query *query)
+void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
 {
     if (query != NULL) {
-	unreg_all_channel_fds(query);
+	if (owner)
+	    unreg_all_channel_fds(query);
 
 	/* Note: destroying the channel will trigger the query
 	   callbacks, which in turn will access various query struct
 	   fields. */
 	ares_destroy(query->channel);
 
-	timer_mgr_destroy(query->timer_mgr);
+	timer_mgr_destroy(query->timer_mgr, owner);
 
 	ut_free(query->domain_name);
 	ut_free(query);
@@ -368,7 +369,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
     rc = 0;
 
 out_query_free:
-    xcm_dns_query_free(query);
+    xcm_dns_query_destroy(query, true);
 out_destroy_xpoll:
     xpoll_destroy(xpoll);
 out:

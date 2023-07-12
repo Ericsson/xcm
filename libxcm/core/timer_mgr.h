@@ -30,6 +30,6 @@ bool timer_mgr_has_expired(struct timer_mgr *mgr, int64_t timer_id);
 void timer_mgr_cancel(struct timer_mgr *mgr, int64_t *timer_id);
 void timer_mgr_ack(struct timer_mgr *mgr, int64_t *timer_id);
 
-void timer_mgr_destroy(struct timer_mgr *mgr);
+void timer_mgr_destroy(struct timer_mgr *mgr, bool owner);
 
 #endif

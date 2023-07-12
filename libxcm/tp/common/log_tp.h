@@ -11,6 +11,7 @@
 #include "xcm_attr_map.h"
 #include "xcm_attr_types.h"
 
+#include <arpa/inet.h>
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -31,6 +32,14 @@
 #define LOG_CONN_REQ(s, addr)					\
     log_debug_sock(s, "Attempting to connect to \"%s\".", addr)
 
+#define LOG_CONN_IP(s, ip, port)		\
+    log_debug_sock(s, "Connecting remote host %s port %d.",	\
+		   log_xcm_ip_str(ip), ntohs(port))
+
+#define LOG_CONN_IPS_EXHAUSTED(s, num_remote_ips)			\
+    log_debug_sock(s, "Tried (or filtered out) all %d IPs provided by DNS.", \
+		   num_remote_ips)
+
 #define LOG_CONN_CHECK(proto_name, s)				   \
     log_debug_sock(s, "Checking status of on-going %s connection " \
 		   "establishment attempt.", proto_name)
@@ -50,6 +59,10 @@
 
 #define LOG_SCTP_CONN_ESTABLISHED(s, fd)		\
     LOG_CONN_ESTABLISHED("SCTP", s, fd)
+
+#define LOG_INVALID_DNS_ALGORITHM(s, dns_algorithm) \
+    log_debug_sock(s, "\"%s\" is not a valid DNS algorithm.", \
+		   dns_algorithm)
 
 #define LOG_CONN_FAILED(s, reason_errno)			       \
     log_debug_sock(s, "Failed to establish connection; errno %d (%s).", \
@@ -84,14 +97,19 @@
     log_debug_sock(s, "Local address \"%s\" is malformed or not an IP " \
 		   "address.", addr)
 
-#define LOG_CLIENT_BIND_FAILED(s, addr, fd, reason_errno)		\
-    log_debug_sock(s, "Failed to bind local address \"%s\" to fd %d; "	\
-		   "errno %d (%s).", addr, fd, reason_errno,		\
-		   strerror(reason_errno))
+#define LOG_CLIENT_BIND_FAILED(s, reason_errno)				\
+    log_debug_sock(s, "Failed to bind local address; errno %d (%s).",	\
+		   reason_errno, strerror(reason_errno))
 
 #define LOG_CLIENT_BIND_ON_ACCEPT(s)					\
-    log_debug_sock(s, "Invalid attempt to bind local address on accept " \
-		   "call.")
+    log_debug_sock(s, "Attempt to bind local address on accept on call.")
+
+#define LOG_DNS_ALGORITHM_ON_ACCEPT(s)					\
+    log_debug_sock(s, "Attempt to set DNS algorithm on accept call.")
+
+#define LOG_CLIENT_BOUND_TO_WRONG_PROTO(s)				\
+    log_debug_sock(s, "Local address is of a different IP protocol "	\
+		   "version than the remote address(es).")
 
 #define LOG_SERVER_BIND_FAILED(reason_errno)				\
     log_debug("Failed to bind server socket; errno %d (%s).", reason_errno, \
@@ -361,6 +379,8 @@
 
 const char *log_ip_str(sa_family_t family, const void *ip);
 const char *log_family_str(sa_family_t family);
+
+const char *log_xcm_ip_str(const struct xcm_addr_ip *ip);
 
 void log_attr_str_value(enum xcm_attr_type type, const void *value, size_t len,
 			char *buf, size_t capacity);

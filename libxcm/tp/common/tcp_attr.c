@@ -79,8 +79,6 @@ static int disable_nagle(int fd)
 
 int tcp_opts_effectuate(struct tcp_opts *opts, int fd)
 {
-    ut_assert(opts->fd < 0);
-
     opts->fd = fd;
 
     int rc = 0;

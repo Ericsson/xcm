@@ -297,6 +297,11 @@ static int check_dns_attrs(struct xcm_socket *server_sock,
 	return -1;
     if (tu_assure_non_existent_attr(accepted_sock, "dns.timeout") < 0)
 	return -1;
+    if (tu_assure_non_existent_attr(accepted_sock, "dns.algorithm") < 0)
+	return -1;
+
+    if (tu_assure_str_attr(connect_sock, "dns.algorithm", "single") < 0)
+	return -1;
 
 #ifdef XCM_CARES
     if (tu_assure_double_attr(connect_sock, "dns.timeout", cmp_type_equal,
@@ -373,10 +378,15 @@ static bool is_sctp(const char *addr)
     return strncmp(addr, "sctp", 4) == 0;
 }
 
-static bool is_inet(const char *addr)
+static bool is_tcp_based(const char *addr)
 {
     return is_btcp(addr) || is_tcp(addr) || is_btls(addr) ||
-	is_tls_or_utls(addr) || is_sctp(addr);
+	is_tls_or_utls(addr);
+}
+
+static bool is_inet(const char *addr)
+{
+    return is_tcp_based(addr) || is_sctp(addr);
 }
 
 static pid_t simple_server(const char *ns, const char *addr,
@@ -428,6 +438,9 @@ static pid_t simple_server(const char *ns, const char *addr,
     if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
 	goto err;
 
+    if (tu_assure_non_existent_attr(server_sock, "dns.algorithm") < 0)
+	goto err;
+
     char test_proto[64];
     xcm_addr_parse_proto(addr, test_proto, sizeof(test_proto));
     if (tu_assure_str_attr(server_sock, "xcm.transport", test_proto) < 0)
@@ -448,6 +461,9 @@ static pid_t simple_server(const char *ns, const char *addr,
 	goto err;
 
     if (tu_assure_non_existent_attr(conn, "dns.timeout") < 0)
+	goto err;
+
+    if (tu_assure_non_existent_attr(conn, "dns.algorithm") < 0)
 	goto err;
 
     if (is_tls(xcm_local_addr(conn)))
@@ -866,9 +882,7 @@ TESTCASE(xcm, basic)
 	CHKNOERR(xcm_addr_parse_proto(test_addr, test_proto,
 				      sizeof(test_proto)));
 
-	const bool is_utls = (strcmp(test_proto, "utls") == 0);
-
-	if (is_utls)
+	if (is_utls(test_addr))
 	    /* to make sure both the 'slave' UX and TLS server sockets
 	       are created before we start connecting */
 	    tu_msleep(300);
@@ -900,7 +914,7 @@ TESTCASE(xcm, basic)
 	if (!bytestream)
 	    CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.max_msg_size",
 					  cmp_type_equal, MAX_MSG_SIZE));
-	if (is_utls)
+	if (is_utls(test_addr))
 	    CHKNOERR(tu_assure_str_attr(client_conn, "xcm.transport", "ux"));
 	else
 	    CHKNOERR(tu_assure_str_attr(client_conn, "xcm.transport",
@@ -918,7 +932,10 @@ TESTCASE(xcm, basic)
 
 	CHKNOERR(tu_assure_str_attr(client_conn, "xcm.local_addr", laddr));
 
-	if (is_utls) {
+	if (is_tcp_based(laddr))
+	    CHKNOERR(tu_assure_str_attr(client_conn, "dns.algorithm", "single"));
+
+	if (is_utls(test_addr)) {
 	    char actual_proto[64];
 	    CHKNOERR(xcm_addr_parse_proto(raddr, actual_proto,
 					  sizeof(actual_proto)));
@@ -1176,7 +1193,7 @@ const char *dns_supporting_transports[] = {
 #endif
 };
 const size_t dns_supporting_transports_len =
-    sizeof(dns_supporting_transports)/sizeof(dns_supporting_transports[0]);
+    UT_ARRAY_LEN(dns_supporting_transports);
 
 static int run_dns_test_non_existent(const char *proto, const char *name)
 {
@@ -1188,7 +1205,6 @@ static int run_dns_test_non_existent(const char *proto, const char *name)
 
     return UTEST_SUCCESS;
 }
-
 
 static int run_dns_immediate_close(const char *proto)
 {
@@ -1257,6 +1273,74 @@ TESTCASE_SERIALIZED_F(xcm, dns, REQUIRE_PUBLIC_DNS)
 	int rc = run_dns_test(dns_supporting_transports[i]);
 	if (rc != UTEST_SUCCESS)
 	    return rc;
+    }
+
+    return UTEST_SUCCESS;
+}
+
+static int run_dns_algorithm_smoke_test(const char *proto,
+					const char *algorithm,
+					const char *dns_name)
+{
+    char addr[512];
+
+    snprintf(addr, sizeof(addr), "%s:%s:4711", proto, dns_name);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "any");
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+    xcm_attr_map_add_str(attrs, "dns.algorithm", algorithm);
+
+    struct xcm_socket *conn = xcm_connect_a(addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
+
+    if (conn == NULL) {
+	CHKERRNOEQ(ECONNREFUSED);
+	return UTEST_SUCCESS;
+    }
+
+    double deadline = ut_ftime() + 0.25;
+
+    int rc;
+
+    do {
+	rc = xcm_finish(conn);
+	tu_msleep(10);
+    } while (ut_ftime() < deadline);
+
+    if (rc < 0)
+	CHK(errno == EAGAIN || errno == ECONNREFUSED || errno == ECONNRESET ||
+	    errno == ENETUNREACH || errno == ETIMEDOUT);
+
+    CHKNOERR(xcm_close(conn));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE_SERIALIZED_F(xcm, dns_algorithm, REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
+{
+    int i;
+    for (i = 0; i < dns_supporting_transports_len; i++) {
+	const char *proto = dns_supporting_transports[i];
+
+	const char *algorithms[] = { "single", "sequential", "happy_eyeballs" };
+
+	int j;
+	for (j = 0; j < UT_ARRAY_LEN(algorithms); j++) {
+	    const char *algorithm = algorithms[j];
+
+	    const char *addrs[] =
+		{ "www.google.com", "ericsson.com", "example.com" };
+
+	    int k;
+	    for (k = 0; k < UT_ARRAY_LEN(addrs); k++) {
+		const char *addr = addrs[k];
+
+		if (run_dns_algorithm_smoke_test(proto, algorithm, addr) < 0)
+		    return UTEST_FAILED;
+	    }
+	}
     }
 
     return UTEST_SUCCESS;
