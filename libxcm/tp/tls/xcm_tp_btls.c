@@ -349,7 +349,8 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     item_init(&bts->tc);
 
     bts->btcp_socket =
-	xcm_tp_socket_create(btcp_proto(), s->type, s->xpoll, false);
+	xcm_tp_socket_create(btcp_proto(), s->type, s->xpoll, false,
+			     false, false);
 
     if (bts->btcp_socket == NULL)
 	return -1;

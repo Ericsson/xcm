@@ -126,7 +126,7 @@ static struct xcm_socket *create_sub_socket(struct xcm_tp_proto *proto,
 					    struct xcm_socket *parent)
 {
     struct xcm_socket *s =
-	xcm_tp_socket_create(proto, type, xpoll, false);
+	xcm_tp_socket_create(proto, type, xpoll, false, false, false);
 
     if (s == NULL)
 	goto err;
@@ -334,9 +334,9 @@ static int utls_close(struct xcm_socket *s)
     if (s != NULL) {
 	struct utls_socket *us = TOUTLS(s);
 
-	if (xcm_tp_socket_close_u(us->ux_socket) < 0)
+	if (xcm_tp_socket_close(us->ux_socket) < 0)
 	    rc = -1;
-	if (xcm_tp_socket_close_u(us->tls_socket) < 0)
+	if (xcm_tp_socket_close(us->tls_socket) < 0)
 	    rc = -1;
 
 	deinit(s);

@@ -116,6 +116,8 @@ struct xcm_socket {
     const struct xcm_tp_proto *proto;
     enum xcm_socket_type type;
     int64_t sock_id;
+    bool auto_enable_ctl;
+    bool auto_update;
     bool is_blocking;
     struct xpoll* xpoll;
     int condition;
@@ -139,33 +141,23 @@ struct xcm_socket {
 struct xcm_socket *xcm_tp_socket_create(const struct xcm_tp_proto *proto,
 					enum xcm_socket_type type,
 					struct xpoll *xpoll,
+					bool enable_ctl, bool auto_update,
 					bool is_blocking);
 void xcm_tp_socket_destroy(struct xcm_socket *s);
 
 int xcm_tp_socket_init(struct xcm_socket *s, struct xcm_socket *parent);
 int xcm_tp_socket_connect(struct xcm_socket *s, const char *remote_addr);
-int xcm_tp_socket_connect_u(struct xcm_socket *s, const char *remote_addr);
 int xcm_tp_socket_server(struct xcm_socket *s, const char *local_addr);
-int xcm_tp_socket_server_u(struct xcm_socket *s, const char *local_addr);
 int xcm_tp_socket_close(struct xcm_socket *s);
-int xcm_tp_socket_close_u(struct xcm_socket *s);
 void xcm_tp_socket_cleanup(struct xcm_socket *s);
-void xcm_tp_socket_cleanup_u(struct xcm_socket *s);
 int xcm_tp_socket_accept(struct xcm_socket *conn_s,
 			 struct xcm_socket *server_s);
-int xcm_tp_socket_accept_u(struct xcm_socket *conn_s,
-			   struct xcm_socket *server_s);
 int xcm_tp_socket_send(struct xcm_socket *__restrict s,
 		       const void *__restrict buf, size_t len);
-int xcm_tp_socket_send_u(struct xcm_socket *__restrict s,
-			 const void *__restrict buf, size_t len);
 int xcm_tp_socket_receive(struct xcm_socket *__restrict s,
 			  void *__restrict buf, size_t capacity);
-int xcm_tp_socket_receive_u(struct xcm_socket *__restrict s,
-			    void *__restrict buf, size_t capacity);
 void xcm_tp_socket_update(struct xcm_socket *s);
 int xcm_tp_socket_finish(struct xcm_socket *s);
-int xcm_tp_socket_finish_u(struct xcm_socket *s);
 const char *xcm_tp_socket_get_transport(struct xcm_socket *s);
 bool xcm_tp_socket_is_bytestream(struct xcm_socket *conn_s);
 const char *xcm_tp_socket_get_remote_addr(struct xcm_socket *conn_s,
