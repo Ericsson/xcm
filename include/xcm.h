@@ -1667,8 +1667,8 @@ int xcm_receive(struct xcm_socket *__restrict conn_socket,
  * @param[in] socket The XCM socket.
  * @param[in] condition The condition the application is waiting for.
  *
- * @return Returns the XCM socket fd on success, or -1 if an error
- *         occured (in which case errno is set).
+ * @return Returns 0 on success, or -1 if an error occured (in which
+ *         case errno is set).
  *
  * errno        | Description
  * -------------|------------
@@ -1806,7 +1806,7 @@ int xcm_finish(struct xcm_socket *socket);
  * @param[in] should_block Set to true for blocking operation, false
  *                         for non-blocking mode.
  *
- * @return Returns the 0 on success, or -1 if an error occured
+ * @return Returns 0 on success, or -1 if an error occured
  *         (in which case errno is set).
  *
  * errno        | Description
@@ -1824,7 +1824,7 @@ int xcm_set_blocking(struct xcm_socket *socket, bool should_block);
  *
  * @param[in] socket The socket.
  *
- * @return Returns the true if the socket is in blocking mode, or false
+ * @return Returns true if the socket is in blocking mode, or false
  *         if it is in non-blocking mode.
  *
  * @see xcm_set_blocking
