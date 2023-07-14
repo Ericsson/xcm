@@ -1318,7 +1318,8 @@ static int run_dns_algorithm_smoke_test(const char *proto,
     return UTEST_SUCCESS;
 }
 
-TESTCASE_SERIALIZED_F(xcm, dns_algorithm, REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
+TESTCASE_SERIALIZED_F(xcm, dns_algorithm_smoke_test,
+		      REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
 {
     int i;
     for (i = 0; i < dns_supporting_transports_len; i++) {
@@ -1341,6 +1342,144 @@ TESTCASE_SERIALIZED_F(xcm, dns_algorithm, REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
 		    return UTEST_FAILED;
 	    }
 	}
+    }
+
+    return UTEST_SUCCESS;
+}
+
+static const char *dns_local_ips[] = {
+    "127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4", "[::1]"
+};
+#define DNS_LOCAL_IPV6_IDX 4
+
+/*
+ * A DNS name configured to have the following records:
+ * A: 127.0.0.1 - 127.0.0.4
+ * AAAA: [::1]
+ *
+ * Relying on external DNS records for testing is a somewhat brittle
+ * scheme, but no other reasonbly simple, effective, and more
+ * stand-alone solution has yet been found.
+ */
+#define DNS_LOCAL_IP_NAME "local.friendlyfire.se"
+
+static int run_multiple_address_probe_test(const char *proto,
+					   const char *algorithm,
+					   bool force_server_ipv6,
+					   bool expect_ipv6_prio)
+{
+    uint16_t port = gen_tcp_port();
+
+    int server_ip_idx;
+    if (force_server_ipv6)
+	server_ip_idx = DNS_LOCAL_IPV6_IDX;
+    else
+	server_ip_idx = tu_randint(0, UT_ARRAY_LEN(dns_local_ips));
+
+    bool is_server_ipv6 = server_ip_idx == DNS_LOCAL_IPV6_IDX;
+
+    const char *server_ip = dns_local_ips[server_ip_idx];
+
+    char server_addr[512];
+    snprintf(server_addr, sizeof(server_addr), "%s:%s:%d", proto, server_ip,
+	     port);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "any");
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+    struct xcm_socket *server_socket = xcm_server_a(server_addr, attrs);
+    CHK(server_socket != NULL);
+
+    /* In cases where the 'real' server sits on IPv6 and IPv6 is
+       supposed to be attempted first, create a 'honey pot' server
+       socket, to which no connections are expected, */
+    struct xcm_socket *aux_server_socket = NULL;
+    if (expect_ipv6_prio && is_server_ipv6) {
+	int aux_server_ip_idx;
+	do {
+	    aux_server_ip_idx = tu_randint(0, UT_ARRAY_LEN(dns_local_ips));
+	} while (aux_server_ip_idx == DNS_LOCAL_IPV6_IDX);
+
+	const char *aux_server_ip = dns_local_ips[aux_server_ip_idx];
+
+	char aux_server_addr[512];
+	snprintf(aux_server_addr, sizeof(aux_server_addr), "%s:%s:%d", proto,
+		 aux_server_ip, port);
+
+        aux_server_socket = xcm_server_a(aux_server_addr, attrs);
+	CHK(aux_server_socket != NULL);
+    }
+
+    xcm_attr_map_add_str(attrs, "dns.algorithm", algorithm);
+
+    char client_addr[512];
+    snprintf(client_addr, sizeof(client_addr), "%s:%s:%d", proto,
+	     DNS_LOCAL_IP_NAME, port);
+
+    struct xcm_socket *connect_socket = xcm_connect_a(client_addr, attrs);
+    CHK(connect_socket != NULL);
+
+    xcm_attr_map_destroy(attrs);
+
+    struct xcm_socket *accept_socket = NULL;
+    int server_rc = -1;
+    int accept_rc = -1;
+    int connect_rc = -1;
+
+    double deadline = ut_ftime() + 1;
+
+    do {
+	if (accept_socket == NULL)
+	    accept_socket = xcm_accept(server_socket);
+	else {
+	    accept_rc = xcm_finish(accept_socket);
+	    if (accept_rc < 0 && errno != EAGAIN)
+		break;
+	}
+
+	if (aux_server_socket != NULL)
+	    CHK(xcm_accept(aux_server_socket) == NULL);
+
+	server_rc = xcm_finish(server_socket);
+	if (server_rc < 0 && errno != EAGAIN)
+	    break;
+	connect_rc = xcm_finish(connect_socket);
+	if (connect_rc < 0 && errno != EAGAIN)
+	    break;
+    } while ((server_rc != 0 || accept_rc != 0 || connect_rc != 0) &&
+	     ut_ftime() < deadline);
+
+    CHK(server_rc == 0 && accept_rc == 0 && connect_rc == 0);
+
+    if (expect_ipv6_prio && is_server_ipv6)
+	CHK(strchr(xcm_remote_addr(connect_socket), '[') != NULL);
+
+    CHKNOERR(xcm_close(connect_socket));
+    CHKNOERR(xcm_close(accept_socket));
+    CHKNOERR(xcm_close(server_socket));
+    CHKNOERR(xcm_close(aux_server_socket));
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE_F(xcm, dns_multiple_address_probing, REQUIRE_PUBLIC_DNS)
+{
+    int i;
+    for (i = 0; i < dns_supporting_transports_len; i++) {
+	const char *proto = dns_supporting_transports[i];
+
+	if (run_multiple_address_probe_test(proto, "sequential",
+					    false, false) < 0)
+	    return UTEST_FAILED;
+
+	if (run_multiple_address_probe_test(proto, "happy_eyeballs",
+					    false, true) < 0)
+	    return UTEST_FAILED;
+
+	if (run_multiple_address_probe_test(proto, "happy_eyeballs",
+					    true, true) < 0)
+	    return UTEST_FAILED;
     }
 
     return UTEST_SUCCESS;
@@ -2072,8 +2211,6 @@ TESTCASE(xcm, multiple_server_sockets_on_the_same_address)
 
     return UTEST_SUCCESS;
 }
-
-
 
 TESTCASE(xcm, non_blocking_connect_with_finish)
 {

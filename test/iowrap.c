@@ -159,7 +159,8 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
     if (state == NULL)
 	goto out;
 
-    ut_assert(state->sockaddr == NULL);
+    /* same socket may be connected more than once */
+    ut_free(state->sockaddr);
 
     state->sockaddr = ut_malloc(addrlen);
 
