@@ -39,7 +39,8 @@ struct xcm_dns_query
     int pipefds[2];
     int pipe_reg_id;
 
-    struct xcm_addr_ip ip;
+    struct xcm_addr_ip ips[XCM_DNS_MAX_RESULT_SIZE];
+    int ips_len;
 
     void *log_ref;
 };
@@ -124,10 +125,17 @@ static void try_retrieve_query_result(struct xcm_dns_query *query)
     if (rc == 0) {
 	struct addrinfo *info = query->request->ar_result;
 
-	int get_rc = get_ip(query->domain_name, info, &query->ip,
-			    query->log_ref);
+	while (info != NULL && query->ips_len < XCM_DNS_MAX_RESULT_SIZE) {
+	    struct xcm_addr_ip *ip = &query->ips[query->ips_len];
 
-	if (get_rc == 0)
+	    int get_rc = get_ip(query->domain_name, info, ip, query->log_ref);
+	    if (get_rc == 0)
+		query->ips_len++;
+
+	    info = info->ai_next;
+	}
+
+	if (query->ips_len > 0)
 	    query->state = query_state_successful;
 	else
 	    query->state = query_state_failed;
@@ -145,6 +153,7 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
     query->request = ut_malloc(sizeof(struct gaicb));
     query->domain_name = ut_strdup(domain_name);
     query->xpoll = xpoll;
+    query->ips_len = 0;
 
     if (pipe(query->pipefds) < 0)
 	goto err_free;
@@ -206,11 +215,15 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 	errno = ENOENT;
 	return -1;
     case query_state_successful:
-	ut_assert(capacity >= 1);
-	ips[0] = query->ip;
+	int len = UT_MIN(capacity, query->ips_len);
+	ut_assert(len >= 1);
+
+	memcpy(ips, query->ips, sizeof(struct xcm_addr_ip) * len);
+
 	xpoll_fd_reg_del(query->xpoll, query->pipe_reg_id);
 	query->pipe_reg_id = -1;
-	return 1;
+
+	return query->ips_len;
     default:
 	ut_assert(0);
 	return 0;
