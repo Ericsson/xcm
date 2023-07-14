@@ -384,6 +384,11 @@ static bool is_tcp_based(const char *addr)
 	is_tls_or_utls(addr);
 }
 
+static bool is_proto_tcp_based(const char *proto)
+{
+    return is_tcp_based(proto);
+}
+
 static bool is_inet(const char *addr)
 {
     return is_tcp_based(addr) || is_sctp(addr);
@@ -1325,6 +1330,9 @@ TESTCASE_SERIALIZED_F(xcm, dns_algorithm_smoke_test,
     for (i = 0; i < dns_supporting_transports_len; i++) {
 	const char *proto = dns_supporting_transports[i];
 
+	if (!is_proto_tcp_based(proto))
+	    continue;
+
 	const char *algorithms[] = { "single", "sequential", "happy_eyeballs" };
 
 	int j;
@@ -1468,6 +1476,9 @@ TESTCASE_F(xcm, dns_multiple_address_probing, REQUIRE_PUBLIC_DNS)
     int i;
     for (i = 0; i < dns_supporting_transports_len; i++) {
 	const char *proto = dns_supporting_transports[i];
+
+	if (!is_proto_tcp_based(proto))
+	    continue;
 
 	if (run_multiple_address_probe_test(proto, "sequential",
 					    false, false) < 0)
