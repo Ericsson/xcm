@@ -214,7 +214,7 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
     case query_state_failed:
 	errno = ENOENT;
 	return -1;
-    case query_state_successful:
+    case query_state_successful: {
 	int len = UT_MIN(capacity, query->ips_len);
 	ut_assert(len >= 1);
 
@@ -224,6 +224,7 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 	query->pipe_reg_id = -1;
 
 	return query->ips_len;
+    }
     default:
 	ut_assert(0);
 	return 0;
