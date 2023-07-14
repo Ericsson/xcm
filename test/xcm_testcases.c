@@ -3836,7 +3836,7 @@ TESTCASE(xcm, tcp_dynamic_port_allocation)
 }
 
 #ifdef XCM_SCTP
-int test_sctp_dynamic_port_allocation(void)
+TESTCASE(xcm, sctp_dynamic_port_allocation)
 {
     GEN_PORT_TEST(sctp);
 }
