@@ -664,7 +664,7 @@ static int finalize_tls_conf(struct xcm_socket *s)
 	get_cert_file(ns, cert_dir, &bts->cert);
     if (!item_is_set(&bts->key))
 	get_key_file(ns, cert_dir, &bts->key);
-    if (!item_is_set(&bts->tc))
+    if (!item_is_set(&bts->tc) && bts->tls_auth)
 	get_tc_file(ns, cert_dir, &bts->tc);
 
     return 0;

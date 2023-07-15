@@ -4294,7 +4294,7 @@ TESTCASE(xcm, tls_accept_attrs_override_server_attrs)
     char *tls_addr = gen_tls_addr();
 
     CHKNOERR(establish_xtls(tls_addr, invalid_attrs, valid_attrs,
-				valid_attrs, true));
+			    valid_attrs, true));
 
     xcm_attr_map_destroy(valid_attrs);
     xcm_attr_map_destroy(invalid_attrs);
@@ -4740,6 +4740,42 @@ TESTCASE(xcm, tls_auth_conf)
     xcm_attr_map_destroy(unrelated_attrs);
 
     ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_auth_disabled_no_longer_requires_tc)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep/key.pem\n"
+	    )
+	);
+
+    char path[PATH_MAX];
+    if (setenv("XCM_TLS_CERT", get_cert_path(path, "ep"), 1) < 0)
+	return UTEST_FAILED;
+
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "tls.auth", false);
+
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, true));
+
+    ut_free(tls_addr);
+    xcm_attr_map_destroy(attrs);
 
     return UTEST_SUCCESS;
 }
