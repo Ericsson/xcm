@@ -1186,17 +1186,17 @@ extern "C" {
  *
  * Attribute Name           | Socket Type | Value Type  | Mode | Description
  * -------------------------|-------------|-------------|------|------------
- * tls.cert_file            | All         | String      | RW   | The leaf certificate file. For connection sockets, writable only at socket creation.
- * tls.key_file             | All         | String      | RW   | The leaf certificate private key file. For connection sockets, writable only at socket creation.
- * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
- * tls.cert                 | All         | Binary      | RW   | The leaf certificate to be used. For connection sockets, writable only at socket creation.
- * tls.key                  | All         | Binary      | RW   | The leaf certificate private key to be used. For connection sockets, writable only at socket creation. For security reasons, the value of this attribute is not available over the XCM control interface.
- * tls.tc                   | All         | Binary      | RW   | The trusted CA certificates bundle to be used. For connection sockets, writable only at socket creation. May not be set if authentication is disabled.
- * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. For connection sockets, writable only at socket creation.
- * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. For connection sockets, writable only at socket creation. Default value is true.
- * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. For connection sockets, writable only at socket creation. Default is true.
- * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. For connection sockets, writable only at socket creation. Default value is false.
- * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. For connection sockets, writable only at socket creation.
+ * tls.cert_file            | All         | String      | RW   | The leaf certificate file. Writable only at socket creation.
+ * tls.key_file             | All         | String      | RW   | The leaf certificate private key file. Writable only at socket creation.
+ * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle. Writable only at socket creation. May not be set if authentication is disabled.
+ * tls.cert                 | All         | Binary      | RW   | The leaf certificate to be used. Writable only at socket creation.
+ * tls.key                  | All         | Binary      | RW   | The leaf certificate private key to be used. Writable only at socket creation. For security reasons, the value of this attribute is not available over the XCM control interface.
+ * tls.tc                   | All         | Binary      | RW   | The trusted CA certificates bundle to be used. Writable only at socket creation. May not be set if authentication is disabled.
+ * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. Writable only at socket creation.
+ * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. Writable only at socket creation. Default value is true.
+ * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
+ * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.
+ * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. Writable only at socket creation.
  * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or the TLS authenication is disabled and the remote peer did not send a certificate).
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
