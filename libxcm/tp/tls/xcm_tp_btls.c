@@ -49,10 +49,12 @@
 #define DEFAULT_CERT_FILE "%s/cert.pem"
 #define DEFAULT_KEY_FILE "%s/key.pem"
 #define DEFAULT_TC_FILE "%s/tc.pem"
+#define DEFAULT_CRL_FILE "%s/crl.pem"
 
 #define NS_CERT_FILE "%s/cert_%s.pem"
 #define NS_KEY_FILE "%s/key_%s.pem"
 #define NS_TC_FILE "%s/tc_%s.pem"
+#define NS_CRL_FILE "%s/crl_%s.pem"
 
 enum conn_state {
     conn_state_none,
@@ -68,6 +70,7 @@ struct btls_socket
     char laddr[XCM_ADDR_MAX+1];
 
     bool tls_auth;
+    bool check_crl;
     bool tls_client;
     bool check_time;
     bool verify_peer_name;
@@ -75,13 +78,15 @@ struct btls_socket
     /* Track if certain attributes are changed during socket creation,
        to allow for proper TLS configuration consistency check */
     bool valid_peer_names_set;
-    bool tc_file_set;
+    bool tc_set;
+    bool crl_set;
 
     struct slist *valid_peer_names;
 
     struct item cert;
     struct item key;
     struct item tc;
+    struct item crl;
 
     struct xcm_socket *btcp_socket;
 
@@ -223,8 +228,6 @@ static int bio_btcp_flush(BIO *b)
 }
 
 static long bio_btcp_ctrl(BIO *b, int cmd, long num, void *ptr) {
-    //printf("Received ctrl cmd %d\n", cmd);
-
     switch (cmd) {
     case BIO_CTRL_DUP:
 	ut_assert(0);
@@ -308,8 +311,11 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
     item_copy(&parent_bts->cert, &bts->cert);
     item_copy(&parent_bts->key, &bts->key);
     item_copy(&parent_bts->tc, &bts->tc);
+    item_copy(&parent_bts->crl, &bts->crl);
 
     bts->tls_auth = parent_bts->tls_auth;
+
+    bts->check_crl = parent_bts->check_crl;
 
     bts->tls_client = parent_bts->tls_client;
 
@@ -346,6 +352,7 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     item_init(&bts->cert);
     item_init(&bts->key);
     item_init(&bts->tc);
+    item_init(&bts->crl);
 
     bts->btcp_socket =
 	xcm_tp_socket_create(btcp_proto(), s->type, s->xpoll, false,
@@ -400,6 +407,7 @@ static void deinit(struct xcm_socket *s, bool owner)
     item_deinit(&bts->cert);
     item_deinit(&bts->key);
     item_deinit(&bts->tc);
+    item_deinit(&bts->crl);
 
     slist_destroy(bts->valid_peer_names);
 
@@ -619,17 +627,36 @@ static void get_tc_file(const char *ns, const char *cert_dir,
     get_file(DEFAULT_TC_FILE, NS_TC_FILE, ns, cert_dir, tc);
 }
 
+static void get_crl_file(const char *ns, const char *cert_dir,
+			 struct item *crl)
+{
+    get_file(DEFAULT_CRL_FILE, NS_CRL_FILE, ns, cert_dir, crl);
+}
+
 static int finalize_tls_conf(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
     if (!bts->tls_auth && item_is_set(&bts->tc)) {
-	if (bts->tc_file_set) {
+	if (bts->tc_set) {
 	    LOG_TLS_TRUSTED_CA_SET_BUT_NO_AUTH(s, &bts->tc);
 	    goto err_inval;
 	}
 	/* trusted CAs inherited from parent socket, but not needed */
 	item_deinit(&bts->tc);
+    }
+
+    if (!bts->tls_auth && bts->check_crl) {
+	LOG_TLS_AUTH_DISABLED_BUT_CRL_CHECK_ENABLED(s);
+	goto err_inval;
+    }
+
+    if (!bts->check_crl && item_is_set(&bts->crl)) {
+	if (bts->crl_set) {
+	    LOG_TLS_CRL_SET_BUT_NO_CRL_CHECK(s, &bts->crl);
+	    goto err_inval;
+	}
+	item_deinit(&bts->crl);
     }
 
     if (!bts->verify_peer_name && bts->valid_peer_names != NULL) {
@@ -643,7 +670,8 @@ static int finalize_tls_conf(struct xcm_socket *s)
     }
 
     if (item_is_set(&bts->cert) && item_is_set(&bts->key) &&
-	(!bts->tls_auth || item_is_set(&bts->tc)))
+	(!bts->tls_auth || item_is_set(&bts->tc)) &&
+	(!bts->check_crl || item_is_set(&bts->crl)))
 	return 0;
 
     /* The reason this is not done in the socket init function, is to
@@ -665,6 +693,8 @@ static int finalize_tls_conf(struct xcm_socket *s)
 	get_key_file(ns, cert_dir, &bts->key);
     if (!item_is_set(&bts->tc) && bts->tls_auth)
 	get_tc_file(ns, cert_dir, &bts->tc);
+    if (!item_is_set(&bts->crl) && bts->check_crl)
+	get_crl_file(ns, cert_dir, &bts->crl);
 
     return 0;
 
@@ -674,7 +704,7 @@ err_inval:
 }
 
 static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
-		       bool check_time)
+		       bool check_crl, bool check_time)
 {
     int mode;
 
@@ -686,11 +716,18 @@ static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
     } else
 	mode = SSL_VERIFY_NONE;
 
-    if (!check_time) {
+    unsigned long additional_flags = 0;
+    if (check_crl)
+	additional_flags |= (X509_V_FLAG_CRL_CHECK|X509_V_FLAG_CRL_CHECK_ALL);
+
+    if (!check_time)
+	additional_flags |= X509_V_FLAG_NO_CHECK_TIME;
+
+    if (additional_flags != 0) {
 	X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
 	unsigned long flags = X509_VERIFY_PARAM_get_flags(param);
 
-	flags |= X509_V_FLAG_NO_CHECK_TIME;
+	flags |= additional_flags;
 
 	X509_VERIFY_PARAM_set_flags(param, flags);
     }
@@ -736,8 +773,12 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
 
+    ut_assert(bts->check_crl == item_is_set(&bts->crl));
+    if (!bts->check_crl)
+	LOG_TLS_CRL_CHECK_DISABLED(s);
+
     bts->ssl_ctx =
-	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, s);
+	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, &bts->crl, s);
 
     if (!bts->ssl_ctx)
 	goto err_close;
@@ -752,7 +793,7 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
     set_verify(bts->conn.ssl, bts->tls_client, bts->tls_auth,
-	       bts->check_time);
+	       bts->check_crl, bts->check_time);
 
     if (bts->verify_peer_name)  {
 	struct xcm_addr_host host;
@@ -830,13 +871,17 @@ static int btls_server(struct xcm_socket *s, const char *local_addr)
      * changes XCM_TLS_CERT during runtime.
      */
     bts->ssl_ctx =
-	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, s);
+	ctx_store_get_ctx(&bts->cert, &bts->key, &bts->tc, &bts->crl, s);
     if (bts->ssl_ctx == NULL)
 	goto err_close;
 
     ut_assert(bts->tls_auth == item_is_set(&bts->tc));
     if (!bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(s);
+
+    ut_assert(bts->check_crl == item_is_set(&bts->crl));
+    if (!bts->check_crl)
+	LOG_TLS_CRL_CHECK_DISABLED(s);
 
     if (xcm_tp_socket_server(bts->btcp_socket, btcp_addr) < 0)
 	goto err_deinit;
@@ -910,7 +955,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     conn_bts->ssl_ctx =
 	ctx_store_get_ctx(&conn_bts->cert, &conn_bts->key,
-			  &conn_bts->tc, conn_s);
+			  &conn_bts->tc, &conn_bts->crl, conn_s);
     if (conn_bts->ssl_ctx == NULL) {
 	errno = EPROTO;
 	goto err_close;
@@ -929,8 +974,12 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (!conn_bts->tls_auth)
 	LOG_TLS_AUTH_DISABLED(conn_s);
 
+    ut_assert(conn_bts->check_crl == item_is_set(&conn_bts->crl));
+    if (!conn_bts->check_crl)
+	LOG_TLS_CRL_CHECK_DISABLED(conn_s);
+
     set_verify(conn_bts->conn.ssl, conn_bts->tls_client, conn_bts->tls_auth,
-	       conn_bts->check_time);
+	       conn_bts->check_crl, conn_bts->check_time);
 
     if (conn_bts->verify_peer_name && enable_hostname_validation(conn_s) < 0)
 	goto err_close;
@@ -1284,6 +1333,18 @@ static int get_auth_attr(struct xcm_socket *s, void *value, size_t capacity)
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_auth, value, capacity);
 }
 
+static int set_check_crl_attr(struct xcm_socket *s, const void *value,
+			      size_t len)
+{
+    return set_early_bool_attr(s, &(TOBTLS(s)->check_crl), value, len);
+}
+
+static int get_check_crl_attr(struct xcm_socket *s, void *value,
+			      size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOBTLS(s)->check_crl, value, capacity);
+}
+
 static int set_check_time_attr(struct xcm_socket *s, const void *value,
 			       size_t len)
 {
@@ -1356,13 +1417,26 @@ static int set_tc_file_attr(struct xcm_socket *s, const void *filename,
 			    size_t len)
 {
     return set_file_attr(s, filename, len, &(TOBTLS(s)->tc),
-			 &(TOBTLS(s)->tc_file_set));
+			 &(TOBTLS(s)->tc_set));
 }
 
 static int get_tc_file_attr(struct xcm_socket *s, void *filename,
 			    size_t capacity)
 {
     return get_file_attr(&TOBTLS(s)->tc, filename, capacity);
+}
+
+static int set_crl_file_attr(struct xcm_socket *s, const void *filename,
+			     size_t len)
+{
+    return set_file_attr(s, filename, len, &(TOBTLS(s)->crl),
+			 &(TOBTLS(s)->crl_set));
+}
+
+static int get_crl_file_attr(struct xcm_socket *s, void *filename,
+			     size_t capacity)
+{
+    return get_file_attr(&TOBTLS(s)->crl, filename, capacity);
 }
 
 static bool has_nul(const char *s, size_t len)
@@ -1440,12 +1514,23 @@ static int get_key_attr(struct xcm_socket *s, void *value, size_t capacity)
 static int set_tc_attr(struct xcm_socket *s, const void *value, size_t len)
 {
     return set_value_attr(s, value, len, &(TOBTLS(s)->tc), false,
-			  &(TOBTLS(s)->tc_file_set));
+			  &(TOBTLS(s)->tc_set));
 }
 
 static int get_tc_attr(struct xcm_socket *s, void *value, size_t capacity)
 {
     return get_value_attr(&TOBTLS(s)->tc, value, capacity);
+}
+
+static int set_crl_attr(struct xcm_socket *s, const void *value, size_t len)
+{
+    return set_value_attr(s, value, len, &(TOBTLS(s)->crl), false,
+			  &(TOBTLS(s)->crl_set));
+}
+
+static int get_crl_attr(struct xcm_socket *s, void *value, size_t capacity)
+{
+    return get_value_attr(&TOBTLS(s)->crl, value, capacity);
 }
 
 static int set_verify_peer_name_attr(struct xcm_socket *s, const void *value,
@@ -1677,6 +1762,8 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *value,
 			set_client_attr, get_client_attr),		\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
 			set_auth_attr, get_auth_attr),			\
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CHECK_CRL, xcm_attr_type_bool,	\
+			set_check_crl_attr, get_check_crl_attr),	\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CHECK_TIME, xcm_attr_type_bool,	\
 			set_check_time_attr, get_check_time_attr),	\
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
@@ -1690,12 +1777,16 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *value,
 			set_key_file_attr, get_key_file_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str, \
 			set_tc_file_attr, get_tc_file_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CRL_FILE, xcm_attr_type_str, \
+			set_crl_file_attr, get_crl_file_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT, xcm_attr_type_bin, \
 			set_cert_attr, get_cert_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY, xcm_attr_type_bin, \
 			set_key_attr, get_key_attr), \
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC, xcm_attr_type_bin, \
-			set_tc_attr, get_tc_attr)
+			set_tc_attr, get_tc_attr), \
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CRL, xcm_attr_type_bin, \
+			set_crl_attr, get_crl_attr)
 
 static struct xcm_tp_attr btls_conn_attrs[] = {
     TLS_COMMON_ATTRS,

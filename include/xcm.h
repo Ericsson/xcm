@@ -1017,9 +1017,9 @@ extern "C" {
  *
  * @paragraph credentials_format Certificate and Key Format
  *
- * Certificates and private keys provided to XCM (either via files or
- * by attribute value) must be in the Privacy-Enhanced Mail (PEM)
- * format (RFC 7468).
+ * Certificates (including CRLs) and private keys provided to XCM
+ * (either via files or by attribute value) must be in the
+ * Privacy-Enhanced Mail (PEM) format (RFC 7468).
  *
  * @paragraph per_ns_certs Per-network Namespace Certificates
  *
@@ -1050,17 +1050,31 @@ extern "C" {
  * tc_<ns>.pem
  * @endcode
  *
+ * The certification revocation lists (CRLs) are stored in:
+ * @code
+ * crl_<ns>.pem
+ * @endcode
+ *
  * @paragraph default_certs Default Namespace Certificates
  *
- * For the default namespace (or rather, any network namespace not named
- * according to iproute2 standards), the certificate need to be stored
- * in a file "cert.pem", the private key in "key.pem" and the trusted
- * CA certificates in "tc.pem".
+ * For the default namespace (or rather, any network namespace not
+ * named according to iproute2 standards), the certificate need to be
+ * stored in a file "cert.pem" and the private key in "key.pem".
  *
- * In case the certificate, key or trusted CAs files are not in place
+ * If authentication is enabled (which it is, by default), the trusted
+ * CA certificates need to be stored in a file named "tc.pem".
+ *
+ * If CRL checking is enabled (which it is not, by default), the CRLs
+ * need to be stored in a file named "crl.pem".
+ *
+ * In case the appropriate credential-related files are not in place
  * (for a particular namespace), a xcm_server() call will return an
  * error and set errno to EPROTO. The application may choose to retry
  * at a later time.
+ *
+ * If authentication is disabled, "tc.pem" need not be present, and
+ * vice versa. The same applies to CRL checking and "crl.pem"
+ * availability.
  *
  * @paragraph cert_update Runtime Certificate File Updates
  *
@@ -1167,6 +1181,30 @@ extern "C" {
  * Also, while uppercase and lowercase letters are allowed in domain
  * names, no significance is attached to the case.
  *
+ * @subsubsection crl_checks Certification Revocation List Checks
+ *
+ * The XCM TLS transport may be asked to perform checks against one or
+ * more Certificate Revocation Lists (CRLs).
+ *
+ * CRL checking is enabled by setting the "tls.check_crl" socket
+ * attribute to true during socket creation (e.g., when calling
+ * xcm_connect_a()). CRL checking is disabled by default. CRL checking
+ * may be employed by both TLS client and server endpoints.
+ *
+ * The default CRL file location may be overriden using the
+ * "tls.crl_file" attribute. Alternatively, the CRL data may be
+ * provided by-value using the "tls.crl" attribute.
+ *
+ * The CRL bundle must be in PEM format, and must be present and valid
+ * if CRL checking is enabled.
+ *
+ * The full chain is checked against the user-provided CRLs (i.e., in
+ * OpenSSL terms, both the X509_V_FLAG_CRL_CHECK and
+ * X509_V_FLAG_CRL_CHECK_ALL flags are set).
+ *
+ * CRL checking is only meaningful (and allowed) when authentication
+ * is enabled.
+ *
  * @subsubsection validity_checks Certificate Validity Period Checks
  *
  * By default, the XCM TLS transport checks the validity period of
@@ -1188,12 +1226,15 @@ extern "C" {
  * -------------------------|-------------|-------------|------|------------
  * tls.cert_file            | All         | String      | RW   | The leaf certificate file. Writable only at socket creation.
  * tls.key_file             | All         | String      | RW   | The leaf certificate private key file. Writable only at socket creation.
- * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle. Writable only at socket creation. May not be set if authentication is disabled.
+ * tls.tc_file              | All         | String      | RW   | The trusted CA certificates bundle file. Writable only at socket creation. May not be set if authentication is disabled.
+ * tls.crl_file             | Al l        | String      | RW   | The certificate verification list (CRL) bundle. Writable only at socket creation. May only be set if CRL checking is enabled.
  * tls.cert                 | All         | Binary      | RW   | The leaf certificate to be used. Writable only at socket creation.
  * tls.key                  | All         | Binary      | RW   | The leaf certificate private key to be used. Writable only at socket creation. For security reasons, the value of this attribute is not available over the XCM control interface.
  * tls.tc                   | All         | Binary      | RW   | The trusted CA certificates bundle to be used. Writable only at socket creation. May not be set if authentication is disabled.
+ * tls.crl                  | All         | Binary      | RW   | The certificate verification list (CRL) bundle to be used. Writable only at socket creation. May only be set if CRL checking is enabled.
  * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. Writable only at socket creation.
  * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. Writable only at socket creation. Default value is true.
+ * tls.check_crl            | All         | Boolean     | RW   | Controls whether or not to perform CRL checking. Writable only at socket creation. Default value is false.
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.
  * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. Writable only at socket creation.

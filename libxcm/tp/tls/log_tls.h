@@ -28,8 +28,17 @@
 
 #define LOG_TLS_TRUSTED_CA_SET_BUT_NO_AUTH(s, tc)			\
     log_debug_sock(s, "Trusted CA is configured to \"%s\" even "	\
-	"though TLS authentication is disabled.",			\
+		   "though TLS authentication is disabled.",		\
 		   item_unsensitive_data(tc))
+
+#define LOG_TLS_AUTH_DISABLED_BUT_CRL_CHECK_ENABLED(s)			\
+    log_debug_sock(s, "CRL checking enabled although TLS authentication " \
+		   "is disabled.")
+
+#define LOG_TLS_CRL_SET_BUT_NO_CRL_CHECK(s, crl)		\
+    log_debug_sock(s, "CRL is configured to \"%s\" even "	\
+		   "though CRL checking is disabled.",		\
+		   item_unsensitive_data(crl))
 
 #define LOG_TLS_VALID_PEER_NAMES_SET_BUT_VERIFICATION_DISABLED(s)	\
     log_debug_sock(s, "Valid peer names configured, even though hostname " \
@@ -43,6 +52,9 @@
 #define LOG_TLS_AUTH_DISABLED(s)			\
     log_debug_sock(s, "Authentication disabled.")
     
+#define LOG_TLS_CRL_CHECK_DISABLED(s)			\
+    log_debug_sock(s, "CRL checking is disabled.")
+
 #define LOG_TLS_VALID_PEER_NAME(s, name)				\
     log_debug_sock(s, "Added \"%s\" as a valid remote peer name.", name)
 
@@ -68,19 +80,18 @@
 #define LOG_TLS_1_3_CIPHERS(s, ciphers)		\
     LOG_TLS_CIPHERS(s, 1, 3, ciphers)
 
-#define LOG_TLS_CREDENTIALS(s, cert, key, tc)				\
+#define LOG_TLS_CREDENTIALS(s, cert, key, tc, crl)			\
     do {								\
+	char buf[1024];							\
+	snprintf(buf, sizeof(buf), "Using certificate \"%s\"; key \"%s\"", \
+		 item_unsensitive_data(cert), item_unsensitive_data(key)); \
 	if (item_is_set(tc))						\
-	    log_debug_sock(s, "Using certificate \"%s\", key \"%s\" and " \
-			   "trust chain \"%s\".",			\
-			   item_unsensitive_data(cert),			\
-			   item_unsensitive_data(key),			\
-			   item_unsensitive_data(tc));			\
-	else								\
-	    log_debug_sock(s, "Using certificate \"%s\" and key "	\
-			   "\"%s\". No trusted CA bundle configured.",	\
-			   item_unsensitive_data(cert),			\
-			   item_unsensitive_data(key));			\
+	    ut_aprintf(buf, sizeof(buf), "; trusted CA \"%s\"",		\
+		       item_unsensitive_data(tc));			\
+	if (item_is_set(crl))						\
+	    ut_aprintf(buf, sizeof(buf), "; CRL \"%s\"",		\
+		       item_unsensitive_data(crl));			\
+	ut_aprintf(buf, sizeof(buf), ".");				\
     } while (0)
 
 #define LOG_TLS_CERT_STAT_FAILED(s, filename, reason_errno)	     \
@@ -88,55 +99,56 @@
 		   "errno %d (%s).", filename, reason_errno,	     \
 		   strerror(reason_errno))
 
-#define LOG_TLS_CTX_ACTION(s, action, cert, key, tc)			\
+#define LOG_TLS_CTX_ACTION(s, action, cert, key, tc, crl)		\
     do {								\
+	char buf[1024];							\
+	snprintf(buf, sizeof(buf), "%s with certificate \"%s\"; "	\
+		 "key \"%s\"", action, item_unsensitive_data(cert),	\
+		 item_unsensitive_data(key)); \
 	if (item_is_set(tc))						\
-	    log_debug_sock(s, "%s with certificate \"%s\", key \"%s\" " \
-			   "and trusted CA \"%s\".", action,		\
-			   item_unsensitive_data(cert),			\
-			   item_unsensitive_data(key),			\
-			   item_unsensitive_data(tc));			\
-	else								\
-	    log_debug_sock(s, "%s with certificate \"%s\" and key "	\
-			   "\"%s\". No trusted CAs in use.", action,	\
-			   item_unsensitive_data(cert),			\
-			   item_unsensitive_data(key));			\
+	    ut_aprintf(buf, sizeof(buf), "; trusted CA \"%s\"",		\
+		       item_unsensitive_data(tc));			\
+	if (item_is_set(crl))						\
+	    ut_aprintf(buf, sizeof(buf), "; CRL \"%s\"",		\
+		       item_unsensitive_data(crl));			\
+	ut_aprintf(buf, sizeof(buf), ".");				\
+	log_debug_sock(s, buf);						\
     } while (0)
 
-#define LOG_TLS_CREATING_CTX(s, cert, key, tc)				\
-    LOG_TLS_CTX_ACTION(s, "Creating SSL context", cert, key, tc)
+#define LOG_TLS_CREATING_CTX(s, cert, key, tc, crl)			\
+    LOG_TLS_CTX_ACTION(s, "Creating SSL context", cert, key, tc, crl)
 
 #define LOG_TLS_CTX_RETRY \
     log_debug_sock(s, "Certificate files changed on disk during " \
 		   "processing. Retrying.")
 
-#define LOG_TLS_CTX_REUSE(s, cert_file, key_file, tc_file)		\
-    LOG_TLS_CTX_ACTION(s, "Using cached SSL context", cert, key, tc)
+#define LOG_TLS_CTX_REUSE(s, cert, key, tc, crl)			\
+    LOG_TLS_CTX_ACTION(s, "Using cached SSL context", cert, key, tc, crl)
 
 void hash_description(uint8_t *hash, size_t hash_len, char *buf);
 
-#define LOG_TLS_CTX_HASH_EVENT(s, cert, key, tc, event, hash, hash_size) \
+#define LOG_TLS_CTX_HASH_EVENT(s, cert, key, tc, crl, event, hash, hash_size) \
     do {								\
-	char hash_desc[3 * hash_size + 1];				\
+	char hash_desc[4 * hash_size + 1];				\
 	hash_description(hash, hash_size, hash_desc);			\
+	char buf[1024];							\
+	snprintf(buf, sizeof(buf), "Hash for certificate \"%s\"; key \"%s\"", \
+		 item_unsensitive_data(cert),item_unsensitive_data(key)); \
 	if (item_is_set(tc))						\
-	    log_debug_sock(s, "Hash for certificate \"%s\", key \"%s\"" \
-			   " and trusted CA \"%s\" %s %s.", (cert)->data, \
-			   item_unsensitive_data(key),			\
-			   item_unsensitive_data(tc), event, hash_desc); \
-	else								\
-	    log_debug_sock(s, "Hash for certificate \"%s\" and key \"%s\"" \
-			   "%s %s.", item_unsensitive_data(cert),	\
-			   item_unsensitive_data(key), event,		\
-			   hash_desc);					\
+	    ut_aprintf(buf, sizeof(buf), "; trusted CA \"%s\"",		\
+		       item_unsensitive_data(tc));			\
+	if (item_is_set(crl))						\
+	    ut_aprintf(buf, sizeof(buf), "; CRL \"%s\"",		\
+		       item_unsensitive_data(crl));			\
+	ut_aprintf(buf, sizeof(buf), " %s %s.", event, hash_desc);	\
+	log_debug_sock(s, buf);						\
     } while (0)
     
-#define LOG_TLS_CTX_HASH(s, cert, key, tc, hash, hash_size) \
-    LOG_TLS_CTX_HASH_EVENT(s, cert, key, tc, "is", hash, \
-			   hash_size)
+#define LOG_TLS_CTX_HASH(s, cert, key, tc, crl, hash, hash_size)	\
+    LOG_TLS_CTX_HASH_EVENT(s, cert, key, tc, crl, "is", hash, hash_size)
 
-#define LOG_TLS_CTX_HASH_CHANGED(s, cert, key, tc, new_hash, hash_size)	\
-    LOG_TLS_CTX_HASH_EVENT(s, cert, key, tc,				\
+#define LOG_TLS_CTX_HASH_CHANGED(s, cert, key, tc, crl, new_hash, hash_size) \
+    LOG_TLS_CTX_HASH_EVENT(s, cert, key, tc, crl,			\
 			   "changed while reading to", new_hash,	\
 			   hash_size)
 
@@ -171,6 +183,9 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 #define LOG_TLS_ERR_PARSING_TC(s)			\
     LOG_TLS_ERR_PARSING(s, "trusted chain")
 
+#define LOG_TLS_ERR_PARSING_CRL(s)			\
+    LOG_TLS_ERR_PARSING(s, "CRL")
+
 #define LOG_TLS_ERR_INSTALLING(s, item_name)		\
     LOG_TLS_ERR_ITEM(s, "installing", item_name)
 
@@ -183,6 +198,9 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 #define LOG_TLS_ERR_INSTALLING_TC(s)		\
     LOG_TLS_ERR_INSTALLING(s, "trusted chain")
 
+#define LOG_TLS_ERR_INSTALLING_CRL(s)		\
+    LOG_TLS_ERR_INSTALLING(s, "CRL")
+
 #define LOG_TLS_CERT_INSTALLED(s)		\
     log_debug_sock(s, "Certificate installed.")
 
@@ -194,6 +212,9 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 
 #define LOG_TLS_TC_INSTALLED(s, num)					\
     log_debug_sock(s, "%d trust chain certificates installed.", num)
+
+#define LOG_TLS_CRL_INSTALLED(s, num)			\
+    log_debug_sock(s, "%d CRLs installed.", num)
 
 #define LOG_TLS_OPENSSL_WANTS(s, action)		\
     log_debug_sock(s, "OpenSSL wants to %s.", action)

@@ -3386,6 +3386,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
 
     CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.check_crl", true), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
@@ -3597,7 +3598,8 @@ static int establish_xtls(const char *tls_addr,
 static struct xcm_attr_map *create_cert_attrs(const char *base_dir,
 					      const char *cert,
 					      const char *key,
-					      const char *tc)
+					      const char *tc,
+					      const char *crl)
 {
     char path[PATH_MAX];
 
@@ -3616,6 +3618,11 @@ static struct xcm_attr_map *create_cert_attrs(const char *base_dir,
     if (tc != NULL) {
 	snprintf(path, sizeof(path), "%s/%s", base_dir, tc);
 	xcm_attr_map_add_str(attrs, "tls.tc_file", path);
+    }
+
+    if (crl != NULL) {
+	snprintf(path, sizeof(path), "%s/%s", base_dir, crl);
+	xcm_attr_map_add_str(attrs, "tls.crl_file", path);
     }
 
     return attrs;
@@ -4038,10 +4045,12 @@ static int handshake_files(const char *server_cert, const char *server_key,
 			   bool success_expected)
 {
     struct xcm_attr_map *server_attrs =
-	create_cert_attrs(get_cert_base(), server_cert, server_key, server_tc);
+	create_cert_attrs(get_cert_base(), server_cert, server_key, server_tc,
+			  NULL);
 
     struct xcm_attr_map *client_attrs =
-	create_cert_attrs(get_cert_base(), client_cert, client_key, client_tc);
+	create_cert_attrs(get_cert_base(), client_cert, client_key, client_tc,
+			  NULL);
 
     return do_handshake(server_attrs, client_attrs, success_expected);
 }
@@ -4289,7 +4298,7 @@ TESTCASE(xcm, tls_accept_attrs_override_server_attrs)
 
     struct xcm_attr_map *invalid_attrs =
 	create_cert_attrs(get_cert_base(), "invalid/cert.pem",
-			  "invalid/key.pem", "invalid/tc.pem");
+			  "invalid/key.pem", "invalid/tc.pem", NULL);
 
     char *tls_addr = gen_tls_addr();
 
@@ -4697,15 +4706,15 @@ TESTCASE(xcm, tls_auth_conf)
 
     struct xcm_attr_map *truster_attrs =
 	create_cert_attrs(get_cert_base(), "truster/cert.pem",
-			  "truster/key.pem", "truster/tc.pem");
+			  "truster/key.pem", "truster/tc.pem", NULL);
 
     struct xcm_attr_map *trusted_attrs =
 	create_cert_attrs(get_cert_base(), "trusted/cert.pem",
-			  "trusted/key.pem", NULL);
+			  "trusted/key.pem", NULL, NULL);
 
     struct xcm_attr_map *unrelated_attrs =
 	create_cert_attrs(get_cert_base(), "unrelated/cert.pem",
-			  "unrelated/key.pem", "unrelated/tc.pem");
+			  "unrelated/key.pem", "unrelated/tc.pem", NULL);
 
     char *tls_addr = gen_tls_addr();
 
@@ -4967,7 +4976,7 @@ TESTCASE(xcm, tls_big_bundle)
 	       "\n"
 	       "certs:\n"
 	       "  root:\n"
-	       "    subject_name: root-a\n"
+	       "    subject_name: root\n"
 	       "    ca: True\n"
 	       "  leaf:\n"
 	       "    subject_name: leaf\n"
@@ -5055,6 +5064,236 @@ TESTCASE(xcm, tls_multiple_ca_same_subject)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, tls_crl_reject_revoked_leaf)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  sub:\n"
+	    "    subject_name: sub\n"
+	    "    issuer: root\n"
+	    "    ca: True\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: sub\n"
+	    "\n"
+	    "crls:\n"
+	    "  revoked-leaf:\n"
+	    "    issuer: root\n"
+	    "    revokes: [b]\n"
+	    "  revoked-sub:\n"
+	    "    issuer: root\n"
+	    "    revokes: [sub]\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: a-revoked-leaf/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: a-revoked-leaf/key.pem\n"
+	    "  - type: crl\n"
+	    "    id: revoked-leaf\n"
+	    "    path: a-revoked-leaf/crl.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: a-revoked-sub/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: a-revoked-sub/key.pem\n"
+	    "  - type: crl\n"
+	    "    id: revoked-sub\n"
+	    "    path: a-revoked-sub/crl.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: a-no-crl/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: a-no-crl/key.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: b/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: b/key.pem\n"
+	    "\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "      - sub\n"
+	    "    paths:\n"
+	    "      - a-revoked-leaf/tc.pem\n"
+	    "      - a-revoked-sub/tc.pem\n"
+	    "      - a-no-crl/tc.pem\n"
+	    "      - b/tc.pem\n"
+            )
+	);
+
+    struct xcm_attr_map *empty_attrs = xcm_attr_map_create();
+
+    char crl_file[PATH_MAX];
+
+    struct xcm_attr_map *a_revoked_leaf_attrs =
+	create_cert_attrs(get_cert_base(), "a-revoked-leaf/cert.pem",
+			  "a-revoked-leaf/key.pem", "a-revoked-leaf/tc.pem",
+			  "a-revoked-leaf/crl.pem");
+    xcm_attr_map_add_bool(a_revoked_leaf_attrs, "tls.check_crl", true);
+
+    snprintf(crl_file, sizeof(crl_file), "a-revoked-leaf/%s", get_cert_base());
+    xcm_attr_map_add_str(a_revoked_leaf_attrs, "tls.cert_file", crl_file);
+
+    struct xcm_attr_map *a_revoked_sub_attrs =
+	create_cert_attrs(get_cert_base(), "a-revoked-sub/cert.pem",
+			  "a-revoked-sub/key.pem", "a-revoked-sub/tc.pem",
+			  "a-revoked-sub/crl.pem");
+    xcm_attr_map_add_bool(a_revoked_sub_attrs, "tls.check_crl", true);
+
+    snprintf(crl_file, sizeof(crl_file), "a-revoked-sub/%s", get_cert_base());
+    xcm_attr_map_add_str(a_revoked_sub_attrs, "tls.cert_file", crl_file);
+
+    struct xcm_attr_map *a_no_crl_attrs =
+	create_cert_attrs(get_cert_base(), "a-no-crl/cert.pem",
+			  "a-no-crl/key.pem", "a-no-crl/tc.pem", NULL);
+
+    struct xcm_attr_map *b_attrs =
+	create_cert_attrs(get_cert_base(), "b/cert.pem",
+			  "b/key.pem", "b/tc.pem", NULL);
+
+    char *tls_addr = gen_tls_addr();
+
+    CHKNOERR(establish_xtls(tls_addr, a_revoked_leaf_attrs, empty_attrs,
+			    b_attrs, false));
+
+    CHKNOERR(establish_xtls(tls_addr, empty_attrs, a_revoked_leaf_attrs,
+			    b_attrs, false));
+
+    CHKNOERR(establish_xtls(tls_addr, a_revoked_sub_attrs, empty_attrs,
+			    b_attrs, false));
+
+    /* Just to be reasonbly sure there isn't some non-CRL issue
+       causing the above failures. */
+    CHKNOERR(establish_xtls(tls_addr, a_no_crl_attrs, empty_attrs,
+			    b_attrs, true));
+
+    xcm_attr_map_destroy(empty_attrs);
+    xcm_attr_map_destroy(a_revoked_leaf_attrs);
+    xcm_attr_map_destroy(a_revoked_sub_attrs);
+    xcm_attr_map_destroy(a_no_crl_attrs);
+    xcm_attr_map_destroy(b_attrs);
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+    
+}
+
+TESTCASE(xcm, tls_missing_empty_invalid_crl)
+{
+    char *tls_addr = gen_tls_addr();
+    
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, true));
+
+    xcm_attr_map_add_bool(attrs, "tls.check_crl", true);
+
+    /* CRL is missing */
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, false));
+    CHKERRNOEQ(EPROTO);
+
+    char cdir[PATH_MAX];
+    get_cert_path(cdir, "default");
+
+    CHKNOERR(tu_executef_es("touch %s/crl.pem", cdir));
+
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, false));
+
+    CHKNOERR(tu_executef_es("dd if=/dev/urandom of=%s/crl.pem bs=4096 "
+			    "count=1", cdir));
+
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, false));
+    CHKERRNOEQ(EPROTO);
+
+    xcm_attr_map_destroy(attrs);
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_zero_revocations_crl)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "crls:\n"
+	    "  x:\n"
+	    "    issuer: root\n"
+	    "    revokes: []\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep/key.pem\n"
+	    "  - type: crl\n"
+	    "    id: x\n"
+	    "    path: ep/crl.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    path: ep/tc.pem\n"
+            )
+	);
+
+    struct xcm_attr_map *ref_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(ref_attrs, "tls.check_crl", true);
+
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/ep/crl.pem", get_cert_base());
+    xcm_attr_map_add_str(ref_attrs, "tls.crl_file", path);
+
+    CHKNOERR(handshake_attrs("ep", ref_attrs, "ep", ref_attrs, true));
+
+    xcm_attr_map_destroy(ref_attrs);
+
+    struct xcm_attr_map *by_value_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(by_value_attrs, "tls.check_crl", true);
+
+    char *crl;
+    CHKNOERR(load_cred("ep", "crl.pem", &crl));
+
+    /* make sure the CRLs aren't read from the file system */
+    CHKNOERR(unlink(path));
+
+    xcm_attr_map_add_bin(by_value_attrs, "tls.crl", crl, strlen(crl));
+
+    CHKNOERR(handshake_attrs("ep", by_value_attrs, "ep", by_value_attrs, true));
+
+    xcm_attr_map_destroy(by_value_attrs);
+    ut_free(crl);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE_SERIALIZED_F(xcm, tls_name_verification, REQUIRE_PUBLIC_DNS)
 {
     CHKNOERR(
@@ -5112,13 +5351,13 @@ TESTCASE_SERIALIZED_F(xcm, tls_name_verification, REQUIRE_PUBLIC_DNS)
 
     struct xcm_attr_map *server_attrs =
 	create_cert_attrs(get_cert_base(), "server/cert.pem",
-			  "server/key.pem", "server/tc.pem");
+			  "server/key.pem", "server/tc.pem", NULL);
     xcm_attr_map_add_bool(server_attrs, "tls.verify_peer_name", true);
     xcm_attr_map_add_str(server_attrs, "tls.peer_names", "client0");
 
     struct xcm_attr_map *client0_attrs =
 	create_cert_attrs(get_cert_base(), "client0/cert.pem",
-			  "client0/key.pem", "client0/tc.pem");
+			  "client0/key.pem", "client0/tc.pem", NULL);
     xcm_attr_map_add_bool(client0_attrs, "tls.verify_peer_name", true);
     xcm_attr_map_add_str(client0_attrs, "tls.peer_names", "localhost");
 
@@ -5128,7 +5367,7 @@ TESTCASE_SERIALIZED_F(xcm, tls_name_verification, REQUIRE_PUBLIC_DNS)
 
     struct xcm_attr_map *client1_attrs =
 	create_cert_attrs(get_cert_base(), "client1/cert.pem",
-			  "client1/key.pem", "client1/tc.pem");
+			  "client1/key.pem", "client1/tc.pem", NULL);
     xcm_attr_map_add_bool(client1_attrs, "tls.verify_peer_name", true);
     xcm_attr_map_add_str(client1_attrs, "tls.peer_names", "localhost");
 

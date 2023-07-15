@@ -230,6 +230,7 @@ static int hash_item(const struct item *item, EVP_MD_CTX *ctx, void *log_ref)
 static int get_credentials_hash(const struct item *cert,
 				const struct item *key,
 				const struct item *tc,
+				const struct item *crl,
 				uint8_t *hash, void *log_ref)
 {
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
@@ -245,6 +246,8 @@ static int get_credentials_hash(const struct item *cert,
     if (hash_item(key, ctx, log_ref) < 0)
 	goto err;
     if (hash_item(tc, ctx, log_ref) < 0)
+	goto err;
+    if (hash_item(crl, ctx, log_ref) < 0)
 	goto err;
 
     unsigned int len = HASH_LEN;
@@ -262,13 +265,10 @@ err:
 
 static BIO *str_to_bio(const char *s)
 {
-    BIO *bio = BIO_new(BIO_s_mem());
+    BIO *bio = BIO_new_mem_buf(s, strlen(s));
 
     if (bio == NULL)
 	ut_mem_exhausted();
-
-    int rc = BIO_puts(bio, s);
-    ut_assert(rc == strlen(s));
 
     return bio;
 }
@@ -387,9 +387,50 @@ static int install_tc(X509_STORE *store, const char *tc_data, void *log_ref)
     return rc;
 }
 
+static int install_crl(X509_STORE *store, const char *crl_data, void *log_ref)
+{
+    BIO *bio = str_to_bio(crl_data);
+    int rc = -1;
+
+    int i;
+    for (i = 0; ; i++) {
+	X509_CRL *crl = PEM_read_bio_X509_CRL(bio, NULL, 0, NULL);
+
+	if (crl == NULL) {
+	    unsigned long err = ERR_peek_last_error();
+
+	    if (i > 0 && ERR_GET_LIB(err) == ERR_LIB_PEM &&
+		ERR_GET_REASON(err) == PEM_R_NO_START_LINE) {
+		ERR_clear_error();
+		rc = 0;
+		break;
+	    } else {
+		LOG_TLS_ERR_PARSING_CRL(log_ref);
+		break;
+	    }
+	}
+
+	int add_rc = X509_STORE_add_crl(store, crl);
+
+	X509_CRL_free(crl);
+
+	if (add_rc != 1) {
+	    LOG_TLS_ERR_INSTALLING_CRL(log_ref);
+	    break;
+	}
+    }
+
+    if (rc == 0)
+	LOG_TLS_CRL_INSTALLED(log_ref, i);
+
+    BIO_free(bio);
+
+    return rc;
+}
+
 static SSL_CTX *load_ssl_ctx(const char *cert_data, const char *key_data,
-			     const char *tc_data, uint8_t *hash,
-			     void *log_ref)
+			     const char *tc_data, const char *crl_data,
+			     uint8_t *hash, void *log_ref)
 {
     const SSL_METHOD* method = SSLv23_method();
     if (method == NULL) {
@@ -427,6 +468,9 @@ static SSL_CTX *load_ssl_ctx(const char *cert_data, const char *key_data,
     if (tc_data != NULL && install_tc(store, tc_data, log_ref) < 0)
 	goto err_free;
 
+    if (crl_data != NULL && install_crl(store, crl_data, log_ref) < 0)
+	goto err_free;
+
     if (SSL_CTX_check_private_key(ssl_ctx) != 1) {
 	LOG_TLS_INCONSISTENT_KEY(log_ref);
 	goto err_free;
@@ -445,7 +489,8 @@ err_free:
 }
 
 SSL_CTX *ctx_store_get_ctx(const struct item *cert, const struct item *key,
-			   const struct item *tc, void *log_ref)
+			   const struct item *tc, const struct item *crl,
+			   void *log_ref)
 {
     cache_lock(&cache);
 
@@ -457,6 +502,7 @@ SSL_CTX *ctx_store_get_ctx(const struct item *cert, const struct item *key,
     char *cert_data = NULL;
     char *key_data = NULL;
     char *tc_data = NULL;
+    char *crl_data = NULL;
 
     bool hash_changed;
 
@@ -471,21 +517,24 @@ SSL_CTX *ctx_store_get_ctx(const struct item *cert, const struct item *key,
 	ut_free(tc_data);
 	tc_data = NULL;
 
-	if (get_credentials_hash(cert, key, tc, hash, log_ref) < 0) {
+	ut_free(crl_data);
+	crl_data = NULL;
+
+	if (get_credentials_hash(cert, key, tc, crl, hash, log_ref) < 0) {
 	    errno = EPROTO;
 	    goto out;
 	}
 
-	LOG_TLS_CTX_HASH(log_ref, cert, key, tc, hash, HASH_LEN);
+	LOG_TLS_CTX_HASH(log_ref, cert, key, tc, crl, hash, HASH_LEN);
 
 	entry = cache_get(&cache, hash);
 
 	if (entry != NULL) {
-	    LOG_TLS_CTX_REUSE(log_ref, cert, key, tc);
+	    LOG_TLS_CTX_REUSE(log_ref, cert, key, tc, crl);
 	    goto out;
 	}
 
-	LOG_TLS_CREATING_CTX(log_ref, cert, key, tc);
+	LOG_TLS_CREATING_CTX(log_ref, cert, key, tc, crl);
 
 	if (item_load(cert, &cert_data) < 0)
 	    goto out;
@@ -493,23 +542,26 @@ SSL_CTX *ctx_store_get_ctx(const struct item *cert, const struct item *key,
 	    goto out_free;
 	if (item_load(tc, &tc_data) < 0)
 	    goto out_free;
+	if (item_load(crl, &crl_data) < 0)
+	    goto out_free;
 
-	if (get_credentials_hash(cert, key, tc, nhash, log_ref) < 0) {
+	if (get_credentials_hash(cert, key, tc, crl, nhash, log_ref) < 0) {
 	    errno = EPROTO;
 	    goto out_free;
 	}
 
 	hash_changed = !hash_equal(hash, nhash);
 	if (hash_changed)
-	    LOG_TLS_CTX_HASH_CHANGED(log_ref, cert, key, tc, nhash, HASH_LEN);
+	    LOG_TLS_CTX_HASH_CHANGED(log_ref, cert, key, tc, crl, nhash,
+				     HASH_LEN);
 
 	/* retry if the files changed during the process */
     } while (hash_changed);
 
-    LOG_TLS_CREDENTIALS(log_ref, cert, key, tc);
+    LOG_TLS_CREDENTIALS(log_ref, cert, key, tc, crl);
 
     SSL_CTX *ssl_ctx =
-	load_ssl_ctx(cert_data, key_data, tc_data, nhash, log_ref);
+	load_ssl_ctx(cert_data, key_data, tc_data, crl_data, nhash, log_ref);
 
     if (ssl_ctx == NULL)
 	goto out_free;
@@ -520,6 +572,7 @@ out_free:
     ut_free(cert_data);
     ut_free(key_data);
     ut_free(tc_data);
+    ut_free(crl_data);
 out:
     cache_unlock(&cache);
 
