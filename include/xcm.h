@@ -1197,7 +1197,7 @@ extern "C" {
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.
  * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. Writable only at socket creation.
- * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or the TLS authenication is disabled and the remote peer did not send a certificate).
+ * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or TLS authentication is disabled and the remote peer did not send a certificate).
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
  * all the @ref tcp_attr (including the IP and DNS-level attributes).
