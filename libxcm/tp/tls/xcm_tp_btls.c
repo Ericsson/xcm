@@ -10,7 +10,6 @@
 #include "log_tls.h"
 #include "log_tp.h"
 #include "slist.h"
-#include "tcp_attr.h"
 #include "util.h"
 #include "xcm.h"
 #include "xcm_addr.h"

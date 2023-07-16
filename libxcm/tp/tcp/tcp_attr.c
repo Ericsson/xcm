@@ -23,8 +23,7 @@ void tcp_opts_init(struct tcp_opts *opts)
 	.keepalive_time = XCM_TCP_KEEPALIVE_TIME,
 	.keepalive_interval = XCM_TCP_KEEPALIVE_INTERVAL,
 	.keepalive_count = XCM_TCP_KEEPALIVE_COUNT,
-	.user_timeout = XCM_TCP_USER_TIMEOUT,
-	.fd = -1
+	.user_timeout = XCM_TCP_USER_TIMEOUT
     };
 }
 
@@ -79,58 +78,56 @@ static int disable_nagle(int fd)
 
 int tcp_opts_effectuate(struct tcp_opts *opts, int fd)
 {
-    opts->fd = fd;
-
     int rc = 0;
-    if (disable_nagle(opts->fd) < 0)
+    if (disable_nagle(fd) < 0)
 	rc = -1;
-    if (reduce_max_syn(opts->fd) < 0)
+    if (reduce_max_syn(fd) < 0)
 	rc = -1;
-    if (tcp_effectuate_dscp(opts->fd) < 0)
+    if (tcp_effectuate_dscp(fd) < 0)
 	rc = -1;
-    if (effectuate_keepalive_time(opts->fd, opts->keepalive_time) < 0)
+    if (effectuate_keepalive_time(fd, opts->keepalive_time) < 0)
 	rc = -1;
-    if (effectuate_keepalive_interval(opts->fd, opts->keepalive_interval) < 0)
+    if (effectuate_keepalive_interval(fd, opts->keepalive_interval) < 0)
 	rc = -1;
-    if (effectuate_keepalive_count(opts->fd, opts->keepalive_count) < 0)
+    if (effectuate_keepalive_count(fd, opts->keepalive_count) < 0)
 	rc = -1;
-    if (effectuate_keepalive(opts->fd, opts->keepalive) < 0)
+    if (effectuate_keepalive(fd, opts->keepalive) < 0)
 	rc = -1;
-    if (effectuate_user_timeout(opts->fd, opts->user_timeout) < 0)
+    if (effectuate_user_timeout(fd, opts->user_timeout) < 0)
 	rc = -1;
     return rc;
 }
 
-int tcp_set_keepalive(struct tcp_opts *opts, bool keepalive)
+int tcp_set_keepalive(struct tcp_opts *opts, int fd, bool keepalive)
 {
     if (opts->keepalive == keepalive)
 	return 0;
 
     opts->keepalive = keepalive;
 
-    if (opts->fd < 0)
+    if (fd < 0)
 	return 0;
 
-    if (effectuate_keepalive(opts->fd, keepalive) < 0)
+    if (effectuate_keepalive(fd, keepalive) < 0)
 	return -1;
 
     return 0;
 }
 
 #define GEN_SET_OPT_SCALE(optname, k)					\
-    int tcp_set_ ## optname(struct tcp_opts *opts, int64_t value)	\
+    int tcp_set_ ## optname(struct tcp_opts *opts, int fd, int64_t value) \
     {									\
-	if ((opts)->optname == value)					\
+	if (opts->optname == value)					\
 	    return 0;							\
 	int64_t scaled_value = value * (k);				\
 	if (scaled_value <= 0 || scaled_value > INT_MAX) {		\
 	    errno = EINVAL;						\
 	    return -1;							\
 	}								\
-	(opts)->optname = value;					\
-	if ((opts)->fd < 0)						\
+	opts->optname = value;						\
+	if (fd < 0)							\
 	    return 0;							\
-	if (effectuate_ ## optname(opts->fd, value) < 0)		\
+	if (effectuate_ ## optname(fd, value) < 0)			\
 	    return -1;							\
 	return 0;							\
     }
@@ -142,6 +139,16 @@ GEN_SET_OPT(keepalive_time)
 GEN_SET_OPT(keepalive_interval)
 GEN_SET_OPT(keepalive_count)
 GEN_SET_OPT_SCALE(user_timeout, 1000)
+
+bool tcp_opts_equal(const struct tcp_opts *opts_a,
+		    const struct tcp_opts *opts_b)
+{
+    return opts_a->keepalive == opts_b->keepalive &&
+	opts_a->keepalive_time == opts_b->keepalive_time &&
+	opts_a->keepalive_interval == opts_b->keepalive_interval &&
+	opts_a->keepalive_count == opts_b->keepalive_count &&
+	opts_a->user_timeout && opts_b->user_timeout;
+}
 
 /* Equivalent to the tcp_info structure found in kernel 4.3's public
    API. XCM carries its own copy because it wants to be prepared for a

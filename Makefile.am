@@ -53,10 +53,10 @@ libxcm_la_SOURCES = \
 	libxcm/tp/common/common_tp.c \
 	libxcm/tp/common/dns_attr.c \
 	libxcm/tp/common/log_tp.c \
-	libxcm/tp/common/tcp_attr.c \
 	libxcm/tp/common/xcm_tp.c \
 	libxcm/tp/dns/xcm_dns.c \
 	libxcm/tp/tcp/tconnect.c \
+	libxcm/tp/tcp/tcp_attr.c \
 	libxcm/tp/tcp/xcm_tp_btcp.c \
 	libxcm/tp/tcp/xcm_tp_tcp.c \
 	libxcm/tp/ux/xcm_tp_ux.c

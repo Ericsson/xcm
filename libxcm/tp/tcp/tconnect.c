@@ -70,9 +70,6 @@ static struct track *track_create(int fd4, int fd6,
 {
     struct track *track = ut_malloc(sizeof(struct track));
 
-    /* tcp_opts is only to convey initial TCP options */
-    ut_assert(tcp_opts->fd < 0);
-
     *track = (struct track) {
 	.fd4 = fd4,
 	.fd6 = fd6,
@@ -311,7 +308,7 @@ static void track_process(struct track *track)
 }
 	    
 static int track_get_connected_fd(struct track *track, int *fd,
-				  int64_t *scope)
+				  int64_t *scope, struct tcp_opts *tcp_opts)
 {
     track_process(track);
 
@@ -329,6 +326,8 @@ static int track_get_connected_fd(struct track *track, int *fd,
 	track_disassociate_current_fd(track);
 
 	*scope = track_get_current_scope(track);
+
+	*tcp_opts = track->tcp_opts;
 
 	track->state = track_state_finished;
 
@@ -520,7 +519,7 @@ int tconnect_connect(struct tconnect *tconnect,
 }
 
 int tconnect_get_connected_fd(struct tconnect *tconnect, int *fd,
-			      int64_t *scope)
+			      int64_t *scope, struct tcp_opts *tcp_opts)
 {
     UT_SAVE_ERRNO;
 
@@ -532,7 +531,7 @@ int tconnect_get_connected_fd(struct tconnect *tconnect, int *fd,
     for (i = 0; i < tconnect->num_tracks; i++) {
 	struct track *track = tconnect->tracks[i];
 
-	rc = track_get_connected_fd(track, fd, scope);
+	rc = track_get_connected_fd(track, fd, scope, tcp_opts);
 
 	if (rc == 0)
 	    break;

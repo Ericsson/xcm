@@ -349,9 +349,11 @@ static void try_finish_connect(struct xcm_socket *s)
 
     LOG_TCP_CONN_CHECK(s);
 
+    struct tcp_opts tcp_opts;
     UT_SAVE_ERRNO;
     int rc = tconnect_get_connected_fd(bts->conn.tconnect,
-				       &bts->fd, &bts->scope);
+				       &bts->fd, &bts->scope,
+				       &tcp_opts);
     UT_RESTORE_ERRNO(connect_errno);
 
     if (rc < 0) {
@@ -364,13 +366,25 @@ static void try_finish_connect(struct xcm_socket *s)
     } else {
 	bts->fd_reg_id = xpoll_fd_reg_add(s->xpoll, bts->fd, 0);
 
-	bts->conn.tcp_opts.fd = bts->fd;
+	UT_SAVE_ERRNO;
+	int rc = 0;
+
+	/* Check if TCP opts has changed during state_connecting */
+	if (!tcp_opts_equal(&bts->conn.tcp_opts, &tcp_opts))
+	    rc = tcp_opts_effectuate(&bts->conn.tcp_opts, bts->fd);
+
+	UT_RESTORE_ERRNO(opts_errno);
+
+	if (rc < 0) {
+	    BTCP_SET_STATE(s, conn_state_bad);
+	    bts->conn.badness_reason = opts_errno;
+	} else {
+	    LOG_TCP_CONN_ESTABLISHED(s, bts->fd);
+	    BTCP_SET_STATE(s, conn_state_ready);
+	}
 
 	tconnect_destroy(bts->conn.tconnect, true);
 	bts->conn.tconnect = NULL;
-
-	LOG_TCP_CONN_ESTABLISHED(s, bts->fd);
-	BTCP_SET_STATE(s, conn_state_ready);
     }
 }
 
@@ -879,19 +893,19 @@ GEN_TCP_FIELD_GET(segs_out)
 									\
 	attr_type v = *((const attr_type *)value);			\
 									\
-	return tcp_set_ ## attr_name(&bts->conn.tcp_opts, v);	\
+	return tcp_set_ ## attr_name(&bts->conn.tcp_opts, bts->fd, v);	\
     }
 
 #define GEN_TCP_GET(attr_name, attr_type)				\
     static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
 					  void *value, size_t capacity)	\
     {									\
-    struct btcp_socket *bts = TOBTCP(s);					\
+	struct btcp_socket *bts = TOBTCP(s);				\
 									\
-    memcpy(value, &bts->conn.tcp_opts.attr_name, sizeof(attr_type));	\
+	memcpy(value, &bts->conn.tcp_opts.attr_name, sizeof(attr_type)); \
 									\
-    return sizeof(attr_type);						\
-}
+	return sizeof(attr_type);					\
+    }
 
 #define GEN_TCP_ACCESS(attr_name, attr_type) \
     GEN_TCP_SET(attr_name, attr_type) \

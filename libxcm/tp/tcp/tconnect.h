@@ -34,7 +34,7 @@ int tconnect_connect(struct tconnect *tconnect,
 		     size_t num_remote_ips, uint16_t remote_port);
 
 int tconnect_get_connected_fd(struct tconnect *tconnect, int *fd,
-			      int64_t* scope);
+			      int64_t* scope, struct tcp_opts *tcp_opts);
 
 void tconnect_destroy(struct tconnect *tconnect, bool owner);
 

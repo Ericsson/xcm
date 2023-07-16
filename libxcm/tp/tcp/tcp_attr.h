@@ -27,18 +27,19 @@ struct tcp_opts
     int64_t keepalive_interval;
     int64_t keepalive_count;
     int64_t user_timeout;
-
-    int fd;
 };
 
 void tcp_opts_init(struct tcp_opts *opts);
 int tcp_opts_effectuate(struct tcp_opts *opts, int fd);
 
-int tcp_set_keepalive(struct tcp_opts *opts, bool enabled);
-int tcp_set_keepalive_time(struct tcp_opts *opts, int64_t time);
-int tcp_set_keepalive_interval(struct tcp_opts *opts, int64_t time);
-int tcp_set_keepalive_count(struct tcp_opts *opts, int64_t count);
-int tcp_set_user_timeout(struct tcp_opts *opts, int64_t tmo);
+int tcp_set_keepalive(struct tcp_opts *opts, int fd, bool enabled);
+int tcp_set_keepalive_time(struct tcp_opts *opts, int fd, int64_t time);
+int tcp_set_keepalive_interval(struct tcp_opts *opts, int fd, int64_t time);
+int tcp_set_keepalive_count(struct tcp_opts *opts, int fd, int64_t count);
+int tcp_set_user_timeout(struct tcp_opts *opts, int fd, int64_t tmo);
+
+bool tcp_opts_equal(const struct tcp_opts *opts_a,
+		    const struct tcp_opts *opts_b);
 
 int tcp_get_rtt_attr(int fd, int64_t *value);
 int tcp_get_total_retrans_attr(int fd, int64_t *value);
