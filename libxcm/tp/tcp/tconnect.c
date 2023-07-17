@@ -388,8 +388,7 @@ struct tconnect *tconnect_create(enum tconnect_algorithm algorithm,
 	.log_ref = log_ref
     };
 
-    if (tconnect->fd4 < 0 || tconnect->fd6 < 6 ||
-	tconnect->timer_mgr == NULL) {
+    if (tconnect->fd4 < 0 || tconnect->fd6 < 0 || tconnect->timer_mgr == NULL) {
 	ut_close_if_valid(tconnect->fd4);
 	ut_close_if_valid(tconnect->fd6);
 	timer_mgr_destroy(tconnect->timer_mgr, true);
