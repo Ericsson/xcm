@@ -55,8 +55,6 @@ struct btcp_socket
 	    int bell_reg_id;
 
 	    /* for conn_state_resolving */
-	    struct xcm_addr_ip remote_ips[XCM_DNS_MAX_RESULT_SIZE];
-	    uint16_t num_remote_ips;
 	    uint16_t remote_port;
 	    struct xcm_dns_query *query;
 
@@ -272,7 +270,9 @@ static int conf_scope(struct xcm_socket *s, int64_t *scope,
 
 static void try_finish_connect(struct xcm_socket *s);
 
-static void begin_connect(struct xcm_socket *s)
+static void begin_connect(struct xcm_socket *s,
+			  const struct xcm_addr_ip *remote_ips,
+			  int num_remote_ips)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -299,8 +299,8 @@ static void begin_connect(struct xcm_socket *s)
     }
 
     if (tconnect_connect(bts->conn.tconnect, local_ip, local_port, bts->scope,
-			 &bts->conn.tcp_opts, bts->conn.remote_ips,
-			 bts->conn.num_remote_ips, bts->conn.remote_port) < 0)
+			 &bts->conn.tcp_opts, remote_ips, num_remote_ips,
+			 bts->conn.remote_port) < 0)
 	goto err;
 
     try_finish_connect(s);
@@ -318,8 +318,10 @@ static void try_finish_resolution(struct xcm_socket *s)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
+    struct xcm_addr_ip remote_ips[XCM_DNS_MAX_RESULT_SIZE];
+
     UT_SAVE_ERRNO;
-    int rc = xcm_dns_query_result(bts->conn.query, bts->conn.remote_ips,
+    int rc = xcm_dns_query_result(bts->conn.query, remote_ips,
 				  XCM_DNS_MAX_RESULT_SIZE);
     UT_RESTORE_ERRNO(query_errno);
 
@@ -333,10 +335,9 @@ static void try_finish_resolution(struct xcm_socket *s)
 	bts->conn.badness_reason = query_errno;
     } else {
 	ut_assert(rc > 0);
-	bts->conn.num_remote_ips = rc;
 
 	BTCP_SET_STATE(s, conn_state_connecting);
-	begin_connect(s);
+	begin_connect(s, remote_ips, rc);
     }
 
     xcm_dns_query_destroy(bts->conn.query, true);
@@ -421,7 +422,7 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
     struct xcm_addr_host remote_host;
 
     if (xcm_addr_parse_btcp(remote_addr, &remote_host,
-			   &bts->conn.remote_port) < 0) {
+			    &bts->conn.remote_port) < 0) {
 	LOG_ADDR_PARSE_ERR(s, remote_addr, errno);
 	goto err;
     }
@@ -442,11 +443,8 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
 	if (bts->conn.query == NULL)
 	    goto err;
     } else {
-	bts->conn.remote_ips[0] = remote_host.ip;
-	bts->conn.num_remote_ips = 1;
-
 	BTCP_SET_STATE(s, conn_state_connecting);
-	begin_connect(s);
+	begin_connect(s, &remote_host.ip, 1);
     }
 
     try_establish(s);

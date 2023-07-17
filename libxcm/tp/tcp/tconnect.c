@@ -32,7 +32,7 @@ struct track
     uint16_t local_port;
     int64_t scope;
 
-    const struct xcm_addr_ip *remote_ips;
+    struct xcm_addr_ip *remote_ips;
     int num_remote_ips;
     uint16_t remote_port;
 
@@ -54,6 +54,12 @@ struct track
 };
 
 static void track_connect_next(struct track *track);
+
+static struct xcm_addr_ip *dup_ips(const struct xcm_addr_ip *ips, int num_ips)
+{
+    size_t size = sizeof(struct xcm_addr_ip) * num_ips;
+    return ut_memdup(ips, size);
+}
 
 static struct track *track_create(int fd4, int fd6,
 				  const struct xcm_addr_ip *local_ip,
@@ -78,7 +84,7 @@ static struct track *track_create(int fd4, int fd6,
 	.initial_delay = initial_delay,
 	.connect_timeout = connect_timeout,
 	.timer_id = -1,
-	.remote_ips = remote_ips,
+	.remote_ips = dup_ips(remote_ips, num_remote_ips),
 	.num_remote_ips = num_remote_ips,
 	.remote_port = remote_port,
 	.scope = scope,
@@ -348,6 +354,7 @@ static void track_destroy(struct track *track, bool owner)
 
 	    timer_mgr_cancel(track->timer_mgr, &track->timer_id);
 	}
+	ut_free(track->remote_ips);
 	ut_free(track);
     }
 }
