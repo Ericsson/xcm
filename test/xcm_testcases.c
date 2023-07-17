@@ -18,6 +18,7 @@
 #include <poll.h>
 #include <stdlib.h>
 #include <sys/prctl.h>
+#include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/stat.h>
@@ -471,6 +472,9 @@ static pid_t simple_server(const char *ns, const char *addr,
     if (tu_assure_non_existent_attr(conn, "dns.algorithm") < 0)
 	goto err;
 
+    if (tu_assure_non_existent_attr(conn, "tcp.connect_timeout") < 0)
+	goto err;
+
     if (is_tls(xcm_local_addr(conn)))
 	check_tls_attrs(conn, ns, server_cert_dir, NULL, attrs);
 
@@ -529,6 +533,14 @@ err:
     else
 	exit(EXIT_FAILURE);
 }
+
+static const char *tcp_based_protos[] = {
+    "btcp", "tcp",
+#ifdef XCM_TLS
+    "btls", "tls", "utls"
+#endif
+};
+static size_t tcp_based_protos_len = UT_ARRAY_LEN(tcp_based_protos);
 
 static char **test_all_addrs = NULL;
 static int test_all_addrs_len = 0;
@@ -984,9 +996,9 @@ TESTCASE(xcm, basic)
 
 	CHKSTREQ(buf, server_msg);
 
-	if (strcmp(test_proto, "tcp") == 0 ||
-	    strcmp(test_proto, "tls") == 0 ||
-	    strcmp(test_proto, "btls") == 0) {
+	if (is_tcp_based(xcm_local_addr(client_conn))) {
+	    CHKNOERR(tu_assure_double_attr(client_conn, "tcp.connect_timeout",
+					   cmp_type_equal, 3.0));
 	    CHKNOERR(tu_assure_int64_attr(client_conn, "tcp.rtt",
 					  cmp_type_none, 0));
 	    CHKNOERR(tu_assure_int64_attr(client_conn, "tcp.total_retrans", 
@@ -1358,7 +1370,10 @@ TESTCASE_SERIALIZED_F(xcm, dns_algorithm_smoke_test,
 static const char *dns_local_ips[] = {
     "127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4", "[::1]"
 };
+static size_t dns_local_ips_len = UT_ARRAY_LEN(dns_local_ips);
+
 #define DNS_LOCAL_IPV6_IDX 4
+#define DNS_LOCAL_IPV6_ADDR_COUNT 1
 
 /*
  * A DNS name configured to have the following records:
@@ -1382,7 +1397,7 @@ static int run_multiple_address_probe_test(const char *proto,
     if (force_server_ipv6)
 	server_ip_idx = DNS_LOCAL_IPV6_IDX;
     else
-	server_ip_idx = tu_randint(0, UT_ARRAY_LEN(dns_local_ips));
+	server_ip_idx = tu_randint(0, dns_local_ips_len);
 
     bool is_server_ipv6 = server_ip_idx == DNS_LOCAL_IPV6_IDX;
 
@@ -1406,7 +1421,7 @@ static int run_multiple_address_probe_test(const char *proto,
     if (expect_ipv6_prio && is_server_ipv6) {
 	int aux_server_ip_idx;
 	do {
-	    aux_server_ip_idx = tu_randint(0, UT_ARRAY_LEN(dns_local_ips));
+	    aux_server_ip_idx = tu_randint(0, dns_local_ips_len);
 	} while (aux_server_ip_idx == DNS_LOCAL_IPV6_IDX);
 
 	const char *aux_server_ip = dns_local_ips[aux_server_ip_idx];
@@ -1587,6 +1602,245 @@ TESTCASE_TIMEOUT(xcm, utls_dns_timeout, 20.0)
 #endif
 
 #endif
+
+static void manage_tcp_filter(sa_family_t ip_version, int tcp_port,
+			      bool install)
+{
+    const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
+
+    char rxrule[1024];
+    snprintf(rxrule, sizeof(rxrule), "INPUT -p tcp --dport %d -i lo -j DROP",
+	     tcp_port);
+    char txrule[1024];
+    snprintf(txrule, sizeof(txrule), "INPUT -p tcp --sport %d -i lo -j DROP",
+	     tcp_port);
+
+    if (install) {
+	tu_executef("%s -A %s", iptables_cmd, rxrule);
+	tu_executef("%s -A %s", iptables_cmd, txrule);
+    } else {
+	tu_executef("%s -D %s", iptables_cmd, rxrule);
+	tu_executef("%s -D %s", iptables_cmd, txrule);
+    }
+}
+
+static void install_tcp_filter(sa_family_t ip_version, int tcp_port)
+{
+    manage_tcp_filter(ip_version, tcp_port, true);
+}
+
+static void uninstall_tcp_filter(sa_family_t ip_version, int tcp_port)
+{
+    manage_tcp_filter(ip_version, tcp_port, false);
+}
+
+struct connector
+{
+    pthread_t thread;
+
+    const char *proto;
+    const char *ip;
+    uint16_t port;
+
+    bool blocking;
+    const char *dns_algorithm;
+
+    double timeout;
+    double min_timeout;
+    double max_timeout;
+
+    bool failed;
+
+    LIST_ENTRY(connector) entry;
+};
+
+LIST_HEAD(connector_list, connector);
+
+static void *connector_thread(void *arg)
+{
+    struct connector *connector = arg;
+
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:%s:%d", connector->proto,
+	     connector->ip, connector->port);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "any");
+
+    if (connector->timeout >= 0)
+	xcm_attr_map_add_double(attrs, "tcp.connect_timeout",
+				connector->timeout);
+    if (connector->dns_algorithm != NULL)
+	xcm_attr_map_add_str(attrs, "dns.algorithm", connector->dns_algorithm);
+
+    double start = ut_ftime();
+
+    struct xcm_socket *conn;
+
+    if (connector->blocking) {
+	conn = xcm_connect_a(addr, attrs);
+
+	if (conn != NULL)
+	    goto fail;
+	if (errno != ETIMEDOUT)
+	    goto fail;
+    } else {
+	xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+	conn = xcm_connect_a(addr, attrs);
+
+	if (conn == NULL)
+	    goto fail;
+
+	if (connector->timeout >= 0 && 
+	    tu_assure_double_attr(conn, "tcp.connect_timeout",
+				  cmp_type_equal, connector->timeout) < 0)
+	    goto fail;
+
+	int rc;
+	do {
+	    tu_msleep(10);
+	    rc = xcm_finish(conn);
+	} while (rc < 0 && errno == EAGAIN);
+
+	if (rc != -1 || errno != ETIMEDOUT)
+	    goto fail;
+    }
+
+    double latency = ut_ftime() - start;
+
+    if (latency < connector->min_timeout || latency > connector->max_timeout)
+	goto fail;
+
+    if (xcm_close(conn) < 0)
+	goto fail;
+
+    return NULL;
+
+fail:
+    connector->failed = true;
+    return NULL;
+}
+
+static int spawn_connector(const char *proto, const char *ip,
+			   uint16_t port, bool blocking,
+			   const char *dns_algorithm,
+			   double timeout, double min_timeout,
+			   double max_timeout,
+			   struct connector_list *connectors)
+{
+    struct connector *connector = ut_malloc(sizeof(struct connector));
+
+    *connector = (struct connector) {
+	.proto = proto,
+	.ip = ip,
+	.port = port,
+	.blocking = blocking,
+	.dns_algorithm = dns_algorithm,
+	.timeout = timeout,
+	.min_timeout = min_timeout,
+	.max_timeout = max_timeout
+    };
+
+    if (pthread_create(&connector->thread, NULL, connector_thread,
+		       connector) != 0) {
+	ut_free(connector);
+	return -1;
+    }
+
+    LIST_INSERT_HEAD(connectors, connector, entry);
+
+    return 0;
+}
+
+static int spawn_ip_family_connectors(const char *proto, uint16_t port,
+				      bool blocking, double timeout,
+				      double min_timeout, double max_timeout,
+				      struct connector_list *connectors)
+{
+    if (spawn_connector(proto, "127.0.0.1", port, blocking, NULL, timeout,
+			min_timeout, max_timeout, connectors) < 0)
+	return -1;
+
+    if (spawn_connector(proto, "[::1]", port, blocking, NULL, timeout,
+			min_timeout, max_timeout, connectors) < 0)
+	return -1;
+
+    if (spawn_connector(proto, "local.friendlyfire.se", port, blocking, NULL,
+			timeout, min_timeout, max_timeout, connectors) < 0)
+	return -1;
+
+    if (spawn_connector(proto, "local.friendlyfire.se", port, blocking,
+			"sequential", timeout, dns_local_ips_len * min_timeout,
+			dns_local_ips_len * max_timeout, connectors) < 0)
+	return -1;
+
+    /* The longest list of a particular family (IPv4 or IPv6)
+       determines the time it will take until timeout when the happy
+       eyeballs method is used. In the case of this DNS name, the
+       longest list is IPv4. */
+    int happy_ips_len = dns_local_ips_len - DNS_LOCAL_IPV6_ADDR_COUNT;
+
+    if (spawn_connector(proto, "local.friendlyfire.se", port, blocking,
+			"happy_eyeballs", timeout, happy_ips_len * min_timeout,
+			happy_ips_len * max_timeout, connectors) < 0)
+	return -1;
+
+    return 0;
+}
+
+static int spawn_mode_connectors(const char *proto, uint16_t port,
+				 double timeout, double min_timeout,
+				 double max_timeout,
+				 struct connector_list *connectors)
+{
+    if (spawn_ip_family_connectors(proto, port, true, timeout, min_timeout,
+				   max_timeout, connectors) < 0)
+	return -1;
+
+    if (spawn_ip_family_connectors(proto, port, false, timeout, min_timeout,
+				   max_timeout, connectors) < 0)
+	return -1;
+
+    return 0;
+}
+
+TESTCASE_F(xcm, tcp_connect_timeout, REQUIRE_ROOT|REQUIRE_PUBLIC_DNS)
+{
+    uint16_t port = gen_tcp_port();
+
+    struct connector_list connectors;
+
+    LIST_INIT(&connectors);
+
+    install_tcp_filter(AF_INET, port);
+    install_tcp_filter(AF_INET6, port);
+
+    int i;
+    for (i = 0; i < tcp_based_protos_len; i++) {
+	const char *proto = tcp_based_protos[i];
+
+	CHKNOERR(spawn_mode_connectors(proto, port, -1, 2.5, 3.5, &connectors));
+
+	CHKNOERR(spawn_mode_connectors(proto, port, 0.5, 0.25, 0.75,
+				       &connectors));
+    }
+
+    struct connector *connector;
+    LIST_FOREACH(connector, &connectors, entry)
+	CHK(pthread_join(connector->thread, NULL) == 0);
+
+    uninstall_tcp_filter(AF_INET, port);
+    uninstall_tcp_filter(AF_INET6, port);
+
+    while ((connector = LIST_FIRST(&connectors)) != NULL) {
+	CHK(!connector->failed);
+	LIST_REMOVE(connector, entry);
+	ut_free(connector);
+    }
+
+    return UTEST_SUCCESS;
+}
 
 static int run_ns_switch_test(const char *proto)
 {
@@ -2698,27 +2952,6 @@ TESTCASE_F(xcm, non_established_non_blocking_connect, REQUIRE_ROOT)
     return rc;
 }
 
-static void manage_tcp_filter(sa_family_t ip_version, int tcp_port,
-			      bool install)
-{
-    const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
-
-    char rxrule[1024];
-    snprintf(rxrule, sizeof(rxrule), "INPUT -p tcp --dport %d -i lo -j DROP",
-	     tcp_port);
-    char txrule[1024];
-    snprintf(txrule, sizeof(txrule), "INPUT -p tcp --sport %d -i lo -j DROP",
-	     tcp_port);
-
-    if (install) {
-	tu_executef("%s -A %s", iptables_cmd, rxrule);
-	tu_executef("%s -A %s", iptables_cmd, txrule);
-    } else {
-	tu_executef("%s -D %s", iptables_cmd, rxrule);
-	tu_executef("%s -D %s", iptables_cmd, txrule);
-    }
-}
-
 /* TCP keepalive will kick in at 3-4 seconds, and TCP_USER_TIMEOUT
    induced timer (active in case of pending data), will be a little
    slower and seemingly less accurate */
@@ -3110,75 +3343,6 @@ TESTCASE_TIMEOUT_F(xcm, tls_net_hiccup, 120.0,
 
 #endif
 
-#define MAX_CONNECT_TIMEOUT (5)
-#define MIN_CONNECT_TIMEOUT (2.5)
-
-static int run_connect_timeout(const char *proto, sa_family_t ip_version,
-			       bool blocking)
-{
-    const char *ip_addr = ip_version == AF_INET ? "127.0.0.1" : "[::1]";
-    const int tcp_port = 27343;
-
-    char addr[64];
-    snprintf(addr, sizeof(addr), "%s:%s:%d", proto, ip_addr, tcp_port);
-
-    char rxrule[1024];
-    snprintf(rxrule, sizeof(rxrule), "INPUT -p tcp --dport %d -i lo -j DROP",
-	     tcp_port);
-    const char *iptables_cmd = ip_version == AF_INET ? IPT_CMD : IPT6_CMD;
-
-    tu_executef("%s -A %s", iptables_cmd, rxrule);
-
-    struct xcm_socket *conn_socket;
-
-    double start = ut_ftime();
-    int rc = 0;
-    if (blocking)
-	conn_socket = xcm_connect(addr, 0);
-    else {
-	conn_socket = xcm_connect(addr, XCM_NONBLOCK);
-	rc = wait_until_finished(conn_socket, 128);
-    }
-    double latency = ut_ftime() - start;
-
-    tu_executef("%s -D %s", iptables_cmd, rxrule);
-
-    if (blocking)
-	CHK(!conn_socket);
-    else {
-	CHK(conn_socket);
-	CHK(rc < 0);
-    }
-    CHK(errno == ETIMEDOUT);
-
-    CHK(latency <= MAX_CONNECT_TIMEOUT);
-    CHK(latency >= MIN_CONNECT_TIMEOUT);
-
-    CHKNOERR(xcm_close(conn_socket));
-
-    return UTEST_SUCCESS;
-}
-
-TESTCASE_TIMEOUT_F(xcm, tcp_connect_timeout, 60.0, REQUIRE_ROOT)
-{
-    return run_connect_timeout("tcp", AF_INET6, false);
-}
-
-#ifdef XCM_TLS
-
-TESTCASE_TIMEOUT_F(xcm, tls_connect_timeout, 120.0, REQUIRE_ROOT)
-{
-    if (run_connect_timeout("tls", AF_INET, false) < 0)
-	return UTEST_FAILED;
-    if (run_connect_timeout("tls", AF_INET6, false) < 0)
-	return UTEST_FAILED;
-    if (run_connect_timeout("tls", AF_INET6, true) < 0)
-	return UTEST_FAILED;
-    return UTEST_SUCCESS;
-}
-
-#endif
-
 #define EXPECTED_DSCP (40)
 
 static int run_dscp_marking(const char *proto, sa_family_t ip_version)
@@ -3492,6 +3656,10 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 	if (check_setting_now_ro_tls_attrs(connect_sock) < 0)
 	    return UTEST_FAILED;
     }
+
+    if (is_tcp_based(xcm_local_addr(connect_sock)))
+	CHKERRNO(xcm_attr_set_double(connect_sock, "tcp.connect_timeout", 42),
+		 EACCES);
 
     char m = 42;
 

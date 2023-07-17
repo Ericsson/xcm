@@ -29,6 +29,7 @@ struct tconnect *tconnect_create(enum tconnect_algorithm algorithm,
 int tconnect_connect(struct tconnect *tconnect,
 		     const struct xcm_addr_ip *local_ip,
 		     uint16_t local_port, int64_t scope,
+		     double tcp_connect_timeout,
 		     const struct tcp_opts *tcp_opts,
 		     const struct xcm_addr_ip *remote_ips,
 		     size_t num_remote_ips, uint16_t remote_port);

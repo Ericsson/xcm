@@ -26,6 +26,8 @@
  * Byte-stream TCP XCM Transport
  */
 
+#define XCM_DEFAULT_TCP_CONNECT_TIMEOUT (3)
+
 enum conn_state {
     conn_state_none,
     conn_state_initialized,
@@ -63,6 +65,7 @@ struct btcp_socket
 
 	    struct dns_opts dns_opts;
 	    enum tconnect_algorithm dns_algorithm;
+	    double tcp_connect_timeout;
 	    struct tcp_opts tcp_opts;
 
 	    char raddr[XCM_ADDR_MAX+1];
@@ -222,6 +225,7 @@ static int btcp_init(struct xcm_socket *s, struct xcm_socket *parent)
 	if (!xcm_dns_supports_timeout_param())
 	    dns_opts_disable_timeout(&bts->conn.dns_opts);
 
+	bts->conn.tcp_connect_timeout = -1;
 	tcp_opts_init(&bts->conn.tcp_opts);
 
     }
@@ -299,15 +303,18 @@ static void begin_connect(struct xcm_socket *s,
     }
 
     if (tconnect_connect(bts->conn.tconnect, local_ip, local_port, bts->scope,
-			 &bts->conn.tcp_opts, remote_ips, num_remote_ips,
-			 bts->conn.remote_port) < 0)
+			 bts->conn.tcp_connect_timeout, &bts->conn.tcp_opts,
+			 remote_ips, num_remote_ips, bts->conn.remote_port) < 0)
 	goto err;
 
     try_finish_connect(s);
 
     assert_socket(s);
 
+    UT_RESTORE_ERRNO_DC;
+
     return;
+
 err:
     BTCP_SET_STATE(s, conn_state_bad);
     UT_RESTORE_ERRNO(bad_errno);
@@ -414,6 +421,14 @@ static void conf_dns_algorithm(struct xcm_socket *s)
 	bts->conn.dns_algorithm = tconnect_algorithm_single;
 }
 
+static void conf_tcp_connect_timeout(struct xcm_socket *s)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    if (bts->conn.tcp_connect_timeout < 0)
+	bts->conn.tcp_connect_timeout = XCM_DEFAULT_TCP_CONNECT_TIMEOUT;
+}
+
 static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
 {
     LOG_CONN_REQ(s, remote_addr);
@@ -428,6 +443,7 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
     }
 
     conf_dns_algorithm(s);
+    conf_tcp_connect_timeout(s);
 
     bts->conn.tconnect =
 	tconnect_create(bts->conn.dns_algorithm, s->xpoll, s);
@@ -558,13 +574,19 @@ static int btcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 
     if (strlen(conn_bts->laddr) > 0) {
 	errno = EACCES;
-	LOG_CLIENT_BIND_ON_ACCEPT(server_s);
+	LOG_CLIENT_BIND_ON_ACCEPT(conn_s);
 	goto err_deinit;
     }
 
     if (conn_bts->conn.dns_algorithm != tconnect_algorithm_none) {
 	errno = EACCES;
-	LOG_DNS_ALGORITHM_ON_ACCEPT(server_s);
+	LOG_DNS_ALGORITHM_ON_ACCEPT(conn_s);
+	goto err_deinit;
+    }
+
+    if (conn_bts->conn.tcp_connect_timeout >= 0) {
+	errno = EACCES;
+	LOG_CONNECT_TIMEOUT_ON_ACCEPT(conn_s);
 	goto err_deinit;
     }
 
@@ -986,6 +1008,45 @@ static int get_dns_algorithm_attr(struct xcm_socket *s, void *value,
     return xcm_tp_get_str_attr(algorithm_str, value, capacity);
 }
 
+static int set_tcp_connect_timeout_attr(struct xcm_socket *s, const void *value,
+					size_t len)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    if (bts->conn.state != conn_state_initialized &&
+	bts->conn.state != conn_state_resolving) {
+	errno = EACCES;
+	return -1;
+    }
+
+    double timeout;
+    xcm_tp_set_double_attr(value, len, &timeout);
+
+    if (timeout < 0) {
+	errno = EINVAL;
+	return -1;
+    }
+
+    bts->conn.tcp_connect_timeout = timeout;
+
+    return 0;
+}
+
+static int get_tcp_connect_timeout_attr(struct xcm_socket *s, void *value,
+					size_t capacity)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    /* not a client-side connection socket */
+    if (bts->conn.tcp_connect_timeout < 0) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return xcm_tp_get_double_attr(bts->conn.tcp_connect_timeout, value,
+				  capacity);
+}
+
 static int set_scope_attr(struct xcm_socket *s, const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
@@ -1042,6 +1103,9 @@ const static struct xcm_tp_attr conn_attrs[] = {
 			set_dns_timeout_attr, get_dns_timeout_attr),
     XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_ALGORITHM, xcm_attr_type_str,
 			set_dns_algorithm_attr, get_dns_algorithm_attr),
+    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_CONNECT_TIMEOUT, xcm_attr_type_double,
+			set_tcp_connect_timeout_attr,
+			get_tcp_connect_timeout_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
 			get_rtt_attr),
     XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,

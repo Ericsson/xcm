@@ -44,6 +44,7 @@
 #define XCM_ATTR_TCP_SEGS_IN "tcp.segs_in"
 #define XCM_ATTR_TCP_SEGS_OUT "tcp.segs_out"
 
+#define XCM_ATTR_TCP_CONNECT_TIMEOUT "tcp.connect_timeout"
 #define XCM_ATTR_TCP_KEEPALIVE "tcp.keepalive"
 #define XCM_ATTR_TCP_KEEPALIVE_TIME "tcp.keepalive_time"
 #define XCM_ATTR_TCP_KEEPALIVE_INTERVAL "tcp.keepalive_interval"

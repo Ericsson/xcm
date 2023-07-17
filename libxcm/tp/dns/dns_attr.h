@@ -6,7 +6,7 @@
 #ifndef DNS_ATTR_H
 #define DNS_ATTR_H
 
-#define XCM_DNS_TIMEOUT (10)
+#define XCM_DEFAULT_DNS_TIMEOUT (10)
 
 #include <stdbool.h>
 

@@ -958,14 +958,14 @@ extern "C" {
  * Attribute Name  | Socket Type | Value Type | Mode | Description
  * ----------------|-------------|------------|------|------------
  * dns.algorithm   | Connection  | String     | RW   | The algorithm used for connecting to IP addresses retrieved from DNS. Must take on the value "single", "sequential", or "happy_eyeballs". See @ref dns_algorithm_attr for more information. Writable only at the time of the xcm_connect_a() call.
- * dns.timeout     | Connection  | Double     | RW   | The number of seconds until DNS times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
+ * dns.timeout     | Connection  | Double     | RW   | The time (in s) until DNS resolution times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
  *
  * @subsubsection tcp_attr TCP Socket Attributes
  *
  * The read-only TCP attributes are retrieved from the kernel (struct
  * tcp_info in linux/tcp.h).
  *
- * The read-write attributes are mapped directly to setsockopt() calls.
+ * Many read-write attributes are mapped directly to setsockopt() calls.
  *
  * See the tcp(7) manual page for a more detailed description of these
  * attributes. The struct retrieved with @c TCP_INFO is the basis for
@@ -981,11 +981,12 @@ extern "C" {
  * tcp.total_retrans  | Connection  | Integer    | R    | The total number of retransmitted TCP segments.
  * tcp.segs_in        | Connection  | Integer    | R    | The total number of segments received.
  * tcp.segs_out       | Connection  | Integer    | R    | The total number of segments sent.
+ * tcp.connect_timeout | Connection | Double     | RW   | The time (in s) until a particular TCP connection establishment attempt times out. Writable only at the time of the xcm_connect_a() call. The default is 3 s. The value of this attribute must be lower than the value of "tcp.user_timeout" to have any effect. Note that if "dns.algorithm" is set to "sequential" or "happy_eyeballs", one xcm_connect_a() call may result in several TCP connection establishment attempts.
+ * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
  * tcp.keepalive      | Connection  | Boolean    | RW   | Controls if TCP keepalive is enabled. The default value is true.
  * tcp.keepalive_time | Connection  | Integer    | RW   | The time (in s) before the first keepalive probe is sent on an idle connection. The default value is 1 s.
  * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes. The default value is 1 s.
  * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default value is 3.
- * tcp.user_timeout   | Connection  | Integer    | RW   | The time (in s) before a connection is dropped due to unacknowledged data. The default value is 3 s.
  * ipv6.scope         | All         | Integer    | RW   | The IPv6 scope id used. Only available on IPv6 sockets. Writable only at socket creation. If left unset, it will take on the value of 0 (the global scope). Any other value denotes the network interface index to be used, for IPv6 link local addresses. See the if_nametoindex(3) manual page for how to map interface names to indices.
  * dns.timeout        | Connection  | Double     | RW   | The number of seconds until DNS times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
  * dns.algorithm | Connection  | String     | RW   | The algorithm used for connecting to IP addresses retrieved from DNS. Writable only at the time of the xcm_connect_a() call. With the default method "single", all but the first (i.e., most preferred) address will be ignored. If the algorithm is set to "sequential", all IP addresses will be probed, in a serial manner, in the order provided by the DNS resolver. Setting the algorithm to "happy_eyeballs" will result in RFC 6555-like behavior, with two concurrent connection establishment tracks; one attempting to establish an IPv4 connection and the other an IPv6-based connection. The IPv6 track is given a 200 ms head start. When the "sequential" or "happy_eyeballs" algorithm is used, only the first 32 addresses provided by the resolver will be considered.

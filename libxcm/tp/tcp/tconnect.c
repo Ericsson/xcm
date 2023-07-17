@@ -4,7 +4,6 @@
 #include "util.h"
 
 #define HAPPY_EYEBALLS_INITIAL_IPV4_DELAY (200e-3)
-#define CONNECT_TIMEOUT (4)
 
 static int create_socket(sa_family_t family)
 {
@@ -26,6 +25,7 @@ struct track
     int fd4;
     int fd6;
     int fd_reg_id;
+    double tcp_connect_timeout;
     struct tcp_opts tcp_opts;
 
     const struct xcm_addr_ip *local_ip;
@@ -37,7 +37,6 @@ struct track
     uint16_t remote_port;
 
     double initial_delay;
-    double connect_timeout;
 
     int64_t timer_id;
 
@@ -65,11 +64,11 @@ static struct track *track_create(int fd4, int fd6,
 				  const struct xcm_addr_ip *local_ip,
 				  uint16_t local_port,
 				  int64_t scope,
+				  double tcp_connect_timeout,
 				  const struct tcp_opts *tcp_opts,
 				  const struct xcm_addr_ip *remote_ips,
 				  int num_remote_ips, uint16_t remote_port,
 				  double initial_delay,
-				  double connect_timeout,
 				  struct timer_mgr *timer_mgr,
 				  struct xpoll *xpoll,
 				  void *log_ref)
@@ -79,10 +78,10 @@ static struct track *track_create(int fd4, int fd6,
     *track = (struct track) {
 	.fd4 = fd4,
 	.fd6 = fd6,
+	.tcp_connect_timeout = tcp_connect_timeout,
 	.tcp_opts = *tcp_opts,
 	.fd_reg_id = -1,
 	.initial_delay = initial_delay,
-	.connect_timeout = connect_timeout,
 	.timer_id = -1,
 	.remote_ips = dup_ips(remote_ips, num_remote_ips),
 	.num_remote_ips = num_remote_ips,
@@ -238,7 +237,7 @@ static void track_connect_next(struct track *track)
 	} else {
 	    LOG_CONN_IN_PROGRESS(track->log_ref);
 	    track->timer_id =
-		timer_mgr_schedule(track->timer_mgr, track->connect_timeout);
+		timer_mgr_schedule(track->timer_mgr, track->tcp_connect_timeout);
 	}
     } else {
 	track->state = track_state_connected;
@@ -418,6 +417,7 @@ static bool has_family_ip(sa_family_t family, const struct xcm_addr_ip *ips,
 static int tconnect_connect_happy(struct tconnect *tconnect,
 				  const struct xcm_addr_ip *local_ip,
 				  uint16_t local_port, int64_t scope,
+				  double tcp_connect_timeout,
 				  const struct tcp_opts *tcp_opts,
 				  const struct xcm_addr_ip *remote_ips,
 				  size_t num_remote_ips,
@@ -435,10 +435,10 @@ static int tconnect_connect_happy(struct tconnect *tconnect,
 
     if (has_ipv4) {
 	track4 = track_create(tconnect->fd4, -1, local_ip, local_port, scope,
-			      tcp_opts, remote_ips, num_remote_ips,
-			      remote_port, initial_ipv4_delay,
-			      CONNECT_TIMEOUT, tconnect->timer_mgr,
-			      tconnect->xpoll, tconnect->log_ref);
+			      tcp_connect_timeout, tcp_opts, remote_ips,
+			      num_remote_ips, remote_port, initial_ipv4_delay,
+			      tconnect->timer_mgr, tconnect->xpoll,
+			      tconnect->log_ref);
 
 	if (track4 == NULL)
 	    return -1;
@@ -448,8 +448,8 @@ static int tconnect_connect_happy(struct tconnect *tconnect,
 
     if (has_ipv6) {
 	track6 = track_create(-1, tconnect->fd6, local_ip, local_port,
-			      scope, tcp_opts, remote_ips, num_remote_ips,
-			      remote_port, 0, CONNECT_TIMEOUT,
+			      scope, tcp_connect_timeout, tcp_opts, remote_ips,
+			      num_remote_ips, remote_port, 0,
 			      tconnect->timer_mgr, tconnect->xpoll,
 			      tconnect->log_ref);
 
@@ -477,6 +477,7 @@ static int tconnect_connect_happy(struct tconnect *tconnect,
 static int tconnect_connect_sequential(struct tconnect *tconnect,
 				       const struct xcm_addr_ip *local_ip,
 				       uint16_t local_port, int64_t scope,
+				       double tcp_connect_timeout,
 				       const struct tcp_opts *tcp_opts,
 				       const struct xcm_addr_ip *remote_ips,
 				       size_t num_remote_ips,
@@ -484,9 +485,9 @@ static int tconnect_connect_sequential(struct tconnect *tconnect,
 {
     struct track *track =
 	track_create(tconnect->fd4, tconnect->fd6, local_ip, local_port,
-		     scope, tcp_opts, remote_ips, num_remote_ips, remote_port,
-		     0, CONNECT_TIMEOUT, tconnect->timer_mgr, tconnect->xpoll,
-		     tconnect->log_ref);
+		     scope, tcp_connect_timeout, tcp_opts, remote_ips,
+		     num_remote_ips, remote_port, 0, tconnect->timer_mgr,
+		     tconnect->xpoll, tconnect->log_ref);
 
     if (track == NULL)
 	return -1;
@@ -500,6 +501,7 @@ static int tconnect_connect_sequential(struct tconnect *tconnect,
 int tconnect_connect(struct tconnect *tconnect,
 		     const struct xcm_addr_ip *local_ip,
 		     uint16_t local_port, int64_t scope,
+		     double tcp_connect_timeout,
 		     const struct tcp_opts *tcp_opts,
 		     const struct xcm_addr_ip *remote_ips,
 		     size_t num_remote_ips, uint16_t remote_port)
@@ -509,16 +511,17 @@ int tconnect_connect(struct tconnect *tconnect,
     switch (tconnect->algorithm) {
     case tconnect_algorithm_single:
 	return tconnect_connect_sequential(tconnect, local_ip, local_port,
-					   scope, tcp_opts, remote_ips, 1,
-					   remote_port);
+					   scope, tcp_connect_timeout, tcp_opts,
+					   remote_ips, 1, remote_port);
     case tconnect_algorithm_sequential:
 	return tconnect_connect_sequential(tconnect, local_ip, local_port,
-					   scope, tcp_opts, remote_ips,
-					   num_remote_ips, remote_port);
+					   scope, tcp_connect_timeout, tcp_opts,
+					   remote_ips, num_remote_ips,
+					   remote_port);
     case tconnect_algorithm_happy_eyeballs:
 	return tconnect_connect_happy(tconnect, local_ip, local_port,
-				      scope, tcp_opts, remote_ips,
-				      num_remote_ips, remote_port);
+				      scope, tcp_connect_timeout, tcp_opts,
+				      remote_ips, num_remote_ips, remote_port);
     default:
 	errno = ENOTSUP;
 	return -1;

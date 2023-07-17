@@ -102,10 +102,13 @@
 		   reason_errno, strerror(reason_errno))
 
 #define LOG_CLIENT_BIND_ON_ACCEPT(s)					\
-    log_debug_sock(s, "Attempt to bind local address on accept on call.")
+    log_debug_sock(s, "Attempt to bind local address in accept call.")
 
 #define LOG_DNS_ALGORITHM_ON_ACCEPT(s)					\
-    log_debug_sock(s, "Attempt to set DNS algorithm on accept call.")
+    log_debug_sock(s, "Attempt to set DNS algorithm in accept call.")
+
+#define LOG_CONNECT_TIMEOUT_ON_ACCEPT(s)				\
+    log_debug_sock(s, "Attempt to set TCP connect timeout in accept call.")
 
 #define LOG_CLIENT_BOUND_TO_WRONG_PROTO(s)				\
     log_debug_sock(s, "Local address is of a different IP protocol "	\

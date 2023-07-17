@@ -5,7 +5,7 @@
 void dns_opts_init(struct dns_opts *opts)
 {
     *opts = (struct dns_opts) {
-	.timeout = XCM_DNS_TIMEOUT,
+	.timeout = XCM_DEFAULT_DNS_TIMEOUT,
 	.timeout_disabled = false
     };
 }
