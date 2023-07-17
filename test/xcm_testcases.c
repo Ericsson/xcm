@@ -5386,7 +5386,7 @@ TESTCASE(xcm, tls_missing_empty_invalid_crl)
     CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, false));
 
     CHKNOERR(tu_executef_es("dd if=/dev/urandom of=%s/crl.pem bs=4096 "
-			    "count=1", cdir));
+			    "count=1 2>/dev/null", cdir));
 
     CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, false));
     CHKERRNOEQ(EPROTO);
