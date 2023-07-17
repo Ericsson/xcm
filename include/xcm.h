@@ -202,7 +202,7 @@ extern "C" {
  * By default, XCM will only connect to the first (highest-priority)
  * IP address provided by DNS. This behavior can be changed for all
  * TCP-based transports using the "dns.algorithm" attribute. See
- * @ref tcp_attr for more information.
+ * @ref dns_attr for more information.
  *
  * @subsubsection ip_addr_format IPv4 Address Format
  *
@@ -666,8 +666,9 @@ extern "C" {
  * These attributes are expected to be found on XCM sockets regardless
  * of transport type.
  *
- * For TCP transport-specific attributes, see @ref
- * tcp_attr, and for TLS, see @ref tls_attr.
+ * For TCP and BTCP transport-specific attributes, see @ref tcp_attr,
+ * and for TLS and BTLS, see @ref tls_attr. For DNS-related attributes
+ * (shared among all TCP-based transports) see @ref dns_attr.
  *
  * Attribute Name | Socket Type | Value Type | Mode | Description
  * ---------------|-------------|------------|------|------------
@@ -913,6 +914,51 @@ extern "C" {
  *
  * Since XCM is designed for signaling traffic, the TCP transport
  * disables the Nagle algorithm of TCP to avoid its excessive latency.
+ *
+ * @subsubsection dns_attr DNS Socket Attributes
+ *
+ * The TLS transport (and all other TCP protocol-based transports)
+ * supports a number of socket attributes controlling DNS-related
+ * behavior.
+ *
+ * @paragraph dns_algorithm_attr DNS Resolution and TCP Connection Establishment
+ *
+ * The DNS resolver used by XCM (either glibc or C-ares) sorts the A
+ * and AAAA records retrieved from DNS in an order of preference,
+ * before returning them to the caller. In the glibc case, the details
+ * of the sorting is a function of the system's configuration
+ * (i.e. /etc/gai.conf). In the C-ares case, the sorting is according
+ * to RFC 6724 (with some minor deviations).
+ *
+ * By default, XCM will only attempt to connect to the first, most
+ * preferred, address in the list of IP addresses provided by the
+ * resolver. If that connection attempt fails, the XCM connection
+ * establishment procedure will be terminated.
+ *
+ * Using the "dns.algorithm" socket attribute, the application may
+ * control the DNS resolution and TCP connection establishment
+ * procedure used.
+ *
+ * By default, "dns.algorithm" is set to "single", behaving in
+ * accordance to the above description.
+ *
+ * If the algorithm is set to "sequential", all IP addresses will be
+ * probed, in a serial manner, in the order provided by the DNS
+ * resolver.
+ *
+ * Setting the algorithm to "happy_eyeballs" will result in RFC
+ * 6555-like behavior, with two concurrent connection establishment
+ * tracks; one attempting to establish an IPv4 connection and the
+ * other an IPv6-based connection. The IPv6 track is given a 200 ms
+ * head start.
+ *
+ * When the "sequential" or "happy_eyeballs" algorithm is used, only
+ * the first 32 addresses provided by the resolver will be considered.
+ *
+ * Attribute Name  | Socket Type | Value Type | Mode | Description
+ * ----------------|-------------|------------|------|------------
+ * dns.algorithm   | Connection  | String     | RW   | The algorithm used for connecting to IP addresses retrieved from DNS. Must take on the value "single", "sequential", or "happy_eyeballs". See @ref dns_algorithm_attr for more information. Writable only at the time of the xcm_connect_a() call.
+ * dns.timeout     | Connection  | Double     | RW   | The number of seconds until DNS times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
  *
  * @subsubsection tcp_attr TCP Socket Attributes
  *
@@ -1241,7 +1287,8 @@ extern "C" {
  * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or TLS authentication is disabled and the remote peer did not send a certificate).
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
- * all the @ref tcp_attr (including the IP and DNS-level attributes).
+ * all the @ref dns_attr and @ref tcp_attr (including the IP-level
+ * attributes).
  *
  * @subsection utls_transport UTLS Transport
  *
@@ -1313,7 +1360,8 @@ extern "C" {
  * XCM. In other words, it's a "raw" TCP connection.
  *
  * Other than the above-mentioned differences, BTCP is identical to
- * the @ref tcp_transport, including supported @ref tcp_attr.
+ * the @ref tcp_transport, including supported @ref dns_attr and @ref
+ * tcp_attr.
  *
  * @subsection btls_transport BTLS Transport
  *
@@ -1329,7 +1377,8 @@ extern "C" {
  * a "raw" TLS connection.
  *
  * Other than providing a byte stream, it's identical to the @ref
- * tls_transport, including supported @ref tcp_attr and @ref tls_attr.
+ * tls_transport, including supported @ref dns_attr, @ref tcp_attr and
+ * @ref tls_attr.
  *
  * @section namespaces Linux Network and IPC Namespaces
  *
