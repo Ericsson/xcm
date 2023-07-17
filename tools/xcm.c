@@ -308,7 +308,7 @@ int main(int argc, char **argv)
     double attr_double_value;
     char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
-    while ((c = getopt(argc, argv, "lb:i:s:f:xvh")) != -1)
+    while ((c = getopt(argc, argv, "lb:i:d:s:f:xvh")) != -1)
     switch (c) {
     case 'l':
 	client = false;
