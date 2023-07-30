@@ -1116,7 +1116,15 @@ static void conn_update(struct xcm_socket *s)
 	if (s->condition == 0)
 	    break;
 	else if (s->condition&XCM_SO_RECEIVABLE &&
+		 SSL_pending(bts->conn.ssl) > 0)
+	    ready = true;
+	else if (SSL_pending(bts->conn.ssl) == 0 &&
 		 SSL_has_pending(bts->conn.ssl))
+	    /* Unprocessed data (a result of OpenSSL read-ahead) may
+	       lead to SSL_WANTS_READ even at SSL_write(),
+	       seemingly. This in turn may lead to a dead lock, so
+	       it's better to turn this into processed data even
+	       though application isn't waiting for XCM_SO_RECEIVABLE. */
 	    ready = true;
 	else if (bts->conn.ssl_condition == 0)
 	     /* No SSL_read()/write() issued */
