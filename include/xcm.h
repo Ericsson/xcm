@@ -26,8 +26,8 @@ extern "C" {
  * * Obsolete, but still available, functions: xcm_compat.h.
  *
  * @author Mattias Rönnblom
- * @version 0.23 [API]
- * @version 1.8.0 [Implementation]
+ * @version 0.24 [API]
+ * @version 1.9.0 [Implementation]
  *
  * The low API/ABI version number is a result of all XCM releases
  * being backward compatible, and thus left the major version at 0.
