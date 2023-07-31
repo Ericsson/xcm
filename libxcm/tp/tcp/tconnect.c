@@ -433,7 +433,7 @@ static int tconnect_connect_happy(struct tconnect *tconnect,
     struct track *track4 = NULL;
 
     if (has_ipv4) {
-	track4 = track_create(tconnect->fd4, -1, local_ip, local_port, scope,
+	track4 = track_create(tconnect->fd4, -1, local_ip, local_port, -1,
 			      tcp_connect_timeout, tcp_opts, remote_ips,
 			      num_remote_ips, remote_port, initial_ipv4_delay,
 			      tconnect->timer_mgr, tconnect->xpoll,
@@ -497,6 +497,18 @@ static int tconnect_connect_sequential(struct tconnect *tconnect,
     return 0;
 }
 
+/* For historical reasons, disallow link-local scope configuration in
+   cases where a single IPv4 address is provided */
+static int check_scope_conf(int64_t scope, const struct xcm_addr_ip *remote_ips,
+			    size_t num_remote_ips)
+{
+    if (scope >= 0 && num_remote_ips == 1 && remote_ips[0].family == AF_INET) {
+	errno = EINVAL;
+	return -1;
+    }
+    return 0;
+}
+
 int tconnect_connect(struct tconnect *tconnect,
 		     const struct xcm_addr_ip *local_ip,
 		     uint16_t local_port, int64_t scope,
@@ -506,6 +518,9 @@ int tconnect_connect(struct tconnect *tconnect,
 		     size_t num_remote_ips, uint16_t remote_port)
 {
     ut_assert(num_remote_ips > 0);
+
+    if (check_scope_conf(scope, remote_ips, num_remote_ips) < 0)
+	return -1;
 
     switch (tconnect->algorithm) {
     case tconnect_algorithm_single:
