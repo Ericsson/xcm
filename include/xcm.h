@@ -34,26 +34,32 @@ extern "C" {
  *
  * @section overview Overview
  *
- * XCM is an inter-process communication API and an implementation of
- * this C API in the form a shared library. For certain transports,
- * XCM may also be used to denote a tiny bit of wire protocol,
- * providing framing over byte stream transport protocols.
+ * XCM is a shared library implementing an inter-process communication
+ * service on Linux. It facilitates communication between processes on
+ * the same system, as well as over a network.
  *
- * The primary component of the XCM library is a set of inter-process
- * communication transports - all hosted under the same API. A XCM
- * transport provides a connection-oriented, reliable service, with
- * in-order delivery. There are two types of transports; one providing
- * a messaging service and another providing a byte stream.
+ * XCM internals are divided into the core library, and a number of
+ * pluggable transports, handling the actual data delivery. In
+ * combination with an URL-like addressing scheme, it allows
+ * applications to be transport agnostic, and an IPC mechanism
+ * suitable for one deployment can seamlessly be replaced with
+ * another, in another deployment. The API semantics are the same,
+ * regardless of underlying transport used.
  *
- * The XCM API allows a straight-forward mapping to TLS, TCP and SCTP
- * for remote communcation, as well as more efficient inter-process
- * commmunication (IPC) mechanisms for local communication.
+ * A XCM transport either provides a messaging or a byte stream type
+ * service.
  *
- * This document focuses on the API, but also contains information
- * specific to the implementation.
+ * XCM supports UNIX domain sockets for efficient local-only
+ * communication, and TCP, TLS and SCTP for remote inter-process
+ * communication. The service XCM provides is of the
+ * connection-oriented, client-server type. It is not a message bus
+ * and does not implement the publish-subscribe or broadcast patterns.
+ *
+ * This document primarily serves as an API specification, but also
+ * also contains information specific to the implementation.
  *
  * XCM reuses much of the terminology of the BSD Sockets API. Compared
- * to the BSD Socket API, XCM has more uniform semantics across
+ * to the BSD Sockets API, XCM has more uniform semantics across
  * underlying transports.
  *
  * @section semantics Overall Semantics
