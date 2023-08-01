@@ -257,7 +257,8 @@ def check_changes(repo, release_commit):
     print("Changes between %s and %s:" % (tag_version(prev_release_tag),
                                           tag_version(release_tag)))
     for commit in repo.iter_commits(rev=rev):
-        print("  %s" % commit.summary)
+        short_sha = repo.git.rev_parse(commit, short=True)
+        print(" %s %s" % (short_sha, commit.summary))
 
 
 def run(cmd):
