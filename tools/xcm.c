@@ -309,47 +309,47 @@ int main(int argc, char **argv)
     char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
     while ((c = getopt(argc, argv, "lb:i:d:s:f:xvh")) != -1)
-    switch (c) {
-    case 'l':
-	client = false;
-	break;
-    case 'b':
-	parse_bool_attr(optarg, attr_name, &attr_bool_value);
-	xcm_attr_map_add_bool(attrs, attr_name, attr_bool_value);
-	attrs = conn_attrs;
-	break;
-    case 'i':
-	parse_int64_attr(optarg, attr_name, &attr_int64_value);
-	xcm_attr_map_add_int64(attrs, attr_name, attr_int64_value);
-	attrs = conn_attrs;
-	break;
-    case 'd':
-	parse_double_attr(optarg, attr_name, &attr_double_value);
-	xcm_attr_map_add_double(attrs, attr_name, attr_double_value);
-	attrs = conn_attrs;
-	break;
-    case 's':
-	parse_str_attr(optarg, attr_name, attr_str_value);
-	xcm_attr_map_add_str(attrs, attr_name, attr_str_value);
-	attrs = conn_attrs;
-	break;
-    case 'f':
-	parse_str_attr(optarg, attr_name, attr_str_value);
-	load_bin_attr(attrs, attr_name, attr_str_value);
-	attrs = conn_attrs;
-	break;
-    case 'x':
-	attrs = server_attrs;
-	break;
-    case 'v':
-	print_versions();
-	exit(EXIT_SUCCESS);
-	break;
-    case 'h':
-	usage(argv[0]);
-	exit(EXIT_SUCCESS);
-	break;
-    }
+	switch (c) {
+	case 'l':
+	    client = false;
+	    break;
+	case 'b':
+	    parse_bool_attr(optarg, attr_name, &attr_bool_value);
+	    xcm_attr_map_add_bool(attrs, attr_name, attr_bool_value);
+	    attrs = conn_attrs;
+	    break;
+	case 'i':
+	    parse_int64_attr(optarg, attr_name, &attr_int64_value);
+	    xcm_attr_map_add_int64(attrs, attr_name, attr_int64_value);
+	    attrs = conn_attrs;
+	    break;
+	case 'd':
+	    parse_double_attr(optarg, attr_name, &attr_double_value);
+	    xcm_attr_map_add_double(attrs, attr_name, attr_double_value);
+	    attrs = conn_attrs;
+	    break;
+	case 's':
+	    parse_str_attr(optarg, attr_name, attr_str_value);
+	    xcm_attr_map_add_str(attrs, attr_name, attr_str_value);
+	    attrs = conn_attrs;
+	    break;
+	case 'f':
+	    parse_str_attr(optarg, attr_name, attr_str_value);
+	    load_bin_attr(attrs, attr_name, attr_str_value);
+	    attrs = conn_attrs;
+	    break;
+	case 'x':
+	    attrs = server_attrs;
+	    break;
+	case 'v':
+	    print_versions();
+	    exit(EXIT_SUCCESS);
+	    break;
+	case 'h':
+	    usage(argv[0]);
+	    exit(EXIT_SUCCESS);
+	    break;
+	}
 
     int num_args = argc-optind;
     if (num_args != 1) {
