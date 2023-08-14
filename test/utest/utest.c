@@ -164,13 +164,17 @@ static void set_proc_name(struct testcase *tc)
     prctl(PR_SET_NAME, name);
 }
 
-static void forked_start_exec(struct testcase *tc, struct testexec *te)
+static void forked_start_exec(struct testcase *tc, struct testexec *te,
+			      struct utest_report *report)
 {
     pid_t p = fork();
     if (p == -1) {
 	perror("Error while forking");
 	exit(EXIT_FAILURE);
     } else if (p == 0) {
+	/* to avoid valgrind reporting a memory leak for the child */
+	utest_report_destroy(report);
+
 	/* make sure child processes die, if test case process
 	   exists */
 	signal(SIGCHLD, SIG_DFL);
@@ -268,7 +272,7 @@ static void start_execs(struct testcase **tcs, size_t tcs_len,
 	    || (prev_exec && prev_exec->running && prev_exec->tc->serialized))
 	    return;
 
-	forked_start_exec(new_tc, new_exec);
+	forked_start_exec(new_tc, new_exec, report);
 	utest_report_tc_start(report, new_tc);
 	(*num_started)++;
     }
