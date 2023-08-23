@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 from functools import total_ordering
 
@@ -28,6 +29,7 @@ def usage(name):
     print("  -h        Print this text.")
     print("Commands:")
     print("  meta     Only check release meta data.")
+    print("  abi      Check ABI against the previous release.")
     print("  changes  Only list changes with previous release.")
     print("  test     Only run the test suites.")
 
@@ -247,6 +249,52 @@ def check_meta(repo, release_commit):
                           prev_api_version, prev_impl_version)
 
 
+def check_abi(repo, release_commit):
+    release_tag = get_commit_release_tag(repo, release_commit)
+
+    prev_release_tag = get_prev_release_tag(repo, tag_version(release_tag))
+    prev_release_commit = prev_release_tag.object
+
+    conf = ""
+
+    temp_dir = tempfile.TemporaryDirectory()
+    cmd = build_cmd(conf, EXTRA_ABI_CFLAGS, release_commit, release_tag,
+                    temp_dir.name)
+    run(cmd)
+
+    prev_temp_dir = tempfile.TemporaryDirectory()
+    prev_cmd = build_cmd(conf, EXTRA_ABI_CFLAGS, prev_release_commit,
+                         prev_release_tag, prev_temp_dir.name)
+    run(prev_cmd)
+
+    version = tag_version(release_tag)
+    prev_version = tag_version(prev_release_tag)
+
+    so_file = "%s/xcm-%s/.libs/libxcm.so" % (temp_dir.name, version)
+    prev_so_file = "%s/xcm-%s/.libs/libxcm.so" % \
+        (prev_temp_dir.name, prev_version)
+
+    hdr_dir = "%s/xcm-%s/include" % (temp_dir.name, version)
+    prev_hdr_dir = "%s/xcm-%s/include" % (prev_temp_dir.name, prev_version)
+
+    abidiff = "abidiff --hf1 %s --hf2 %s %s %s" % \
+        (prev_hdr_dir, hdr_dir, prev_so_file, so_file)
+
+    has_abi_changes = run(abidiff, exit_on_error=False)
+
+    expect_abi_changes = version.minor != prev_version.minor or \
+        version.major != prev_version.major
+
+    if expect_abi_changes and not has_abi_changes:
+        note("Minor release increase, although no ABI changes detected")
+    elif not expect_abi_changes and has_abi_changes:
+        fail("ABI changes detected, while version numbering suggests "
+              "otherwise")
+
+    temp_dir.cleanup()
+    prev_temp_dir.cleanup()
+
+
 def check_changes(repo, release_commit):
     release_tag = get_commit_release_tag(repo, release_commit)
 
@@ -261,13 +309,17 @@ def check_changes(repo, release_commit):
         print(" %s %s" % (short_sha, commit.summary))
 
 
-def run(cmd):
+def run(cmd, exit_on_error=True):
     res = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, encoding='utf-8')
 
     if res.returncode != 0:
         sys.stderr.write(res.stdout)
-        sys.exit(1)
+        if exit_on_error:
+            sys.exit(1)
+        else:
+            return True
+    return False
 
 
 def assure_sudo():
@@ -297,7 +349,32 @@ make -j; \\
     run(cmd)
 
 
-EXTRA_CFLAGS="-Werror"
+EXTRA_BUILD_CFLAGS="-Werror"
+
+# to make more old releases build
+EXTRA_ABI_CFLAGS="-Wno-error"
+
+def build_cmd(conf, cflags, release_commit, release_tag, build_dir):
+    env_cflags = os.environ.get('CFLAGS')
+    if env_cflags is not None:
+        cflags += (" %s" % env_cflags)
+
+    conf += (" CFLAGS=\"%s\"" % cflags)
+
+    return """
+set -e
+tmpdir=%s; \\
+xcmdir=xcm-%s; \\
+tarfile=$tmpdir/$xcmdir.tar; \\
+git archive --prefix=$xcmdir/ --format=tar -o $tarfile %s;\\
+cd $tmpdir; \\
+tar xf $tarfile; \\
+cd $xcmdir; \\
+autoreconf -i; \\
+./configure %s; \\
+make -j; \\
+make doxygen; \\
+""" % (build_dir, tag_version(release_tag), release_commit, conf)
 
 
 def run_test(repo, conf, release_commit, use_valgrind):
@@ -312,32 +389,19 @@ def run_test(repo, conf, release_commit, use_valgrind):
     else:
         print("using configure options: \"%s\"." % conf)
 
-    cflags = EXTRA_CFLAGS
-    env_cflags = os.environ.get('CFLAGS')
-    if env_cflags is not None:
-        cflags += (" %s" % env_cflags)
+    temp_dir = tempfile.TemporaryDirectory()
 
-    conf += (" CFLAGS=\"%s\"" % cflags)
+    cmd = build_cmd(conf, EXTRA_BUILD_CFLAGS, release_commit, release_tag,
+                    temp_dir.name)
 
-    cmd = """
-set -e
-tmpdir=`mktemp -d`; \\
-xcmdir=xcm-%s; \\
-tarfile=$tmpdir/$xcmdir.tar; \\
-git archive --prefix=$xcmdir/ --format=tar -o $tarfile %s;\\
-cd $tmpdir; \\
-tar xf $tarfile; \\
-cd $xcmdir; \\
-autoreconf -i; \\
-./configure %s; \\
-make -j; \\
-make doxygen; \\
+    cmd += """
 make check; \\
 sudo make check \\
-""" % (tag_version(release_tag), release_commit, conf)
+"""
 
     run(cmd)
 
+    temp_dir.cleanup()
 
 def run_tests(repo, release_commit, use_valgrind):
     assure_sudo()
@@ -379,16 +443,20 @@ release_commit = repo.commit(args[0])
 meta = False
 changes = False
 test = False
+abi = False
 
 if cmd == 'meta':
     meta = True
 elif cmd == 'changes':
     changes = True
+elif cmd == 'abi':
+    abi = True
 elif cmd == 'test':
     test = True
 elif cmd is None:
     meta = True
     changes = True
+    abi = True
     test = True
 else:
     print("Unknown cmd '%s'." % cmd)
@@ -398,5 +466,7 @@ if meta:
     check_meta(repo, release_commit)
 if changes:
     check_changes(repo, release_commit)
+if abi:
+    check_abi(repo, release_commit)
 if test:
     run_tests(repo, release_commit, use_valgrind)
