@@ -73,6 +73,7 @@ ATTR_TYPE_BOOL = 1
 ATTR_TYPE_INT64 = 2
 ATTR_TYPE_STR = 3
 ATTR_TYPE_BIN = 4
+ATTR_TYPE_DOUBLE = 5
 
 xcm_attr_get_c = xcm_c.xcm_attr_get
 xcm_attr_get_c.restype = c_int
@@ -147,6 +148,9 @@ def _attr_to_py(attr_type, attr_value, attr_len):
         return bytes(attr_value.value).decode('utf-8')
     elif attr_type.value == ATTR_TYPE_BIN:
         return bytes(attr_value.raw)[:attr_len]
+    elif attr_type.value == ATTR_TYPE_DOUBLE:
+        double_value = cast(attr_value.raw, POINTER(c_double))
+        return double_value.contents.value
     else:
         raise ValueError("invalid argument type %d" % attr_type.value)
 

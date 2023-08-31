@@ -103,6 +103,8 @@ class TestXcm(unittest.TestCase):
         self.assertTrue(conn.get_attr("xcm.local_addr").
                         startswith("tcp:127.0.0.2"))
         self.assertEqual(conn.get_attr("tcp.keepalive_interval"), 99)
+        self.assertGreater(conn.get_attr("tcp.connect_timeout"), 1e-6)
+        self.assertLess(conn.get_attr("tcp.connect_timeout"), 10)
         conn.close()
         server_process.terminate()
         server_process.join()
