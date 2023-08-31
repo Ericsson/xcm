@@ -458,12 +458,12 @@ extern "C" {
  * libxcm -> client: 42
  * client -> libxcm: xcm_await(conn_socket, XCM_SO_SENDABLE);
  * libxcm -> client: 0
- * client -> libc: select(17, [42, ...], [...], [...], NULL);
+ * client -> libc: select(43, [42, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_send(conn_socket, "hello world", 11);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libc: select(17, [42, ...], [...], [...], NULL);
+ * client -> libc: select(43, [42, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_send(conn_socket, "hello world", 11);
@@ -483,17 +483,17 @@ extern "C" {
  * libxcm -> client: 99
  * client -> libxcm: xcm_await(conn_socket, 0);
  * libxcm -> client: 0
- * client -> libc: select(88, [99, ...], [...], [...], NULL);
+ * client -> libc: select(116, [99, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libc: select(88, [99, ...], [...], [...], NULL);
+ * client -> libc: select(116, [99, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
  * libxcm -> client: -1, errno=EAGAIN
- * client -> libc: select(88, [99, ...], [...], [...], NULL);
+ * client -> libc: select(116, [99, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_finish(conn_socket);
@@ -524,7 +524,7 @@ extern "C" {
  * libxcm -> client: 100
  * client -> libxcm: xcm_await(conn_socket, XCM_SO_SENDABLE);
  * libxcm -> client: 0
- * client -> libc: select(50, [100, ...], [...], [...], NULL);
+ * client -> libc: select(101, [100, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_send(conn_socket, "Greetings from the North", 25);
@@ -572,7 +572,7 @@ extern "C" {
  * libxcm -> client: 4
  * client -> libxcm: xcm_await(server_socket, XCM_SO_ACCEPTABLE);
  * libxcm -> client: 0
- * client -> libc: select(3, [4, ...], [...], [...], NULL);
+ * client -> libc: select(5, [4, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> libxcm: xcm_accept(server_socket);
@@ -581,7 +581,7 @@ extern "C" {
  * libxcm -> client: 5
  * client -> libxcm: xcm_await(conn_socket, XCM_SO_RECEIVABLE);
  * libxcm -> client: 0
- * client -> libc: select(3, [4, 5, ...], [...], [...], NULL);
+ * client -> libc: select(6, [4, 5, ...], [...], [...], NULL);
  * |||
  * libc -> client: 1
  * client -> client: map_active_fd_to_xcm_socket()
