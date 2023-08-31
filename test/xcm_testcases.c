@@ -81,10 +81,15 @@ static uint16_t gen_tcp_port(void)
 
 static char *gen_ip4_port_addr(const char *proto)
 {
+    int a = tu_randint(1, 254);
+    int b = tu_randint(1, 254);
+    int c = tu_randint(1, 254);
+
     char *addr;
     /* XXX: probably better to check if a port is free by attempting
        to bind to it, rather than choosing a random port */
-    return asprintf(&addr, "%s:127.0.0.1:%d", proto, gen_tcp_port()) < 0 ?
+    return asprintf(&addr, "%s:127.%d.%d.%d:%d", proto, a, b, c,
+		    gen_tcp_port()) < 0 ?
 	NULL : addr;
 }
 
