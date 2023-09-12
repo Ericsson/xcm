@@ -24,7 +24,7 @@ DEFAULT_VALIDITY_START = datetime.timedelta(0)
 DEFAULT_VALIDITY_END = datetime.timedelta(days=365*10)
 
 DEFAULT_CRL_LAST_UPDATE = datetime.timedelta(0)
-DEFAULT_CRL_NEXT_UPDATE = datetime.timedelta(days=7)
+DEFAULT_CRL_NEXT_UPDATE = datetime.timedelta(days=365*10)
 
 def usage(name):
     print("%s [<cert.yaml>]" % name)
