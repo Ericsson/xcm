@@ -46,7 +46,7 @@ extern "C" {
  * another, in another deployment. The API semantics are the same,
  * regardless of underlying transport used.
  *
- * A XCM transport either provides a messaging or a byte stream type
+ * An XCM transport either provides a messaging or a byte stream type
  * service.
  *
  * XCM supports UNIX domain sockets for efficient local-only
@@ -82,7 +82,7 @@ extern "C" {
  *
  * @subsection service_types Messaging and Byte Streams
  *
- * A XCM transport either provides a messaging or a byte stream service.
+ * An XCM transport either provides a messaging or a byte stream service.
  *
  * Messaging transports preserve message boundaries across the
  * network. The buffer passed to xcm_send() constitutes one (and only
@@ -150,7 +150,7 @@ extern "C" {
  * used, using the address supplied to xcm_connect() and xcm_server()
  * including both the transport name and the transport address.
  *
- * However, there is nothing preventing a XCM transport to use a more
+ * However, there is nothing preventing an XCM transport to use a more
  * abstract addressing format, and internally include multiple
  * underlying IPC transport mechanism. This model is implemented by
  * the @ref utls_transport.
@@ -229,7 +229,7 @@ extern "C" {
  * also supply a scope identifier, to allow the kernel to select which
  * network interface to use.
  *
- * The IPv6 scope id is not a part of a XCM address, but instead
+ * The IPv6 scope id is not a part of an XCM address, but instead
  * provided by the application as a socket attribute "ipv6.scope".
  * See @ref tcp_attr for details.
  *
@@ -319,7 +319,7 @@ extern "C" {
  *
  * An application must always include @a all of its XCM socket fds
  * into @p readfds in the select() call. An application must not leave
- * a XCM socket unattended in the sense its fd is not in the set of
+ * an XCM socket unattended in the sense its fd is not in the set of
  * fds passed to select() and/or neither of xcm_send(), xcm_receive(),
  * xcm_accept() or xcm_finish() are called when its fd is marked
  * readable by select().
@@ -358,12 +358,12 @@ extern "C" {
  * @subsubsection non_blocking_connect Non-blocking Connection Establishment
  *
  * In case the @ref XCM_NONBLOCK flag is set in the xcm_connect()
- * call, or in case the a XCM server socket is in non-blocking mode at
- * the time of a xcm_accept() call, the newly created XCM connection
- * returned to the application may be in a semi-operational state,
- * with some internal processing and/or signaling with the remote peer
- * still required before actual message transmission and reception may
- * occur.
+ * call, or in case the an XCM server socket is in non-blocking mode
+ * at the time of an xcm_accept() call, the newly created XCM
+ * connection returned to the application may be in a semi-operational
+ * state, with some internal processing and/or signaling with the
+ * remote peer still required before actual message transmission and
+ * reception may occur.
  *
  * The application may attempt to send or receive messages on such
  * semi-operational connections.
@@ -374,7 +374,7 @@ extern "C" {
  *
  * @subsubsection non_blocking_send_receive Non-blocking Send and Receive
  *
- * To receive a message on a XCM connection socket in non-blocking
+ * To receive a message on an XCM connection socket in non-blocking
  * mode, the application may need to wait for the right conditions to
  * arise (i.e. a message being available). The application needs to
  * inform the socket that it wants to receive by calling xcm_await()
@@ -387,8 +387,8 @@ extern "C" {
  * xcm_receive() may also called on speculation, prior to any select()
  * call, to poll the socket for incoming messages.
  *
- * A XCM connection socket may have a number of messages buffered, and
- * applications should generally, for optimal performance, repeat
+ * An XCM connection socket may have a number of messages buffered,
+ * and applications should generally, for optimal performance, repeat
  * xcm_receive() until it returns an error, and errno is set to
  * EAGAIN.
  *
@@ -826,7 +826,7 @@ extern "C" {
  * condition to wait for. When this condition is met, all threads are
  * woken up, returning from select().
  *
- * It is safe to "give away" a XCM socket from one thread to another,
+ * It is safe to "give away" an XCM socket from one thread to another,
  * provided the appropriate memory fences are used.
  *
  * These limitations (compared to BSD Sockets) are in place to allow
@@ -835,7 +835,7 @@ extern "C" {
  *
  * @section fork Multi-processing and Fork
  *
- * Sharing a XCM socket between threads in different processes is not
+ * Sharing an XCM socket between threads in different processes is not
  * possible.
  *
  * After a fork() call, either of the two process (the parent, or the
@@ -1061,7 +1061,7 @@ extern "C" {
  * @ref tls_attr may be used to override one or more of the default
  * paths, on a per-socket basis. Paths set on server sockets are
  * inherited by its connection sockets, but may in turn be overriden
- * at the time of a xcm_accept_a() call, using the proper attributes.
+ * at the time of an xcm_accept_a() call, using the proper attributes.
  *
  * The default paths may also be overriden on a per-process basis by
  * means of setting a UNIX environment variable. The current value of
@@ -1132,7 +1132,7 @@ extern "C" {
  * need to be stored in a file named "crl.pem".
  *
  * In case the appropriate credential-related files are not in place
- * (for a particular namespace), a xcm_server() call will return an
+ * (for a particular namespace), an xcm_server() call will return an
  * error and set errno to EPROTO. The application may choose to retry
  * at a later time.
  *
@@ -1163,7 +1163,7 @@ extern "C" {
  *
  * @subsubsection tls_role Role Configuration
  *
- * By default, on sockets that represent the client side of a XCM TLS
+ * By default, on sockets that represent the client side of an XCM TLS
  * connection (e.g., returned from xcm_connect_a()), the XCM TLS
  * transport will act as a TLS client. Similarly, the default behavior
  * for sockets representing the XCM (and TCP) server side of a
@@ -1541,7 +1541,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
  *
  * This call is the equivalent of socket()+bind()+listen() in BSD
  * Sockets. In case remote_addr has a DNS domain name (as opposed to
- * an IP address), a xcm_server() call also includes a blocking name
+ * an IP address), an xcm_server() call also includes a blocking name
  * resolution (e.g. gethostbyname()).
  *
  * Since the "xcm.service" attribute defaults to "messaging", this
@@ -1590,7 +1590,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
 
 /** Close an endpoint.
  *
- * This function close a XCM socket, including both signaling to the far
+ * This function close an XCM socket, including both signaling to the far
  * and freeing of any local resources associated with this socket.
  *
  * xcm_close() will not block, and applications wanting to finish any
@@ -1606,7 +1606,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
  */
 int xcm_close(struct xcm_socket *socket);
 
-/** Cleans up any local resources tied to a XCM socket not owned by the caller process.
+/** Cleans up any local resources tied to an XCM socket not owned by the caller process.
  *
  * After a fork() call, either of the two processes (the parent, or the
  * child) must be designated the owner of every XCM socket the parent
@@ -1793,7 +1793,7 @@ int xcm_await(struct xcm_socket *socket, int condition);
 
 /** Returns XCM socket fd.
  *
- * This call retrieves a XCM socket's file descriptor, for a XCM
+ * This call retrieves an XCM socket's file descriptor, for an XCM
  * socket in non-blocking mode.
  *
  * When this fd becomes readable, the XCM socket is ready to make

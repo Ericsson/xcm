@@ -79,7 +79,7 @@ struct xcm_addr_host
     };
 };
 
-/** Parses the protocol part of a XCM address.
+/** Parses the protocol part of an XCM address.
  *
  * @param[in] addr_s The XCM address string.
  * @param[out] proto The buffer where to store the protocol part of the address.

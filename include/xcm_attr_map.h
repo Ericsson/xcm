@@ -13,7 +13,7 @@ extern "C" {
  * @file xcm_attr_map.h
  * @brief This file contains the XCM attribute map API.
  *
- * A XCM attribute map is a set of key-value pairs. The key is an
+ * An XCM attribute map is a set of key-value pairs. The key is an
  * attribute name in the form of a string. One key maps to at most one
  * value. The attribute value is either a boolean, a signed 64-bit
  * integer, a double-precision floating point value, a string, or a
