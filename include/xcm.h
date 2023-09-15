@@ -296,27 +296,33 @@ extern "C" {
  * poll(2) or epoll(2) is used.
  *
  * Each XCM socket is represented by a single fd, retrieved with
- * xcm_fd(). The fd number and underlying file object is stable across
- * the life-time of the socket.
+ * xcm_fd(). The fd number and underlying file object remains the same
+ * across the life-time of the socket.
  *
- * On BSD Sockets, the socket fd being readable means it's likely that
- * the application can successfully read data from the
- * socket. Similarily, a fd marked writable by, for example, poll()
- * means that the application is likely to be able to write data to
- * the BSD Sockets fd. For an application using XCM going into
- * select(), it must @a always wait for all the fds its XCM sockets to
- * become readable (e.g. being in the @p readfds in the select()
- * call), regardless what are their target conditions. Thus, even if
- * the application is waiting for an opportunity to try to send a
- * message on a XCM socket, or it doesn't want to do anything with the
- * socket, it must wait for the socket @a fd to become readable. Not
- * wanting to do nothing here means that the application has the
- * xcm_await() condition set to 0, and is neither interested in
- * waiting to call xcm_send(), xcm_receive(), nor xcm_accept() on the
- * socket. An application may never leave a XCM socket unattended in
- * the sense its fd is not in the set of fds passed to select() and/or
- * xcm_send(), xcm_receive(), xcm_accept() or xcm_finish() are not
- * called.
+ * In the BSD Sockets API, the socket fd being readable means it's
+ * likely, but not guaranteed, that the application can successfully
+ * read data from the socket. Similarly, a fd marked writable by for
+ * example poll() signifies that the application is likely to be able
+ * to write data to the socket.
+ *
+ * An application using non-blocking XCM sockets must @a always wait
+ * for the XCM socket fd to become @a readable (e.g., the XCM socket
+ * fd should always be in the @p readfds in the select() call),
+ * <em>regardless of the target condition</em>. Thus, even if the
+ * application is waiting for an opportunity to send a message on a
+ * XCM socket, or is not interested in performing any type of
+ * operation on the socket, it must wait for the XCM socket fd to
+ * become readable. Not being interested in performing any operation
+ * here means that the application has the xcm_await() condition set
+ * to 0, and is neither interested in waiting to call xcm_send(),
+ * xcm_receive(), nor xcm_accept() on the socket.
+ *
+ * An application must always include @a all of its XCM socket fds
+ * into @p readfds in the select() call. An application must not leave
+ * a XCM socket unattended in the sense its fd is not in the set of
+ * fds passed to select() and/or neither of xcm_send(), xcm_receive(),
+ * xcm_accept() or xcm_finish() are called when its fd is marked
+ * readable by select().
  *
  * @subsection select_variants Supported I/O Multiplexing Facilities
  *
@@ -337,6 +343,13 @@ extern "C" {
  * For XCM sockets in non-blocking mode, all potentially blocking API
  * calls related to XCM connections - xcm_connect(), xcm_accept(),
  * xcm_send(), and xcm_receive() - finish immediately.
+ *
+ * The inability to finish the requested operation without blocking
+ * the thread (i.e., putting the thread to sleep) is signaled in the
+ * typical UNIX manner, by returning an NULL or -1, (depending on the
+ * return type) and setting errno to EAGAIN. Unlike most other errno
+ * values, EAGAIN is a temporary conditional, and not a terminal
+ * error.
  *
  * For xcm_send(), xcm_connect() and xcm_accept(), XCM signaling
  * success means that the XCM layer has accepted the request. It may
@@ -1790,7 +1803,7 @@ int xcm_await(struct xcm_socket *socket, int condition);
  * application's desired socket condition (see xcm_await() for
  * details), or finishing any outstanding task the XCM socket has.
  *
- * Note that the XCM socket fd is @e only ever marked readable
+ * Note that the XCM socket fd is @a only ever marked readable
  * (as opposed to writable). This is true even if the application is
  * waiting to send a message on the socket. Marked readable means that
  * the fd is, for example, marked with EPOLLIN, in case epoll_wait()
