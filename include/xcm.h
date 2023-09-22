@@ -107,7 +107,8 @@ extern "C" {
  * calls, each producing "ab", "c", and "d", respectively, or any
  * other combination.
  *
- * The @ref btls_transport transport provides a byte stream service.
+ * The @ref btls_transport and @ref btcp_transport transports provide
+ * a byte stream service.
  *
  * Applications that allow the user to configure an arbitrary XCM
  * address, but are designed to handle only a certain service type,
@@ -169,12 +170,13 @@ extern "C" {
  * have the following format: @n
  * @code uxf:<file system path> @endcode
  *
- * For the TCP, TLS, UTLS, SCTP and BTLS transports the syntax is: @n
+ * For the TCP, TLS, UTLS, SCTP, BTCP and BTLS transports the syntax is: @n
  * @code
  * tcp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * tls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * utls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * sctp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
+ * btcp:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * btls:(<DNS domain name>|<IPv4 address>|[<IPv6 address>]|[*]|*):<port>
  * @endcode
  *
@@ -193,9 +195,9 @@ extern "C" {
  * btls:*:42
  * @endcode
  *
- * For TCP, TLS, UTLS, SCTP and BTLS server socket addresses, the port
- * can be set to 0, in which case XCM (or rather, the Linux kernel)
- * will allocate a free TCP port from the local port range.
+ * For TCP, TLS, UTLS, SCTP, BTLS and BTCP server socket addresses,
+ * the port can be set to 0, in which case XCM (or rather, the Linux
+ * kernel) allocates a free TCP port from the local port range.
  *
  * @subsubsection dns DNS Resolution
  *
@@ -613,7 +615,7 @@ extern "C" {
  * schema. For example, all generic XCM attributes, available in all
  * transports, have the prefix "xcm.". Transport-specific attributes
  * are prefixed with the transport or protocol name (e.g. "tcp." for
- * TCP-specific attributes applicable to the TLS, BTLS, and TCP
+ * TCP-specific attributes applicable to the TLS, BTLS, TCP, and BTCP
  * transports).
  *
  * An attribute may be read-only, write-only or available both for
