@@ -389,8 +389,10 @@ static int get_service_attr(struct xcm_socket *s, void *value,
 
 static int addr_to_attr(const char *addr, void *value, size_t capacity)
 {
-    if (!addr)
+    if (addr == NULL) {
+	errno = ENOENT;
 	return -1;
+    }
     return xcm_tp_get_str_attr(addr, value, capacity);
 }
 
