@@ -7003,6 +7003,175 @@ TESTCASE(xcm, long_uxf_names)
     return run_long_name_test(XCM_UXF_PROTO);
 }
 
+static int wire_up(char *(gen_addr)(), char **addr,
+		   struct xcm_socket **server_sock,
+		   struct xcm_socket **accept_sock,
+		   struct xcm_socket **client_sock)
+{
+    *addr = gen_addr();
+
+    CHK((*server_sock = xcm_server(*addr)) != NULL);
+
+    CHKNOERR(set_blocking(*server_sock, false));
+
+    *client_sock = NULL;
+    *accept_sock = NULL;
+
+    while (*client_sock == NULL || *accept_sock == NULL) {
+	if (*client_sock == NULL)
+	    *client_sock = xcm_connect(*addr, XCM_NONBLOCK);
+	if (*accept_sock == NULL)
+	    *accept_sock = xcm_accept(*server_sock);
+    }
+
+    return UTEST_SUCCESS;
+}
+
+static int wire_down(char *addr, struct xcm_socket *server_sock,
+		     struct xcm_socket *accept_sock,
+		     struct xcm_socket *client_sock)
+{
+    CHKNOERR(xcm_close(client_sock));
+    CHKNOERR(xcm_close(accept_sock));
+    CHKNOERR(xcm_close(server_sock));
+
+    ut_free(addr);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, uxf_empty_addrs)
+{
+    char *addr;
+    struct xcm_socket *server_sock;
+    struct xcm_socket *accept_sock;
+    struct xcm_socket *client_sock;
+
+    if (wire_up(gen_uxf_addr, &addr, &server_sock, &accept_sock,
+		&client_sock) < 0)
+	return UTEST_FAILED;
+
+    const char *local_addr = xcm_local_addr(client_sock);
+    CHKSTREQ(local_addr, "uxf:");
+
+    const char *remote_addr = xcm_remote_addr(accept_sock);
+    CHKSTREQ(remote_addr, "uxf:");
+
+    if (wire_down(addr, server_sock, accept_sock, client_sock) < 0)
+	return UTEST_FAILED;
+
+    return UTEST_SUCCESS;
+}
+
+static int assure_ux_uxf(const char *proto, const char *addr, bool empty)
+{
+    CHK(addr != NULL);
+
+    CHK(strncmp(proto, addr, strlen(proto)) == 0);
+    CHK(addr[strlen(proto)] == ':');
+
+    if (empty)
+	CHK(strlen(addr) == strlen(proto) + 1);
+    else
+	CHK(strlen(addr) > strlen(proto) + 1);
+
+
+    return UTEST_SUCCESS;
+}
+
+static int assure_ux(const char *addr, bool empty)
+{
+    return assure_ux_uxf(XCM_UX_PROTO, addr, empty);
+}
+
+static int assure_empty_ux(const char *addr)
+{
+    return assure_ux(addr, true);
+}
+
+static int assure_non_empty_ux(const char *addr)
+{
+    return assure_ux(addr, false);
+}
+
+static int assure_empty_uxf(const char *addr)
+{
+    return assure_ux_uxf(XCM_UXF_PROTO, addr, true);
+}
+
+TESTCASE(xcm, ux_autobound_addrs)
+{
+    char *addr;
+    struct xcm_socket *server_sock;
+    struct xcm_socket *accept_sock;
+    struct xcm_socket *client_sock;
+
+    if (wire_up(gen_ux_addr, &addr, &server_sock, &accept_sock,
+		&client_sock) < 0)
+	return UTEST_FAILED;
+
+    const char *local_addr = xcm_local_addr(client_sock);
+    if (assure_non_empty_ux(local_addr) < 0)
+	return UTEST_FAILED;
+
+    const char *remote_addr = xcm_remote_addr(accept_sock);
+    if (assure_non_empty_ux(remote_addr) < 0)
+	return UTEST_FAILED;
+
+    if (wire_down(addr, server_sock, accept_sock, client_sock) < 0)
+	return UTEST_FAILED;
+
+    return UTEST_SUCCESS;
+}
+
+static int check_credless_connect(bool abstract)
+{
+    char *addr;
+    const char *path;
+    int (*assure_addr_fun)(const char *addr);
+
+    if (abstract) {
+	addr = gen_ux_addr();
+	path = addr + strlen(XCM_UX_PROTO) + 1;
+	assure_addr_fun = assure_empty_ux;
+    } else {
+	addr = gen_uxf_addr();
+	path = addr + strlen(XCM_UXF_PROTO) + 1;
+	assure_addr_fun = assure_empty_uxf;
+    }
+
+    struct xcm_socket *server_sock = xcm_server(addr);
+    CHK(server_sock != NULL);
+
+    int conn_fd = tu_unix_connect(path, abstract);
+    CHKNOERR(conn_fd);
+
+    struct xcm_socket *accept_sock = xcm_accept(server_sock);
+    CHK(accept_sock != NULL);
+
+    if (assure_addr_fun(xcm_remote_addr(accept_sock)) < 0)
+	return UTEST_FAILED;
+
+    close(conn_fd);
+
+    CHKNOERR(xcm_close(server_sock));
+    CHKNOERR(xcm_close(accept_sock));
+
+    ut_free(addr);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, ux_credless_connect)
+{
+    return check_credless_connect(true);
+}
+
+TESTCASE(xcm, uxf_credless_connect)
+{
+    return check_credless_connect(true);
+}
+
 TESTCASE(xcm, uxf_existing_socket_file)
 {
     char *addr = gen_uxf_addr();

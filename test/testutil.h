@@ -68,4 +68,6 @@ int tu_assure_non_existent_attr(struct xcm_socket *s, const char *attr_name);
 
 ssize_t tu_read_file(const char *filename, char *buf, size_t capacity);
 
+int tu_unix_connect(const char *name, bool abstract);
+
 #endif

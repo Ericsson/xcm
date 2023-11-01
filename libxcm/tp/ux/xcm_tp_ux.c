@@ -455,10 +455,17 @@ static int retrieve_addr(int fd, int (*socknamefn)(int, struct sockaddr *,
 						   socklen_t *),
 			 int (*makefn)(const char *name, char *addr_s,
 				       size_t capacity),
-			 size_t addr_offset,
-			 char *buf, size_t buf_len)
+			 bool abstract, char *buf, size_t buf_len)
 {
     struct sockaddr_un addr;
+
+    /* In case SO_PASSCRED is enabled on non-abstract (i.e., pathname)
+       type AF_UNIX sockets, addr_len returned by getpeername()
+       suggests there is a 6-byte name, although the kernel never
+       actually wrote anything in the sun_path buffer. Thus, this
+       NUL-termination is needed to avoid picking up garbage names
+       from the stack. */
+    addr.sun_path[0] = '\0';
 
     socklen_t addr_len = sizeof(struct sockaddr_un);
 
@@ -469,17 +476,26 @@ static int retrieve_addr(int fd, int (*socknamefn)(int, struct sockaddr *,
     /* the buffer should be configured to allow max-sized names */
     ut_assert(addr_len <= sizeof(struct sockaddr_un));
 
+    size_t name_offset = offsetof(struct sockaddr_un, sun_path);
+
+    /* at a minimum, the 'sun_family' field must be written to */
+    ut_assert(addr_len >= name_offset);
+
+    size_t name_len = addr_len - name_offset;
+
     char name[UX_NAME_MAX + 1];
-    /* in the UNIX domain abstract namespace, the first sun_path byte
-       is a NUL, so addr_offset will be set to 1 */
-    ssize_t name_len = addr_len - offsetof(struct sockaddr_un, sun_path) -
-	addr_offset;
 
-    if (name_len <= 0)
-	return -1;
-
-    strncpy(name, addr.sun_path + addr_offset, name_len);
-    name[name_len] = '\0';
+    if (name_len == 0)
+        name[name_len] = '\0';
+    else if (abstract) {
+	/* In the AF_UNIX abstract namespace, the first sun_path byte
+	   is a NUL. */
+	strncpy(name, addr.sun_path + 1, name_len - 1);
+        name[name_len - 1] = '\0';
+    } else {
+	strncpy(name, addr.sun_path, name_len);
+        name[name_len] = '\0';
+    }
 
     rc = makefn(name, buf, buf_len);
     ut_assert(rc == 0);
@@ -491,15 +507,14 @@ static const char *get_remote_addr(struct xcm_socket *conn_s,
 				   int (*makefn)(const char *name,
 						 char *addr_s,
 						 size_t capacity),
-				   size_t addr_offset,
-				   bool suppress_tracing)
+				   bool abstract, bool suppress_tracing)
 {
     struct ux_socket *us = TOUX(conn_s);
 
     if (us->fd < 0)
 	return NULL;
 
-    if (retrieve_addr(us->fd, getpeername, makefn, addr_offset,
+    if (retrieve_addr(us->fd, getpeername, makefn, abstract,
 		      us->raddr, sizeof(us->raddr)) < 0) {
 	if (!suppress_tracing)
 	    LOG_REMOTE_SOCKET_NAME_FAILED(conn_s, errno);
@@ -511,27 +526,26 @@ static const char *get_remote_addr(struct xcm_socket *conn_s,
 static const char *ux_get_remote_addr(struct xcm_socket *conn_s,
 				      bool suppress_tracing)
 {
-    return get_remote_addr(conn_s, xcm_addr_make_ux, 1, suppress_tracing);
+    return get_remote_addr(conn_s, xcm_addr_make_ux, true, suppress_tracing);
 }
 
 static const char *uxf_get_remote_addr(struct xcm_socket *conn_s,
 				       bool suppress_tracing)
 {
-    return get_remote_addr(conn_s, xcm_addr_make_uxf, 0, suppress_tracing);
+    return get_remote_addr(conn_s, xcm_addr_make_uxf, false, suppress_tracing);
 }
 
 static const char *get_local_addr(struct xcm_socket *s,
 				  int (*makefn)(const char *name, char *addr_s,
 						size_t capacity),
-				  size_t addr_offset,
-				  bool suppress_tracing)
+				  bool abstract, bool suppress_tracing)
 {
     struct ux_socket *us = TOUX(s);
 
     if (us->fd < 0)
 	return NULL;
 
-    if (retrieve_addr(us->fd, getsockname, makefn, addr_offset,
+    if (retrieve_addr(us->fd, getsockname, makefn, abstract,
 		      us->laddr, sizeof(us->laddr)) < 0) {
 	if (!suppress_tracing)
 	    LOG_LOCAL_SOCKET_NAME_FAILED(s, errno);
@@ -543,13 +557,13 @@ static const char *get_local_addr(struct xcm_socket *s,
 static const char *ux_get_local_addr(struct xcm_socket *s,
 				     bool suppress_tracing)
 {
-    return get_local_addr(s, xcm_addr_make_ux, 1, suppress_tracing);
+    return get_local_addr(s, xcm_addr_make_ux, true, suppress_tracing);
 }
 
 static const char *uxf_get_local_addr(struct xcm_socket *s,
 				      bool suppress_tracing)
 {
-    return get_local_addr(s, xcm_addr_make_uxf, 0, suppress_tracing);
+    return get_local_addr(s, xcm_addr_make_uxf, false, suppress_tracing);
 }
 
 static size_t ux_max_msg(struct xcm_socket *conn_s)

@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -639,4 +640,33 @@ out:
     fclose(f);
 
     return len;
+}
+
+int tu_unix_connect(const char *path, bool abstract)
+{
+    struct sockaddr_un addr = {
+	.sun_family = AF_UNIX
+    };
+
+    if (abstract) {
+	addr.sun_path[0] = '\0';
+	memcpy(addr.sun_path + 1, path, strlen(path));
+    } else
+	strcpy(addr.sun_path, path);
+
+    int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0);
+
+    if (fd < 0)
+	return -1;
+
+    socklen_t addr_len = abstract ?
+	offsetof(struct sockaddr_un, sun_path) + 1 + strlen(path) :
+	sizeof(struct sockaddr_un);
+
+    if (connect(fd, (struct sockaddr*)&addr, addr_len) < 0) {
+	close(fd);
+	return -1;
+    }
+
+    return fd;
 }
