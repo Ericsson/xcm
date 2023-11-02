@@ -47,6 +47,9 @@ bool tu_is_kernel_at_least(int wanted_major, int wanted_minor);
 bool tu_server_port_bound(const char *ip, uint16_t port);
 void tu_wait_for_server_port_binding(const char *ip, uint16_t port);
 
+bool tu_unix_server_bound(const char *path, bool abtract);
+void tu_wait_for_unix_server_binding(const char *path, bool abstract);
+
 enum tu_cmp_type { cmp_type_none, cmp_type_greater_than, cmp_type_equal };
 
 int tu_assure_bool_attr(struct xcm_socket *s, const char *attr_name,

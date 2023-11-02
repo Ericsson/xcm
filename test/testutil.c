@@ -388,6 +388,25 @@ void tu_wait_for_server_port_binding(const char *ip, uint16_t port)
 	tu_msleep(10);
 }
 
+bool tu_unix_server_bound(const char *path, bool abstract)
+{
+    char npath[strlen(path) + 2];
+
+    snprintf(npath, sizeof(npath), "%s%s", abstract ? "@" : "",
+	     path);
+
+    int rc = tu_executef_es("netstat -n --unix --listen | grep -q -e ' %s$'",
+			    npath);
+
+    return rc == 0;
+}
+
+void tu_wait_for_unix_server_binding(const char *path, bool abstract)
+{
+    while (!tu_unix_server_bound(path, abstract))
+	tu_msleep(10);
+}
+
 struct search
 {
     const char *name;

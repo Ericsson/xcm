@@ -4155,6 +4155,12 @@ TESTCASE(xcm, tls_missing_certificate)
     return UTEST_SUCCESS;
 }
 
+static void map_utls_to_ux(const char *utls_addr, char *ux_addr,
+			   size_t capacity)
+{
+    snprintf(ux_addr, capacity, "%s", utls_addr + strlen(XCM_UTLS_PROTO) + 1);
+}
+
 TESTCASE_SERIALIZED(xcm, utls_remote_addr)
 {
     const char *client_msg = "greetings";
@@ -4166,8 +4172,11 @@ TESTCASE_SERIALIZED(xcm, utls_remote_addr)
     CHKNOERR((server_pid = simple_server(NULL, addr, client_msg, server_msg,
 					 NULL, NULL, false)));
 
-    /* wait for both UX and TLS sockets to be created */
-    tu_msleep(500);
+    char ux_path[64];
+    map_utls_to_ux(addr, ux_path, sizeof(ux_path));
+
+    tu_wait_for_unix_server_binding(ux_path, true);
+
     struct xcm_socket *client_conn = tu_connect_retry(addr, 0);
     CHK(client_conn);
 
