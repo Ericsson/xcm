@@ -208,7 +208,7 @@ endif
 
 if VALGRIND
 xcmtest-run-valgrind: xcmtest
-	cmd="$(LTTNGWRAP) valgrind --tool=memcheck --leak-check=full -q --suppressions=./test/lttng.supp --suppressions=./test/glibc.supp --num-callers=20 --error-exitcode=1 ./xcmtest -v -c"; \
+	cmd="$(LTTNGWRAP) valgrind --tool=memcheck --leak-check=full -q --suppressions=./test/lttng.supp --suppressions=./test/glibc.supp --num-callers=20 --error-exitcode=3 ./xcmtest -v -c"; \
 	if [ "`id -u`" = 0 ]; then \
 		IN_VALGRIND=1 $$cmd -p 8 $(TESTS); \
 	else \
