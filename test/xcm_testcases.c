@@ -5246,7 +5246,7 @@ TESTCASE(xcm, tls_multiple_ca_same_subject)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(xcm, tls_crl_reject_revoked_leaf)
+TESTCASE(xcm, tls_crl_reject_revoked_leaf_and_intermediate)
 {
     CHKNOERR(
 	gen_certs(
