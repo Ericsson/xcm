@@ -703,6 +703,12 @@ err_inval:
     return -1;
 }
 
+static int verify_cb(int ok, X509_STORE_CTX *ctx) {
+    if (!ok)
+	LOG_TLS_VERIFICATION_FAILURE(ctx);
+    return ok;
+}
+
 static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
 		       bool check_crl, bool check_time)
 {
@@ -732,7 +738,7 @@ static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
 	X509_VERIFY_PARAM_set_flags(param, flags);
     }
 
-    SSL_set_verify(ssl, mode, NULL);
+    SSL_set_verify(ssl, mode, verify_cb);
 }
 
 static int set_bio(struct xcm_socket *s)

@@ -8,6 +8,7 @@
 
 #include "log.h"
 
+#include <openssl/x509_vfy.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -171,7 +172,18 @@ void log_tls_get_error_stack(char *buf, size_t capacity);
 #define LOG_TLS_ERR_ITEM(s, op, item_name)			\
     LOG_TLS_WITH_ERR_STACK(s, "Error %s %s", op, item_name)
 
-#define LOG_TLS_ERR_PARSING(s, item_name)		\
+void log_tls_get_verification_failure_reason(X509_STORE_CTX *store_ctx,
+					     char *buf, size_t capacity);
+
+#define LOG_TLS_VERIFICATION_FAILURE(store_ctx)				\
+    do {								\
+	char reason[1024];						\
+	log_tls_get_verification_failure_reason(store_ctx, reason,	\
+						sizeof(reason));	\
+	log_debug("Verification failure %s.", reason);			\
+    } while (0)
+
+#define LOG_TLS_ERR_PARSING(s, item_name)	\
     LOG_TLS_ERR_ITEM(s, "parsing", item_name)
 
 #define LOG_TLS_ERR_PARSING_CERT(s)		\
