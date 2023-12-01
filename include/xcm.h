@@ -1271,6 +1271,13 @@ extern "C" {
  * CRL checking is only meaningful (and allowed) when authentication
  * is enabled.
  *
+ * Due to a bug in OpenSSL, partial chains (i.e., where the trust
+ * anchor is a trusted non-root certificate) is not allowed when CRL
+ * checking is enabled. In OpenSSL terms, X509_V_FLAG_PARTIAL_CHAIN is
+ * disabled when X509_V_FLAG_CRL_CHECK_ALL is enabled. Future versions
+ * of XCM, built against newer versions of OpenSSL, may allow partial
+ * chains in combination with CRL checking.
+ *
  * @subsubsection validity_checks Certificate Validity Period Checks
  *
  * By default, the XCM TLS transport checks the validity period of

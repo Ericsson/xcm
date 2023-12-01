@@ -238,9 +238,9 @@ def write_cert(cert_file, cert):
 def write_bundle(bundle_file, bundle):
     assure_dir(bundle_file)
     with open(bundle_file, "wb") as f:
-        for cert in bundle:
-            cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
-            f.write(cert_pem)
+        for item in bundle:
+            item_pem = item.public_bytes(encoding=serialization.Encoding.PEM)
+            f.write(item_pem)
 
 
 def get_paths(conf):
@@ -262,9 +262,15 @@ def write_files(base_path, files_conf, keys, certs, crls):
             for path in get_paths(file_conf):
                 write_cert(os.path.join(base_path, path), cert)
         elif type == 'bundle':
-            tc_certs = [certs[cert_id] for cert_id in file_conf['certs']]
+            cert_ids = file_conf.get('certs', [])
+            bundle_tc_certs = [certs[cert_id] for cert_id in cert_ids]
+
+            crl_ids = file_conf.get('crls', [])
+            bundle_crls = [crls[crl_id] for crl_id in crl_ids]
+
             for path in get_paths(file_conf):
-                write_bundle(os.path.join(base_path, path), tc_certs)
+                write_bundle(os.path.join(base_path, path),
+                             bundle_tc_certs + bundle_crls)
         elif type == 'crl':
             crl = crls[file_conf['id']]
             for path in get_paths(file_conf):

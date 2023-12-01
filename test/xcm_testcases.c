@@ -5421,14 +5421,22 @@ TESTCASE(xcm, tls_zero_revocations_crl)
 	    "  root:\n"
 	    "    subject_name: root\n"
 	    "    ca: True\n"
+	    "  sub:\n"
+	    "    subject_name: sub\n"
+	    "    issuer: root\n"
+	    "    ca: True\n"
 	    "  a:\n"
 	    "    subject_name: a\n"
-	    "    issuer: root\n"
+	    "    issuer: sub\n"
 	    "\n"
 	    "crls:\n"
 	    "  x:\n"
 	    "    issuer: root\n"
 	    "    revokes: []\n"
+	    "  y:\n"
+	    "    issuer: sub\n"
+	    "    revokes: []\n"
+	    "\n"
 	    "files:\n"
 	    "  - type: cert\n"
 	    "    id: a\n"
@@ -5436,17 +5444,21 @@ TESTCASE(xcm, tls_zero_revocations_crl)
 	    "  - type: key\n"
 	    "    id: a\n"
 	    "    path: ep/key.pem\n"
-	    "  - type: crl\n"
-	    "    id: x\n"
+	    "  - type: bundle\n"
+	    "    crls:\n"
+	    "      - x\n"
+	    "      - y\n"
 	    "    path: ep/crl.pem\n"
 	    "  - type: bundle\n"
 	    "    certs:\n"
+	    "      - sub\n"
 	    "      - root\n"
 	    "    path: ep/tc.pem\n"
             )
 	);
 
     struct xcm_attr_map *ref_attrs = xcm_attr_map_create();
+
     xcm_attr_map_add_bool(ref_attrs, "tls.check_crl", true);
 
     char path[PATH_MAX];

@@ -478,7 +478,10 @@ static SSL_CTX *load_ssl_ctx(const char *cert_data, const char *key_data,
 
     SSL_CTX_set_read_ahead(ssl_ctx, 1);
 
-    X509_STORE_set_flags(store, X509_V_FLAG_PARTIAL_CHAIN);
+    /* Due to a bug in OpenSSL, partial chains and CRL checking is mutually
+       exclusive. https://github.com/openssl/openssl/issues/5081 */
+    if (crl_data == NULL)
+	X509_STORE_set_flags(store, X509_V_FLAG_PARTIAL_CHAIN);
 
     return ssl_ctx;
 
