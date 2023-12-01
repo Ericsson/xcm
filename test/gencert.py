@@ -169,7 +169,7 @@ def create_crl(issuer_cert, issuer_key, last_update, next_update,
         x509.CertificateRevocationListBuilder()
         .last_update(last_update)
         .next_update(next_update)
-        .issuer_name(issuer_cert.issuer)
+        .issuer_name(issuer_cert.subject)
     )
 
     revocation_date = last_update
