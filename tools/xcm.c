@@ -142,12 +142,14 @@ static void on_signal(evutil_socket_t fd, short event, void *arg)
     event_base_loopbreak(event_base);
 }
 
-static void term(int rc, const char *msg, void *data)
+static void client_term(int rc, const char *msg, void *data)
 {
     if (rc != 0)
-	ut_die(msg);
-    else
-	exit(EXIT_SUCCESS);
+	fprintf(stderr, "%s.\n", msg);
+
+    struct event_base *event_base = data;
+
+    event_base_loopbreak(event_base);
 }
 
 static void handle_conn(struct xcm_socket *conn, struct event_base *event_base,
@@ -174,7 +176,7 @@ static void run_client(const char *addr, const struct xcm_attr_map *attrs,
     struct xcm_socket *conn = xcm_connect_a(addr, attrs);
     if (conn == NULL)
 	ut_die("Unable to connect");
-    handle_conn(conn, event_base, term, NULL);
+    handle_conn(conn, event_base, client_term, event_base);
 }
 
 #define MAX_FDS (8)
