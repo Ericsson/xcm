@@ -144,8 +144,10 @@ static void on_signal(evutil_socket_t fd, short event, void *arg)
 
 static void client_term(int rc, const char *msg, void *data)
 {
-    if (rc != 0)
+    if (rc != 0) {
 	fprintf(stderr, "%s.\n", msg);
+	exit(EXIT_FAILURE);
+    }
 
     struct event_base *event_base = data;
 
