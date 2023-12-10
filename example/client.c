@@ -36,7 +36,7 @@ int main(int argc, char **argv)
 
     struct xcm_socket *s = xcm_connect(addr, 0);
 
-    if (!s)
+    if (s == NULL)
 	die("Unable to connect");
 
     const char *msg = "hello world";

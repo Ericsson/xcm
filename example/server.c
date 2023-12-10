@@ -30,18 +30,18 @@ int main(int argc, char **argv)
     const char *addr = argv[1];
 
     struct xcm_socket *s = xcm_server(addr);
-    if (!s)
+    if (s == NULL)
 	die("Unable to create server socket");
 
     const char *laddr = xcm_local_addr(s);
-    if (!laddr)
+    if (laddr == NULL)
 	die("Unable to retrieve local socket address");
 
     printf("Serving \"%s\".\n", laddr);
 
     struct xcm_socket *c = xcm_accept(s);
 
-    if (!c)
+    if (c == NULL)
 	die("Unable to accept new connections");
 
     for (;;) {
