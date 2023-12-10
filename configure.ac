@@ -113,10 +113,15 @@ AS_IF([test "x$enable_sctp" = "xyes"], [
 
 AM_CONDITIONAL([SCTP], [test "x$enable_sctp" = "xyes"])
 
+AC_ARG_ENABLE([examples],
+    AS_HELP_STRING([--enable-examples], [enable building the XCM examples]))
+
+AM_CONDITIONAL([EXAMPLES], [test "x$enable_examples" = "xyes"])
+
 AC_ARG_ENABLE([xcm_tool],
     AS_HELP_STRING([--disable-xcm-tool], [disable the 'xcm' command-line tool]))
 
-AS_IF([test "x$enable_xcm_tool" != "xno"], [
+AS_IF([test "x$enable_xcm_tool" != "xno" -o "x$enable_examples" = "xyes"], [
 	AC_CHECK_LIB(event, event_base_dispatch,
 	             [AC_SUBST([EVENT_LIBS], [-levent])],
 	             [AC_MSG_ERROR([Unable to find the libevent library. Disable the XCM tool to avoid this dependency.])])

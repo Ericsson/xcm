@@ -15,7 +15,9 @@ include_HEADERS = include/xcm.h include/xcm_compat.h include/xcm_addr.h \
 	include/xcm_addr_compat.h include/xcm_attr.h include/xcm_attr_map.h \
 	include/xcm_attr_types.h include/xcm_version.h
 
-noinst_PROGRAMS = server client
+if EXAMPLES
+noinst_PROGRAMS = server client echod
+endif
 
 bin_PROGRAMS = xcmpong
 if XCM_TOOL
@@ -136,6 +138,7 @@ xcmctl_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT
 xcmctl_LDADD = libxcmctl.la
 endif
 
+if EXAMPLES
 server_SOURCES = example/server.c
 server_CFLAGS = $(AM_CFLAGS)
 server_LDADD = libxcm.la
@@ -143,6 +146,12 @@ server_LDADD = libxcm.la
 client_SOURCES = example/client.c
 client_CFLAGS = $(AM_CFLAGS)
 client_LDADD = libxcm.la
+
+echod_SOURCES = example/echod.c
+echod_CFLAGS = $(AM_CFLAGS)
+echod_LDADD = libxcm.la
+echod_LDFLAGS = @EVENT_LIBS@
+endif
 
 UTEST_SOURCES = test/utest/utest.c  test/utest/utestreport.c \
         test/utest/utesthumanreport.c
