@@ -11,9 +11,9 @@
 #include <stdbool.h>
 
 #define UTEST_SUCCESS (0)
-#define UTEST_NOT_RUN (-1)
+#define UTEST_FAILED (-1)
 #define UTEST_TIMED_OUT (-2)
-#define UTEST_FAILED (-3)
+#define UTEST_NOT_RUN (-3)
 #define UTEST_CRASHED (-4)
 
 #include <errno.h>
