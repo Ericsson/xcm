@@ -419,11 +419,11 @@ static pid_t simple_server(const char *ns, const char *addr,
 
     errno = 0;
 
-    if (server_cert_dir)
+    if (server_cert_dir != NULL)
 	if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
 	    goto err;
 
-    if (ns) {
+    if (ns != NULL) {
 	int old_fd = tu_enter_ns(ns);
 	if (old_fd < 0)
 	    goto err;
@@ -831,7 +831,7 @@ static int teardown_xcm(unsigned setup_flags)
 
     CHKNOERR(check_lingering_ctl_files(ctl_dir));
 
-    tu_executef("rm -f %s/* && rmdir %s", ctl_dir, ctl_dir);
+    tu_executef("rm -f %s/* && rmdir %s; exit 0", ctl_dir, ctl_dir);
 
     CHKNOERR(unsetenv("XCM_CTL"));
 #endif
@@ -5484,6 +5484,177 @@ TESTCASE(xcm, tls_zero_revocations_crl)
 
     xcm_attr_map_destroy(by_value_attrs);
     ut_free(crl);
+
+    return UTEST_SUCCESS;
+}
+
+static pid_t hello_server(const char *addr, const char *server_cert_dir,
+			  const struct xcm_attr_map *attrs, const char *msg)
+{
+    pid_t p = fork();
+    if (p < 0)
+	return -1;
+    else if (p > 0)
+	return p;
+
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+
+    if (server_cert_dir != NULL)
+	if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
+	    exit(EXIT_FAILURE);
+
+    struct xcm_socket *server_sock = xcm_server_a(addr, attrs);
+
+    if (server_sock == NULL)
+	exit(EXIT_FAILURE);
+
+    if (xcm_set_blocking(server_sock, true) < 0)
+	exit(EXIT_FAILURE);
+
+    for (;;) {
+	struct xcm_socket *conn_sock = xcm_accept(server_sock);
+
+	if (conn_sock != NULL) {
+	    if (msg != NULL)
+		xcm_send(conn_sock, msg, strlen(msg));
+
+	    xcm_close(conn_sock);
+	}
+    }
+}
+
+static int hello_client(const char *addr, const char *client_cert_dir,
+			const char *msg, int errno_expected)
+{
+    if (client_cert_dir != NULL &&
+	setenv("XCM_TLS_CERT", client_cert_dir, 1) < 0)
+	return -1;
+
+    struct xcm_socket *conn = tu_connect_retry(addr, 0);
+
+    int rc = -1;
+
+    if (conn == NULL) {
+	if (errno_expected != 0 && errno == errno_expected)
+	    rc = 0;
+	goto out;
+    }
+
+    if (msg != NULL) {
+	char buf[strlen(msg)];
+	int xcm_rc = xcm_receive(conn, buf, sizeof(buf));
+
+	if (xcm_rc < 0) {
+	    if (errno_expected != 0 && errno == errno_expected)
+		rc = 0;
+	    goto out_close;
+	}
+
+	bool msg_success = xcm_rc == strlen(msg) &&
+	    strncmp(buf, msg, xcm_rc) == 0;
+
+	if (msg_success && errno_expected == 0)
+	    rc = 0;
+    } else if (errno_expected == 0)
+	rc = 0;
+
+out_close:
+    xcm_close(conn);
+out:
+    return rc;
+}
+
+TESTCASE(xcm, tls_detect_crl_changes)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "crls:\n"
+	    "  allowed:\n"
+	    "    issuer: root\n"
+	    "    revokes: []\n"
+	    "  denied:\n"
+	    "    issuer: root\n"
+	    "    revokes: [a]\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: client/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: client/key.pem\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: server/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: server/key.pem\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    paths:\n"
+	    "      - client/tc.pem\n"
+	    "      - server/tc.pem\n"
+	    "  - type: bundle\n"
+	    "    crls:\n"
+	    "      - allowed\n"
+	    "    path: server/allowed-crl.pem\n"
+	    "  - type: bundle\n"
+	    "    crls:\n"
+	    "      - denied\n"
+	    "    path: server/denied-crl.pem\n"
+            )
+	);
+
+    char server_cert_dir[PATH_MAX];
+    get_cert_path(server_cert_dir, "server");
+
+    tu_executef_es("cp -p %s/server/allowed-crl.pem %s/server/crl.pem",
+		   get_cert_base(), get_cert_base());
+
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *server_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(server_attrs, "tls.check_crl", true);
+
+    const char *msg = "hello";
+
+    pid_t server_pid =
+	hello_server(tls_addr, server_cert_dir, server_attrs, msg);
+
+    xcm_attr_map_destroy(server_attrs);
+
+    char client_cert_dir[PATH_MAX];
+    get_cert_path(client_cert_dir, "client");
+
+    CHKNOERR(hello_client(tls_addr, client_cert_dir, msg, 0));
+
+    tu_executef_es("cp -p %s/server/denied-crl.pem %s/server/crl.pem",
+		   get_cert_base(), get_cert_base());
+
+    CHKNOERR(hello_client(tls_addr, client_cert_dir, msg, EPROTO));
+
+    tu_executef_es("cp -p %s/server/allowed-crl.pem %s/server/crl.pem",
+		   get_cert_base(), get_cert_base());
+
+    CHKNOERR(hello_client(tls_addr, client_cert_dir, msg, 0));
+
+    kill(server_pid, SIGTERM);
+    tu_wait(server_pid);
+
+    ut_free(tls_addr);
 
     return UTEST_SUCCESS;
 }
