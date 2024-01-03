@@ -4116,9 +4116,11 @@ TESTCASE(xcm, utls_tls_fallback)
 
     CHKNOERR(tu_assure_str_attr(client_conn, "xcm.transport", "tls"));
 
-    CHKNOERR(xcm_close(client_conn));
-
     CHK(pthread_join(server_thread, NULL) == 0);
+
+    CHK(info.success);
+
+    CHKNOERR(xcm_close(client_conn));
 
     return UTEST_SUCCESS;
 }
@@ -6310,6 +6312,10 @@ TESTCASE_SERIALIZED(xcm, tls_detect_changes_to_cert_files)
 
 	struct xcm_socket *conn = tu_connect_retry(tls_addr, 0);
 	CHK(conn);
+
+	char buf[16];
+	CHKINTEQ(xcm_receive(conn, buf, sizeof(buf)), 0);
+
 	CHKNOERR(xcm_close(conn));
     }
 
@@ -6429,6 +6435,10 @@ TESTCASE_SERIALIZED_F(xcm, tls_change_cert_files_like_crazy,
     for (i = 0; i < num_accepts; i++) {
 	struct xcm_socket *conn = xcm_connect(tls_addr, 0);
 	CHK(conn);
+
+	char buf[16];
+	CHKINTEQ(xcm_receive(conn, buf, sizeof(buf)), 0);
+
 	CHKNOERR(xcm_close(conn));
     }
 
