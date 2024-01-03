@@ -1206,7 +1206,7 @@ static int btls_finish(struct xcm_socket *s)
     LOG_FINISH_REQ(s);
 
     if (s->type == xcm_socket_type_server)
-	return xcm_tp_socket_finish(ts->btcp_socket);
+	return xcm_tp_socket_finish(bts->btcp_socket);
 
     try_finish_tls_handshake(s);
 
@@ -1216,7 +1216,7 @@ static int btls_finish(struct xcm_socket *s)
 	LOG_FINISH_SAY_BUSY(s, bts->conn.state);
 	return -1;
     case conn_state_ready:
-	return xcm_tp_socket_finish(ts->btcp_socket);
+	return xcm_tp_socket_finish(bts->btcp_socket);
     case conn_state_bad:
 	errno = bts->conn.badness_reason;
 	return -1;
