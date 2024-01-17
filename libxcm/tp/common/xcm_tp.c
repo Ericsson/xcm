@@ -152,17 +152,14 @@ int xcm_tp_socket_server(struct xcm_socket *s, const char *local_addr)
     return rc;
 }
 
-int xcm_tp_socket_close(struct xcm_socket *s)
+void xcm_tp_socket_close(struct xcm_socket *s)
 {
-    int rc = 0;
-
     if (s != NULL) {
 #ifdef XCM_CTL
 	ctl_destroy(s->ctl, true);
 #endif
-	rc = XCM_TP_CALL(close, s);
+	XCM_TP_CALL(close, s);
     }
-    return rc;
 }
 
 void xcm_tp_socket_cleanup(struct xcm_socket *s)

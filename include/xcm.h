@@ -1608,8 +1608,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
  *
  * @param[in] socket The socket to be closed, or NULL (in case xcm_close() is a no-operation).
  *
- * @return Returns 0 on success, or -1 if an error occured
- *         (in which case errno is set).
+ * @return Always returns 0.
  *
  * @see xcm_cleanup
  */

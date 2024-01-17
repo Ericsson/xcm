@@ -43,7 +43,7 @@ struct ux_socket
 static int ux_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int ux_connect(struct xcm_socket *s, const char *remote_addr);
 static int ux_server(struct xcm_socket *s, const char *local_addr);
-static int ux_close(struct xcm_socket *s);
+static void ux_close(struct xcm_socket *s);
 static void ux_cleanup(struct xcm_socket *s);
 static int ux_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int ux_send(struct xcm_socket *s, const void *buf, size_t len);
@@ -319,14 +319,12 @@ static int ux_server(struct xcm_socket *s, const char *local_addr)
     return -1;
 }
 
-static int ux_close(struct xcm_socket *s)
+static void ux_close(struct xcm_socket *s)
 {
     LOG_CLOSING(s);
 
     if (s != NULL)
 	deinit(s, true);
-
-    return 0;
 }
 
 static void ux_cleanup(struct xcm_socket *s)

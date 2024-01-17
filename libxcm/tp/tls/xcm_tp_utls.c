@@ -46,7 +46,7 @@ struct utls_socket
 static int utls_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int utls_connect(struct xcm_socket *s, const char *remote_addr);
 static int utls_server(struct xcm_socket *s, const char *local_addr);
-static int utls_close(struct xcm_socket *s);
+static void utls_close(struct xcm_socket *s);
 static void utls_cleanup(struct xcm_socket *s);
 static int utls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int utls_send(struct xcm_socket *s, const void *buf, size_t len);
@@ -325,23 +325,18 @@ err:
     return -1;
 }
 
-static int utls_close(struct xcm_socket *s)
+static void utls_close(struct xcm_socket *s)
 {
     LOG_CLOSING(s);
-
-    int rc = 0;
 
     if (s != NULL) {
 	struct utls_socket *us = TOUTLS(s);
 
-	if (xcm_tp_socket_close(us->ux_socket) < 0)
-	    rc = -1;
-	if (xcm_tp_socket_close(us->tls_socket) < 0)
-	    rc = -1;
+	xcm_tp_socket_close(us->ux_socket);
+	xcm_tp_socket_close(us->tls_socket);
 
 	deinit(s);
     }
-    return rc;
 }
 
 static void utls_cleanup(struct xcm_socket *s)

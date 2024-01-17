@@ -123,7 +123,7 @@ struct btls_socket
 static int btls_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int btls_connect(struct xcm_socket *s, const char *remote_addr);
 static int btls_server(struct xcm_socket *s, const char *local_addr);
-static int btls_close(struct xcm_socket *s);
+static void btls_close(struct xcm_socket *s);
 static void btls_cleanup(struct xcm_socket *s);
 static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int btls_send(struct xcm_socket *s, const void *buf, size_t len);
@@ -905,11 +905,9 @@ err_deinit:
     return -1;
 }
 
-static int btls_close(struct xcm_socket *s)
+static void btls_close(struct xcm_socket *s)
 {
     LOG_CLOSING(s);
-
-    int rc = 0;
 
     if (s != NULL) {
 	struct btls_socket *bts = TOBTLS(s);
@@ -920,12 +918,10 @@ static int btls_close(struct xcm_socket *s)
 	    bts->conn.state == conn_state_ready)
 	    SSL_shutdown(bts->conn.ssl);
 
-	rc = xcm_tp_socket_close(bts->btcp_socket);
+	xcm_tp_socket_close(bts->btcp_socket);
 
 	deinit(s, true);
     }
-
-    return rc;
 }
 
 static void btls_cleanup(struct xcm_socket *s)

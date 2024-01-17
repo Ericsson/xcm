@@ -82,7 +82,7 @@ struct xcm_tp_ops {
     int (*init)(struct xcm_socket *s, struct xcm_socket *parent);
     int (*connect)(struct xcm_socket *s, const char *remote_addr);
     int (*server)(struct xcm_socket *s, const char *local_addr);
-    int (*close)(struct xcm_socket *s);
+    void (*close)(struct xcm_socket *s);
     void (*cleanup)(struct xcm_socket *s);
     int (*accept)(struct xcm_socket *conn_s, struct xcm_socket *server_s);
     int (*send)(struct xcm_socket *s, const void *buf, size_t len);
@@ -148,7 +148,7 @@ void xcm_tp_socket_destroy(struct xcm_socket *s);
 int xcm_tp_socket_init(struct xcm_socket *s, struct xcm_socket *parent);
 int xcm_tp_socket_connect(struct xcm_socket *s, const char *remote_addr);
 int xcm_tp_socket_server(struct xcm_socket *s, const char *local_addr);
-int xcm_tp_socket_close(struct xcm_socket *s);
+void xcm_tp_socket_close(struct xcm_socket *s);
 void xcm_tp_socket_cleanup(struct xcm_socket *s);
 int xcm_tp_socket_accept(struct xcm_socket *conn_s,
 			 struct xcm_socket *server_s);

@@ -264,11 +264,10 @@ err:
 int xcm_close(struct xcm_socket *s)
 {
     if (s != NULL) {
-	int rc = xcm_tp_socket_close(s);
+	xcm_tp_socket_close(s);
 	socket_destroy(s);
-	return rc;
-    } else
-	return 0;
+    }
+    return 0;
 }
 
 void xcm_cleanup(struct xcm_socket *s)
