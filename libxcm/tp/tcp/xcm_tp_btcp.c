@@ -86,7 +86,7 @@ struct btcp_socket
 static int btcp_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int btcp_connect(struct xcm_socket *s, const char *remote_addr);
 static int btcp_server(struct xcm_socket *s, const char *local_addr);
-static int btcp_close(struct xcm_socket *s);
+static void btcp_close(struct xcm_socket *s);
 static void btcp_cleanup(struct xcm_socket *s);
 static int btcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s);
 static int btcp_send(struct xcm_socket *s, const void *buf, size_t len);
@@ -541,7 +541,7 @@ err:
     return -1;
 }
 
-static int btcp_close(struct xcm_socket *s)
+static void btcp_close(struct xcm_socket *s)
 {
     if (s != NULL) {
 	LOG_CLOSING(s);
@@ -549,8 +549,6 @@ static int btcp_close(struct xcm_socket *s)
 	assert_socket(s);
 	deinit(s, true);
     }
-
-    return 0;
 }
 
 static void btcp_cleanup(struct xcm_socket *s)
