@@ -10,10 +10,10 @@
 #include <unistd.h>
 
 /*
- * The Linux kernel limits the number of epoll instances fds the
- * always-active fd can be registered in. See source/fs/eventpoll.c in
- * for details. Thus, to support a large number of connections, many
- * always-active fds must be allowed.
+ * The Linux kernel limits the number of epoll instances a fd may be
+ * registered in (see fs/eventpoll.c in kernel source for details).
+ * Thus, to support a large number of concurrent connections, multiple
+ * always-active fds must be employed.
  */
 
 #define MAX_USERS_PER_FD (100)
