@@ -105,7 +105,7 @@ int xcmc_close(struct xcmc_session *session)
 {
     if (session != NULL) {
 	int fd = session->fd;
-	free(session);
+	ut_free(session);
 	return close(fd);
     } else
 	return 0;
