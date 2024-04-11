@@ -4,6 +4,7 @@
  */
 
 #include "fdfwd.h"
+#include "attr.h"
 #include "util.h"
 
 #include <xcm.h>
@@ -51,83 +52,6 @@ static void print_versions(void)
     printf("  Compile-time:\n");
     printf("    Implementation: %s\n", XCM_VERSION);
     printf("    API: %s\n", XCM_VERSION_API);
-}
-
-
-#define MAX_ATTR_NAME_SIZE (64)
-#define MAX_ATTR_VALUE_SIZE (512)
-
-static void parse_str_attr(const char *s, char *name, char *value)
-{
-    const char *name_end = strchr(s, '=');
-    if (name_end == NULL) {
-	fprintf(stderr, "Invalid attribute format. '=' is missing.\n");
-	exit(EXIT_FAILURE);
-    }
-
-    size_t name_len = name_end - s;
-    if (name_len > MAX_ATTR_NAME_SIZE) {
-	fprintf(stderr, "Attribute name too long.\n");
-	exit(EXIT_FAILURE);
-    }
-
-    strncpy(name, s, name_len);
-    name[name_len] = '\0';
-
-    const char *value_part = &s[name_len + 1];
-    if (strlen(value_part) > MAX_ATTR_VALUE_SIZE) {
-	fprintf(stderr, "Attribute value too long.\n");
-	exit(EXIT_FAILURE);
-    }
-
-    strcpy(value, value_part);
-}
-
-static void parse_int64_attr(const char *s, char *name, int64_t *value)
-{
-    char str_value[MAX_ATTR_VALUE_SIZE + 1];
-
-    parse_str_attr(s, name, str_value);
-
-    char *end;
-    *value = strtol(str_value, &end, 10);
-
-    if (end != (str_value + strlen(str_value))) {
-	fprintf(stderr, "\"%s\" not an integer.\n", str_value);
-	exit(EXIT_FAILURE);
-    }
-}
-
-static void parse_double_attr(const char *s, char *name, double *value)
-{
-    char str_value[MAX_ATTR_VALUE_SIZE + 1];
-
-    parse_str_attr(s, name, str_value);
-
-    char *end;
-    *value = strtod(str_value, &end);
-
-    if (end != (str_value + strlen(str_value))) {
-	fprintf(stderr, "\"%s\" not a double.\n", str_value);
-	exit(EXIT_FAILURE);
-    }
-}
-
-static void parse_bool_attr(const char *s, char *name, bool *value)
-{
-    char str_value[MAX_ATTR_VALUE_SIZE + 1];
-
-    parse_str_attr(s, name, str_value);
-
-    if (strcmp(str_value, "true") == 0)
-	*value = true;
-    else if (strcmp(str_value, "false") == 0)
-	*value = false;
-    else {
-	fprintf(stderr, "Boolean attributes need to be either 'true' or "
-		"'false'.\n");
-	exit(EXIT_FAILURE);
-    }
 }
 
 struct xcm_tool {
@@ -287,18 +211,6 @@ static void run_server(const char *addr,
 	ut_die("Error closing server socket");
 }
 
-static void load_bin_attr(struct xcm_attr_map *attrs, const char *attr_name,
-			  const char *value_filename)
-{
-    char *value;
-    ssize_t rc = ut_load_file(value_filename, &value);
-
-    if (rc < 0)
-	ut_die("Error reading \"%s\"", value_filename);
-
-    xcm_attr_map_add_bin(attrs, attr_name, value, rc);
-}
-
 int main(int argc, char **argv)
 {
     int c;
@@ -306,11 +218,6 @@ int main(int argc, char **argv)
     struct xcm_attr_map *conn_attrs = xcm_attr_map_create();
     struct xcm_attr_map *server_attrs = xcm_attr_map_create();
     struct xcm_attr_map *attrs = conn_attrs;
-    char attr_name[MAX_ATTR_NAME_SIZE + 1];
-    bool attr_bool_value;
-    int64_t attr_int64_value;
-    double attr_double_value;
-    char attr_str_value[MAX_ATTR_VALUE_SIZE + 1];
 
     while ((c = getopt(argc, argv, "lb:i:d:s:f:xvh")) != -1)
 	switch (c) {
@@ -318,28 +225,23 @@ int main(int argc, char **argv)
 	    client = false;
 	    break;
 	case 'b':
-	    parse_bool_attr(optarg, attr_name, &attr_bool_value);
-	    xcm_attr_map_add_bool(attrs, attr_name, attr_bool_value);
+	    attr_parse_bool(optarg, attrs);
 	    attrs = conn_attrs;
 	    break;
 	case 'i':
-	    parse_int64_attr(optarg, attr_name, &attr_int64_value);
-	    xcm_attr_map_add_int64(attrs, attr_name, attr_int64_value);
+	    attr_parse_int64(optarg, attrs);
 	    attrs = conn_attrs;
 	    break;
 	case 'd':
-	    parse_double_attr(optarg, attr_name, &attr_double_value);
-	    xcm_attr_map_add_double(attrs, attr_name, attr_double_value);
+	    attr_parse_double(optarg, attrs);
 	    attrs = conn_attrs;
 	    break;
 	case 's':
-	    parse_str_attr(optarg, attr_name, attr_str_value);
-	    xcm_attr_map_add_str(attrs, attr_name, attr_str_value);
+	    attr_parse_str(optarg, attrs);
 	    attrs = conn_attrs;
 	    break;
 	case 'f':
-	    parse_str_attr(optarg, attr_name, attr_str_value);
-	    load_bin_attr(attrs, attr_name, attr_str_value);
+	    attr_load_bin(optarg, attrs);
 	    attrs = conn_attrs;
 	    break;
 	case 'x':

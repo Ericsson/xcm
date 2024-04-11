@@ -58,7 +58,7 @@ To build this software the system needs to have the following packages
 * c-ares (1.16.0 or later)
 * openssl (1.1.x or 3.x, if UTLS or TLS transports are enabled)
 * lttng-ust (including the dev and tools package) (if LTTng is enabled)
-* libevent2 (if the 'xcm' command-line tool is enabled)
+* libevent2 (if the 'xcm' and 'xcmrelay' tools are enabled)
 * doxygen and plantuml (for documentation)
 * libsctp-dev (in case the SCTP transport is enabled)
 

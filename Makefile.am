@@ -21,7 +21,7 @@ endif
 
 bin_PROGRAMS = xcmpong
 if XCM_TOOL
-bin_PROGRAMS += xcm
+bin_PROGRAMS += xcm xcmrelay
 endif
 if CTL
 bin_PROGRAMS += xcmctl
@@ -109,7 +109,7 @@ libxcmctl_la_LDFLAGS = -Wl,--version-script=$(srcdir)/libxcmctl/libxcmctl.vs \
 libxcmctl_la_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT -I$(srcdir)/libxcmctl
 endif
 
-xcmpong_SOURCES = tools/xcmpong.c common/util.c
+xcmpong_SOURCES = tools/xcmpong/main.c common/util.c
 # You might think of _CFLAGS setting as a no-op, but in fact this
 # makes 'xcmmon/util.c' to be built in a separate version for
 # 'umpong', which is needed since the other version is built by
@@ -120,19 +120,31 @@ xcmpong_LDFLAGS = @RT_LIBS@
 xcmpong_LDADD = libxcm.la
 
 if XCM_TOOL
-xcm_SOURCES = tools/xcm.c tools/fdfwd.c common/util.c
+xcm_SOURCES = tools/xcm/main.c tools/xcm/fdfwd.c tools/common/attr.c \
+	common/util.c
 # You might think of _CFLAGS setting as a no-op, but in fact this
 # makes 'common/util.c' to be built in a separate version for
 # 'xcm', which is needed since the other version is built by
 # libtool.
 xcm_CFLAGS = $(AM_CFLAGS)
-xcm_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT
+xcm_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/tools/common -DUT_STD_ASSERT
 xcm_LDADD = libxcm.la
 xcm_LDFLAGS = @EVENT_LIBS@
+
+xcmrelay_SOURCES = tools/xcmrelay/main.c tools/xcmrelay/rserver.c \
+	tools/xcmrelay/xrelay.c tools/common/attr.c common/util.c
+# You might think of _CFLAGS setting as a no-op, but in fact this
+# makes 'common/util.c' to be built in a separate version for
+# 'xcm', which is needed since the other version is built by
+# libtool.
+xcmrelay_CFLAGS = $(AM_CFLAGS)
+xcmrelay_CPPFLAGS = $(AM_CPPFLAGS) -I$(srcdir)/tools/common -DUT_STD_ASSERT
+xcmrelay_LDADD = libxcm.la
+xcmrelay_LDFLAGS = @EVENT_LIBS@
 endif
 
 if CTL
-xcmctl_SOURCES = tools/xcmctl.c common/util.c
+xcmctl_SOURCES = tools/xcmctl/main.c common/util.c
 xcmctl_CFLAGS = $(AM_CFLAGS)
 xcmctl_CPPFLAGS = $(AM_CPPFLAGS) -DUT_STD_ASSERT
 xcmctl_LDADD = libxcmctl.la
