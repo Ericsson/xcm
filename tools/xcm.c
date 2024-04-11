@@ -181,7 +181,6 @@ static void run_client(const char *addr, const struct xcm_attr_map *attrs,
     handle_conn(conn, event_base, client_term, event_base);
 }
 
-#define MAX_FDS (8)
 struct server
 {
     struct event_base *event_base;
