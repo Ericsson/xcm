@@ -27,15 +27,16 @@ static void usage(const char *name)
     printf(" -b <name>=(true|false)  Set boolean connection attribute\n");
     printf(" -i <name>=<value>       Set integer connection attribute.\n");
     printf(" -d <name>=<value>       Set double-precision floating point "
-	   "connection attribute.\n");
+	   "connection\n"
+	   "                         attribute.\n");
     printf(" -s <name>=<value>       Set string connection attribute.\n");
     printf(" -f <name>=<filename>    Set binary connection attribute to the "
 	   "contents of\n"
 	   "                         <filename>.\n");
-    printf(" -x                      One subsequent -b, -i, -s, or -f switch "
-	   "configures a\n"
-	   "                         server (rather than a connection) socket "
-	   "attribute.\n");
+    printf(" -x                      One subsequent -b, -i, -d, -s, or -f "
+	   "switch configures\n"
+	   "                         a server (rather than a connection) "
+	   "socket attribute.\n");
     printf(" -v                      Prints XCM library version "
 	   "information.\n");
     printf(" -h                      Prints this text.\n");
