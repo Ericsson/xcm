@@ -12,6 +12,7 @@ extern "C" {
 #include <errno.h>
 #include <inttypes.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 
@@ -78,6 +79,32 @@ struct xcm_addr_host
 	char name[254];
     };
 };
+
+/** Checks if an XCM address is valid.
+ *
+ * Checks if a string is a syntactically correct XCM address for a
+ * known (but not necessarily supported) XCM transport.
+ *
+ * The correctness of the complete address is verified, including the
+ * transport-specific part (e.g., port number for TCP/IP-based
+ * transports).
+ *
+ * @param[in] xcm_addr_s The XCM address string.
+ *
+ * @return Returns true if valid, false if not.
+ */
+bool xcm_addr_is_valid(const char *xcm_addr_s);
+
+/** Checks if an XCM address is a valid and supported.
+ *
+ * Checks if a string is a valid address for an XCM transport
+ * supported by this library instance.
+ *
+ * @param[in] xcm_addr_s The XCM address string.
+ *
+ * @return Returns true if valid and supported, false if not.
+ */
+bool xcm_addr_is_supported(const char *xcm_addr_s);
 
 /** Parses the protocol part of an XCM address.
  *

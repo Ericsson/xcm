@@ -76,6 +76,8 @@
     xcm_addr_make_uxf;
     xcm_addr_make_btcp;
     xcm_addr_make_btls;
+    xcm_addr_is_valid;
+    xcm_addr_is_supported;
 # Obsolete pre-DNS address parsing
     xcm_addr_utls6_parse;
     xcm_addr_tls6_parse;

@@ -3,12 +3,40 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
+#include "config.h"
 #include "utest.h"
 #include "xcm_addr.h"
 
 #include <arpa/inet.h>
 
 TESTSUITE(addr, NULL, NULL)
+
+TESTCASE(addr, supported)
+{
+    bool tls_supported =
+#ifdef XCM_TLS
+	true;
+#else
+	false;
+#endif
+
+    CHK(xcm_addr_is_supported("utls:1.2.3.4:55") == tls_supported);
+    CHK(xcm_addr_is_supported("tls:1.2.3.4:55") == tls_supported);
+    CHK(xcm_addr_is_supported("btls:1.2.3.4:55") == tls_supported);
+
+    bool sctp_supported =
+#ifdef XCM_SCTP
+	true;
+#else
+	false;
+#endif
+
+    CHK(xcm_addr_is_supported("sctp:1.2.3.4:55") == sctp_supported);
+
+    CHK(!xcm_addr_is_supported("xtls:1.2.3.4:55"));
+
+    return UTEST_SUCCESS;
+}
 
 TESTCASE(addr, proto_parse)
 {
@@ -41,6 +69,24 @@ static bool ip6_addr_eq(const uint8_t *a, const uint8_t *b)
 }
 
 #define GEN_DNS_BASED_PARSE_TEST(proto, notproto)			\
+    int test_parse_ ## proto(const char *addr_s, struct xcm_addr_host *host, \
+			     uint16_t *port, bool was_valid,		\
+			     bool was_valid_for_proto)			\
+    {									\
+	errno = 0;							\
+	int rc = xcm_addr_parse_ ## proto(addr_s, host, port);		\
+									\
+	bool is_valid = xcm_addr_is_valid(addr_s);			\
+									\
+	if (is_valid != was_valid)					\
+	    return -1;							\
+									\
+	if (was_valid_for_proto)					\
+	    return rc == 0 && errno == 0 && is_valid ? 0 : -1;		\
+	else								\
+	    return rc < 0 && errno == EINVAL ? 0 : -1;			\
+    }									\
+									\
     struct xcm_addr_host host = {                                       \
 	.type  = 99,                                                    \
 	.ip.family = 42,                                                \
@@ -48,82 +94,82 @@ static bool ip6_addr_eq(const uint8_t *a, const uint8_t *b)
     };									\
     unsigned short port = 17;						\
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto("ux:some/dir", &host,             \
-				      &port), EINVAL);                  \
+    CHKNOERR(test_parse_ ## proto("ux:some/dir", &host, &port, true,	\
+				  false));				\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto(#notproto ":192.168.1.1:22",	\
-				      &host, &port), EINVAL);           \
+    CHKNOERR(test_parse_ ## proto(#notproto ":192.168.1.1:22",		\
+				  &host, &port, true, false));		\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto(#proto ":1.2.3.4", &host,         \
-				      &port), EINVAL);                  \
+    CHKNOERR(test_parse_ ## proto(#proto ":1.2.3.4", &host,		\
+				  &port, false, false));		\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto(#proto ":[::1]", &host,           \
-				      &port), EINVAL);                  \
+    CHKNOERR(test_parse_ ## proto(#proto ":[::1]", &host,		\
+				  &port, false, false));		\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto(#proto ":[::1:42", &host,         \
-				      &port), EINVAL);                  \
+    CHKNOERR(test_parse_ ## proto(#proto ":[::1:42", &host,		\
+				  &port, false, false));		\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto(#proto ":.ericsson.se:4711", &host, \
-				      &port), EINVAL);                  \
+    CHKNOERR(test_parse_ ## proto(#proto ":.ericsson.se:4711", &host,	\
+				  &port, false, false));		\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKERRNO(xcm_addr_parse_ ## proto(#proto ":ericsson..se:4711", &host, \
-				      &port), EINVAL);                  \
+    CHKNOERR(test_parse_ ## proto(#proto ":ericsson..se:4711", &host,	\
+				  &port, false, false));		\
     CHK(host.type == 99 && host.ip.family == 42 &&                      \
 	host.ip.addr.ip4 == INADDR_ANY && port == 17);                  \
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":127.0.0.1:4711", &host,  \
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":127.0.0.1:4711", &host,	\
+				  &port, true, true));			\
     CHK(host.type == xcm_addr_type_ip);                                 \
     CHK(host.ip.family == AF_INET);                                     \
     CHK(host.ip.addr.ip4 == inet_addr("127.0.0.1"));                    \
     CHK(port == htons(4711));						\
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":[::1]:4711", &host,	\
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":[::1]:4711", &host, &port,	\
+				  true, true));				\
     CHK(host.type == xcm_addr_type_ip);                                 \
     CHK(host.ip.family == AF_INET6);                                    \
     CHK(ip6_addr_eq(in6addr_loopback.s6_addr, host.ip.addr.ip6));       \
     CHK(port == htons(4711));						\
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":[*]:4711", &host,	\
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":[*]:4711", &host, &port,	\
+				  true, true));				\
     CHK(host.type == xcm_addr_type_ip);                                 \
     CHK(host.ip.family == AF_INET6);                                    \
     CHK(ip6_addr_eq(in6addr_any.s6_addr, host.ip.addr.ip6));            \
     CHK(port == htons(4711));						\
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":ericsson.se:4711", &host, \
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":ericsson.se:4711", &host,	\
+				  &port, true, true));			\
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("ericsson.se", host.name);                                 \
     CHK(port == htons(4711));						\
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":3com.com:1", &host,      \
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":3com.com:1", &host,		\
+				  &port, true, true));			\
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("3com.com", host.name);                                    \
     CHK(port == htons(1));						\
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":www.liu.se.:1", &host,   \
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":www.liu.se.:1", &host,	\
+				  &port, true, true));			\
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("www.liu.se.", host.name);                                 \
     CHK(port == htons(1));						\
 									\
-    CHKNOERR(xcm_addr_parse_ ## proto(#proto ":localhost:42", &host,    \
-				      &port));                          \
+    CHKNOERR(test_parse_ ## proto(#proto ":localhost:42", &host,	\
+				  &port, true, true));			\
     CHK(host.type == xcm_addr_type_name);                               \
     CHKSTREQ("localhost", host.name);                                   \
     CHK(port == htons(42));						\

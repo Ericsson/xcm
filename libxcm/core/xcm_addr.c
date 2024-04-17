@@ -5,6 +5,7 @@
 
 #include "xcm_addr.h"
 
+#include "config.h"
 #include "util.h"
 #include "xcm_addr_limits.h"
 #include "xcm_dns.h"
@@ -19,6 +20,83 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+
+static bool supports_tls(void)
+{
+#ifdef XCM_TLS
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool supports_sctp(void)
+{
+#ifdef XCM_SCTP
+    return true;
+#else
+    return false;
+#endif
+}
+
+static bool is_valid_addr(const char *xcm_addr_s, bool require_supported)
+{
+    char proto[XCM_ADDR_MAX_PROTO_LEN];
+
+    int rc = -1;
+
+    UT_SAVE_ERRNO;
+
+    rc = xcm_addr_parse_proto(xcm_addr_s, proto, sizeof(proto));
+
+    if (rc < 0)
+	goto out;
+
+
+    struct xcm_addr_host host;
+    uint16_t port;
+    char ux_name[XCM_ADDR_MAX+1];
+
+    rc = -1;
+
+    if (strcmp(XCM_TCP_PROTO, proto) == 0)
+	rc = xcm_addr_parse_tcp(xcm_addr_s, &host, &port);
+    else if (strcmp(XCM_BTCP_PROTO, proto) == 0)
+	rc = xcm_addr_parse_btcp(xcm_addr_s, &host, &port);
+    else if (strcmp(XCM_UX_PROTO, proto) == 0)
+	rc = xcm_addr_parse_ux(xcm_addr_s, ux_name, sizeof(ux_name));
+    else if (strcmp(XCM_UXF_PROTO, proto) == 0)
+	rc = xcm_addr_parse_uxf(xcm_addr_s, ux_name, sizeof(ux_name));
+
+    if (supports_tls() || !require_supported) {
+	if (strcmp(XCM_UTLS_PROTO, proto) == 0)
+	    rc = xcm_addr_parse_utls(xcm_addr_s, &host, &port);
+	else if (strcmp(XCM_TLS_PROTO, proto) == 0)
+	    rc = xcm_addr_parse_tls(xcm_addr_s, &host, &port);
+	else if (strcmp(XCM_BTLS_PROTO, proto) == 0)
+	    rc = xcm_addr_parse_btls(xcm_addr_s, &host, &port);
+    }
+
+    if (supports_sctp() || !require_supported) {
+	if (strcmp(XCM_SCTP_PROTO, proto) == 0)
+	    rc = xcm_addr_parse_sctp(xcm_addr_s, &host, &port);
+    }
+
+out:
+    UT_RESTORE_ERRNO_DC;
+
+    return rc == 0;
+}
+
+bool xcm_addr_is_valid(const char *xcm_addr_s)
+{
+    return is_valid_addr(xcm_addr_s, false);
+}
+
+bool xcm_addr_is_supported(const char *xcm_addr_s)
+{
+    return is_valid_addr(xcm_addr_s, true);
+}
 
 static bool has_space(const char *s)
 {
