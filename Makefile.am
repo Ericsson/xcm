@@ -1,5 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 
+PYTEST=py.test-3
+
 AM_CFLAGS = -std=gnu99 -Wall -Wmissing-prototypes -D_POSIX_C_SOURCE=200809L \
 	-D_BSD_SOURCE -D_DEFAULT_SOURCE -D_GNU_SOURCE
 
@@ -241,8 +243,9 @@ if PYTHON
 xcm_PYTHON=python/xcm.py
 xcmdir = $(pythondir)
 python-test: libxcm.la
-	python3 -m flake8 $(xcm_PYTHON)
-	LD_LIBRARY_PATH=$(builddir)/.libs ./python/xcmtest.py
+	python3 -m flake8 $(xcm_PYTHON) python/test_xcm.py
+	LD_LIBRARY_PATH=$(builddir)/.libs \
+		$(PYTEST) -vv $(PYTESTOPTS) -s $(PYTESTS)
 endif
 
 verify-versioning:
