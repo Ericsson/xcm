@@ -3,18 +3,18 @@
 
 def has_tls():
     try:
-        return int("@XCM_TLS@")
+        return int("@XCM_TLS@") == 1
     except ValueError:
         return False
 
 def has_sctp():
     try:
-        return int("@XCM_SCTP@")
+        return int("@XCM_SCTP@") == 1
     except ValueError:
         return False
 
 def has_cares():
     try:
-        return int("@XCM_CARES@")
+        return int("@XCM_CARES@") == 1
     except ValueError:
         return False

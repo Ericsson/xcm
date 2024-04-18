@@ -2,99 +2,19 @@
 # Copyright(c) 2024 Ericsson AB
 
 import config
-import echod
 import errno
 import gc
-import multiprocessing
-import os
 import pytest
-import random
 import time
 import xcm
-
-CERT_DIR = "./test/cert/%d" % os.getpid()
-
-CERT_CONF = """
-base-path: %s
-
-certs:
-  root:
-    subject_name: root
-    ca: True
-  leaf:
-    subject_name: leaf
-    issuer: root
-
-files:
-  - type: key
-    id: leaf
-    path: key.pem
-  - type: cert
-    id: leaf
-    path: cert.pem
-  - type: ski
-    id: leaf
-    path: ski
-  - type: bundle
-    certs:
-      - root
-    path: tc.pem
-""" % CERT_DIR
-
-
-def setup_cert():
-    os.system("echo '%s' | ./test/gencert.py" % CERT_CONF)
-    os.putenv("XCM_TLS_CERT", CERT_DIR)
-
-
-def teardown_cert():
-    os.unsetenv("XCM_TLS_CERT")
-    os.system("rm -rf %s" % CERT_DIR)
-
-
-def run_server(addr):
-    echod.run(addr)
-
-
-def echo_server(addr):
-    p = multiprocessing.Process(target=run_server, args=(addr,))
-    p.start()
-    return p
-
-
-def rand_port():
-    return random.randint(10000, 12000)
-
-
-TEST_MSG_ADDRS = [
-    "ux:test-%d" % random.randint(0, 10000),
-    "tcp:127.0.0.1:%d" % rand_port()
-]
-
-TEST_ADDRS = TEST_MSG_ADDRS[:]
-TEST_ADDRS.append("btcp:127.0.0.1:%d" % rand_port())
-
-if config.has_tls():
-    TEST_ADDRS.extend([
-        "tls:127.0.0.1:%d" % rand_port(),
-        "utls:127.0.0.1:%d" % rand_port(),
-        "btls:127.0.0.1:%d" % rand_port()
-    ])
-    TEST_MSG_ADDRS.extend([
-        "tls:127.0.0.1:%d" % rand_port(),
-        "utls:127.0.0.1:%d" % rand_port()
-    ])
-
-if config.has_sctp():
-    TEST_ADDRS.append("sctp:127.0.0.1:%d" % rand_port())
-    TEST_MSG_ADDRS.append("sctp:127.0.0.1:%d" % rand_port())
+import xtest
 
 
 @pytest.fixture(scope='module', autouse=True)
 def setup():
-    setup_cert()
+    xtest.setup_cert()
     yield
-    teardown_cert()
+    xtest.teardown_cert()
 
 
 @pytest.fixture(scope='function')
@@ -102,9 +22,9 @@ def server(request):
     try:
         addr = request.param
     except AttributeError:
-        addr = "tcp:127.0.0.1:%d" % rand_port()
+        addr = xtest.TEST_ADDR
 
-    server = echo_server(addr)
+    server = xtest.echo_server(addr)
 
     time.sleep(0.5)
 
@@ -112,19 +32,6 @@ def server(request):
 
     server.terminate()
     server.join()
-
-
-def is_bytestream(addr):
-    return addr.startswith("btls") or addr.startswith("btcp")
-
-
-def is_tcp_based(addr):
-    return addr.startswith("tcp") or addr.startswith("btcp") or \
-        is_tls_based(addr)
-
-
-def is_tls_based(addr):
-    return addr.startswith("btls") or addr.startswith("tls")
 
 
 def test_connect_attrs(server):
@@ -142,7 +49,7 @@ def test_connect_attrs(server):
     conn.close()
 
 
-@pytest.mark.parametrize("server", TEST_MSG_ADDRS, indirect=True)
+@pytest.mark.parametrize("server", xtest.TEST_MSG_ADDRS, indirect=True)
 def test_connect_flags(server):
     conn = xcm.connect(server, xcm.NONBLOCK)
     assert not conn.is_blocking()
@@ -158,15 +65,15 @@ def test_connect_flags(server):
     conn.close()
 
 
-@pytest.mark.parametrize("server", TEST_ADDRS, indirect=True)
+@pytest.mark.parametrize("server", xtest.TEST_ADDRS, indirect=True)
 def test_echo(server):
-    if is_bytestream(server):
+    if xtest.is_bytestream(server):
         attrs = {
             "xcm.blocking": True,
             "xcm.service": "bytestream"
         }
-        if is_tls_based(server):
-            with open("%s/%s" % (CERT_DIR, "cert.pem"), "rb") as f:
+        if xtest.is_tls_based(server):
+            with open("%s/%s" % (xtest.CERT_DIR, "cert.pem"), "rb") as f:
                 cert = f.read()
                 attrs["tls.cert"] = cert
         conn = xcm.connect(server, attrs=attrs)
@@ -177,7 +84,7 @@ def test_echo(server):
     conn.finish()
     conn.set_blocking(True)
 
-    if is_tcp_based(server):
+    if xtest.is_tcp_based(server):
         conn.set_attr("tcp.keepalive_count", 99)
         assert conn.get_attr("tcp.keepalive_count") == 99
     else:
@@ -189,18 +96,18 @@ def test_echo(server):
     with pytest.raises(PermissionError):
         conn.set_attr("xcm.remote_addr", "ux:foo")
 
-    if is_tcp_based(server):
+    if xtest.is_tcp_based(server):
         assert conn.get_attr("tcp.rtt") > 0
 
-    if is_tls_based(server):
-        with open("%s/ski" % CERT_DIR, "rb") as f:
+    if xtest.is_tls_based(server):
+        with open("%s/ski" % xtest.CERT_DIR, "rb") as f:
             key_id = f.read()
             assert conn.get_attr("tls.peer_subject_key_id") == key_id
 
     orig_msg = b'\x01\x02\x00\x03\x09\x02\x00\x04'
     conn.send(orig_msg)
 
-    if is_bytestream(server):
+    if xtest.is_bytestream(server):
         ret_msg = conn.receive()
     else:
         conn.set_blocking(False)
@@ -218,33 +125,32 @@ def test_echo(server):
     conn.close()
 
 
-def test_server_attr():
-    for addr in TEST_ADDRS:
-        if is_bytestream(addr):
-            sock = xcm.server(addr, attrs={"xcm.service": "bytestream"})
-        else:
-            sock = xcm.server(addr)
+@pytest.mark.parametrize("addr", xtest.TEST_ADDRS)
+def test_server_attr(addr):
+    if xtest.is_bytestream(addr):
+        sock = xcm.server(addr, attrs={"xcm.service": "bytestream"})
+    else:
+        sock = xcm.server(addr)
 
-        assert sock.get_attr("xcm.type") == "server"
+    assert sock.get_attr("xcm.type") == "server"
 
-        sock.set_attr("xcm.blocking", False)
-        assert not sock.get_attr("xcm.blocking")
+    sock.set_attr("xcm.blocking", False)
+    assert not sock.get_attr("xcm.blocking")
 
-        with pytest.raises(FileNotFoundError):
-            sock.set_attr("xcm.tcp_keepalive_interval", 99)
+    with pytest.raises(FileNotFoundError):
+        sock.set_attr("xcm.tcp_keepalive_interval", 99)
 
-        with pytest.raises(OSError) as exc_info:
-            sock.set_attr("xcm.blocking", 17)
-        assert exc_info.value.errno == errno.EINVAL
+    with pytest.raises(OSError) as exc_info:
+        sock.set_attr("xcm.blocking", 17)
+    assert exc_info.value.errno == errno.EINVAL
 
-        sock.finish()
-        sock.set_blocking(True)
+    sock.finish()
+    sock.set_blocking(True)
 
-        sock.close()
+    sock.close()
 
 
-@pytest.mark.parametrize("server", ["tcp:localhost:%d" % rand_port()],
-                         indirect=True)
+@pytest.mark.parametrize("server", xtest.TEST_DNS_ADDRS, indirect=True)
 def test_dns(server):
     attrs = {}
 
@@ -256,11 +162,11 @@ def test_dns(server):
 
 
 def test_gc_closes():
-    sock = xcm.server(TEST_ADDRS[0])
+    sock = xcm.server(xtest.TEST_ADDR)
     del sock
     gc.collect()
     # getting EADDRINUSE in case socket is not closed
-    sock = xcm.server(TEST_ADDRS[0])
+    sock = xcm.server(xtest.TEST_ADDR)
     del sock
 
 
