@@ -1,6 +1,12 @@
-#include <string.h>
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright(c) 2024 Ericsson AB
+ */
+
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "util.h"
 #include "attr.h"
@@ -8,11 +14,14 @@
 #define MAX_ATTR_NAME_SIZE (64)
 #define MAX_ATTR_VALUE_SIZE (512)
 
+#define DELIMITER '='
+
 static void parse_str_attr(const char *s, char *name, char *value)
 {
-    const char *name_end = strchr(s, '=');
+    const char *name_end = strchr(s, DELIMITER);
     if (name_end == NULL) {
-	fprintf(stderr, "Invalid attribute format. '=' is missing.\n");
+	fprintf(stderr, "Invalid attribute format. '%c' is missing.\n",
+		DELIMITER);
 	exit(EXIT_FAILURE);
     }
 
@@ -121,7 +130,7 @@ void attr_parse_str(const char *s, struct xcm_attr_map *attrs)
     xcm_attr_map_add_str(attrs, name, value);
 }
 
-void attr_load_bin(const char *s, struct xcm_attr_map *attrs)
+void attr_load_bin_file(const char *s, struct xcm_attr_map *attrs)
 {
     char name[MAX_ATTR_NAME_SIZE];
     char filename[MAX_ATTR_VALUE_SIZE];
@@ -135,4 +144,35 @@ void attr_load_bin(const char *s, struct xcm_attr_map *attrs)
 	ut_die("Error reading \"%s\"", filename);
 
     xcm_attr_map_add_bin(attrs, name, value, rc);
+
+    ut_free(value);
+}
+
+void attr_load_bin_stdin(const char *s, struct xcm_attr_map *attrs)
+{
+    if (strlen(s) > MAX_ATTR_NAME_SIZE) {
+	fprintf(stderr, "Attribute name too long.\n");
+	exit(EXIT_FAILURE);
+    }
+
+    uint32_t raw_len;
+
+    if (fread(&raw_len, 1, sizeof(raw_len), stdin) != sizeof(raw_len)) {
+	fprintf(stderr, "Failed to read length field for \"%s\".\n", s);
+	exit(EXIT_FAILURE);
+    }
+    
+    uint32_t len = ntohl(raw_len);
+
+    char *value = ut_malloc(len);
+
+    if (fread(value, 1, len, stdin) != len) {
+	fprintf(stderr, "Failed to read %d bytes of value data for \"%s\".\n",
+		len, s);
+	exit(EXIT_FAILURE);
+    }
+
+    xcm_attr_map_add_bin(attrs, s, value, len);
+
+    ut_free(value);
 }

@@ -39,6 +39,11 @@ static void usage(const char *name)
     printf(" -f <name>=<filename>    Set binary attribute on connections to "
 	   "the contents of\n"
 	   "                         <filename>.\n");
+    printf(" -r <name>               Read binary connection attribute from "
+	   "stdin. The\n"
+	   "                         value data must be preceded by a 32-bit "
+	   "length field\n"
+	   "                         in network byte order.\n");
     printf(" -x                      One subsequent -b, -i, -d, -s, or -f "
 	   "switch configures\n"
 	   "                         a server socket attribute.\n");
@@ -86,7 +91,7 @@ int main(int argc, char **argv)
     struct xcm_attr_map *server_conn_attrs = xcm_attr_map_create();
     struct xcm_attr_map *attrs = client_conn_attrs;
 
-    while ((c = getopt(argc, argv, "b:i:d:s:f:xyh")) != -1)
+    while ((c = getopt(argc, argv, "b:i:d:s:f:r:xyh")) != -1)
 	switch (c) {
 	case 'b':
 	    attr_parse_bool(optarg, attrs);
@@ -105,7 +110,11 @@ int main(int argc, char **argv)
 	    attrs = client_conn_attrs;
 	    break;
 	case 'f':
-	    attr_load_bin(optarg, attrs);
+	    attr_load_bin_file(optarg, attrs);
+	    attrs = client_conn_attrs;
+	    break;
+	case 'r':
+	    attr_load_bin_stdin(optarg, attrs);
 	    attrs = client_conn_attrs;
 	    break;
 	case 'x':

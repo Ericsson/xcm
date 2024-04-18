@@ -8,6 +8,7 @@ import os
 import pytest
 import random
 import signal
+import struct
 import subprocess
 import threading
 import time
@@ -23,15 +24,35 @@ def setup():
 
 
 class Relay:
-    def __init__(self, server_addr, client_addr):
+    def __init__(self, server_addr, client_addr, tls_cert=None,
+                 tls_key=None, tls_tc=None):
         self.server_addr = server_addr
         self.client_addr = client_addr
+        self.tls_cert = tls_cert
+        self.tls_key = tls_key
+        self.tls_tc = tls_tc
         self.process = None
 
     def start(self):
-        cmd = ["./xcmrelay", self.server_addr, self.client_addr]
+        cmd = ["./xcmrelay"]
+
+        stdin_data = bytes()
+        if self.tls_cert is not None:
+            cmd.extend(["-x", "-r", "tls.cert"])
+            stdin_data += self.tls_cert
+        if self.tls_key is not None:
+            cmd.extend(["-x", "-r", "tls.key"])
+            stdin_data += self.tls_key
+        if self.tls_tc is not None:
+            cmd.extend(["-x", "-r", "tls.tc"])
+            stdin_data += self.tls_tc
+
+        cmd.extend([self.server_addr, self.client_addr])
+
         self.process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE)
+        self.process.stdin.write(stdin_data)
+        self.process.stdin.flush()
         time.sleep(0.5)
 
     def stop(self):
@@ -195,3 +216,43 @@ def test_echo(relay):
     finally:
         server.terminate()
         server.join()
+
+
+def read_attr(filename):
+    data = open(filename, 'rb').read()
+    hdr = struct.pack('!I', len(data))
+    return hdr + data
+
+
+def test_stdin_attrs():
+    proxy_addr = "tls:127.0.0.42:%d" % xtest.rand_port()
+    server_addr = xtest.rand_ux()
+
+    xcm_tls_cert = os.environ["XCM_TLS_CERT"]
+    del os.environ["XCM_TLS_CERT"]
+
+    tls_cert = read_attr(xcm_tls_cert + "/cert.pem")
+    tls_key = read_attr(xcm_tls_cert + "/key.pem")
+    tls_tc = read_attr(xcm_tls_cert + "/tc.pem")
+
+    relay = Relay(proxy_addr, server_addr, tls_cert=tls_cert, tls_key=tls_key,
+                  tls_tc=tls_tc)
+    relay.start()
+
+    os.environ["XCM_TLS_CERT"] = xcm_tls_cert
+
+    server, relay_conn, server_conn = wire_up(relay)
+
+    out_msg = os.urandom(random.randint(1, 65535))
+
+    relay_conn.set_attr("xcm.blocking", True)
+    relay_conn.send(out_msg)
+
+    server_conn.set_attr("xcm.blocking", True)
+    in_msg = server_conn.receive()
+
+    assert in_msg == out_msg
+
+    relay_conn.close()
+    server.close()
+    server_conn.close()

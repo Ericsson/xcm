@@ -39,11 +39,11 @@ files:
 
 def setup_cert():
     os.system("echo '%s' | ./test/gencert.py" % CERT_CONF)
-    os.putenv("XCM_TLS_CERT", CERT_DIR)
+    os.environ["XCM_TLS_CERT"] = CERT_DIR
 
 
 def teardown_cert():
-    os.unsetenv("XCM_TLS_CERT")
+    os.environ.pop("XCM_TLS_CERT")
     os.system("rm -rf %s" % CERT_DIR)
 
 
@@ -57,10 +57,14 @@ def rand_port():
     return random.randint(10000, 12000)
 
 
+def rand_ux():
+    return "ux:test-%d" % random.randint(0, 10000)
+
+
 TEST_ADDR = "tcp:127.0.0.1:%d" % rand_port()
 
 TEST_MSG_ADDRS = [
-    "ux:test-%d" % random.randint(0, 10000),
+    rand_ux(),
     "tcp:127.0.0.1:%d" % rand_port()
 ]
 
