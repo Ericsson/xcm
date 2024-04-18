@@ -256,3 +256,5 @@ def test_stdin_attrs():
     relay_conn.close()
     server.close()
     server_conn.close()
+
+    relay.stop()
