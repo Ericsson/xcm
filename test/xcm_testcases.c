@@ -27,6 +27,11 @@
 #include <unistd.h>
 
 #include "config.h"
+
+#ifdef XCM_VALGRIND
+#include <valgrind/valgrind.h>
+#endif
+
 #include "iowrap.h"
 #include "pingpong.h"
 #include "testutil.h"
@@ -48,7 +53,11 @@ static bool is_root(void)
 
 static bool is_in_valgrind(void)
 {
-    return getenv("IN_VALGRIND") ? true : false;
+#ifdef XCM_VALGRIND
+    return RUNNING_ON_VALGRIND;
+#else
+    return false;
+#endif
 }
 
 static bool kernel_has_tcp_info_segs(void)

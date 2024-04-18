@@ -164,6 +164,10 @@ AC_ARG_ENABLE([valgrind],
 AS_IF([test "x$enable_valgrind" = "xyes"], [
 	AC_CHECK_PROG(valgrind, [],
                  [AC_MSG_ERROR([Unable to find Valgrind executable.])])
+	AC_CHECK_HEADERS(valgrind/valgrind.h, [:],
+                 [AC_MSG_ERROR([Unable to find the valgrind header files.])])
+	AC_DEFINE([XCM_VALGRIND], [1], [Use valgrind.])
+	AC_SUBST(XCM_VALGRIND, 1)], [
 ])
 
 AM_CONDITIONAL([VALGRIND], [test "x$enable_valgrind" = "xyes"])
