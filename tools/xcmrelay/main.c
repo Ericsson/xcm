@@ -167,7 +167,8 @@ int main(int argc, char **argv)
     evsignal_add(&sighup_event, NULL);
 
     struct event sigterm_event;
-    evsignal_assign(&sigterm_event, event_base, SIGTERM, on_signal, event_base);
+    evsignal_assign(&sigterm_event, event_base, SIGTERM, on_signal,
+		    event_base);
     evsignal_add(&sigterm_event, NULL);
 
     struct rserver *rserver =
@@ -190,6 +191,12 @@ int main(int argc, char **argv)
     rserver_stop(rserver);
 
     rserver_destroy(rserver);
+
+    evsignal_del(&sigint_event);
+    evsignal_del(&sighup_event);
+    evsignal_del(&sigterm_event);
+
+    event_base_free(event_base);
 
     exit(exit_code);
 }

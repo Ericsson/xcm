@@ -239,5 +239,7 @@ void xrelay_destroy(struct xrelay *relay)
 
 	xcm_close(conn0);
 	xcm_close(conn1);
+
+	ut_free(relay);
     }
 }
