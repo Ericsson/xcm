@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright(c) 2024 Ericsson AB
 
+import config
 import errno
 import os
 import pytest
@@ -25,16 +26,32 @@ def setup():
 
 class Relay:
     def __init__(self, server_addr, client_addr, tls_cert=None,
-                 tls_key=None, tls_tc=None):
+                 tls_key=None, tls_tc=None, valgrind=False):
         self.server_addr = server_addr
         self.client_addr = client_addr
         self.tls_cert = tls_cert
         self.tls_key = tls_key
         self.tls_tc = tls_tc
+        self.valgrind = valgrind
         self.process = None
 
     def start(self):
-        cmd = ["./xcmrelay"]
+        cmd = []
+
+        path = "./.libs"
+        if "LD_LIBRARY_PATH" in os.environ:
+            path = "%s:%s" % (path, os.environ["LD_LIBRARY_PATH"])
+        os.environ["LD_LIBRARY_PATH"] = path
+
+        if self.valgrind:
+            cmd.extend(["valgrind", "--tool=memcheck", "--leak-check=full",
+                        "--num-callers=20", "-q",
+                        "--suppressions=./test/lttng.supp",
+                        "--suppressions=./test/openssl.supp",
+                        "--suppressions=./test/glibc.supp",
+                        "--error-exitcode=1"])
+
+        cmd.append("./.libs/xcmrelay")
 
         stdin_data = bytes()
         if self.tls_cert is not None:
@@ -53,7 +70,13 @@ class Relay:
                                         stdout=subprocess.PIPE)
         self.process.stdin.write(stdin_data)
         self.process.stdin.flush()
-        time.sleep(0.5)
+
+        if self.valgrind:
+            startup_time = 1
+        else:
+            startup_time = 0.25
+
+        time.sleep(startup_time)
 
     def stop(self):
         self.process.send_signal(signal.SIGHUP)
@@ -68,7 +91,7 @@ def relay(request):
         if server_addr != client_addr:
             break
 
-    r = Relay(server_addr, client_addr)
+    r = Relay(server_addr, client_addr, valgrind=config.has_valgrind())
     r.start()
     yield r
     r.stop()
@@ -200,7 +223,11 @@ def test_echo(relay):
                 else:
                     raise
 
-        for _ in range(1000):
+        if config.has_valgrind():
+            iter = 5
+        else:
+            iter = 500
+        for _ in range(iter):
             threads = []
             for relay_num in random.sample(range(len(relay_conns)), 10):
                 relay_conn = relay_conns[relay_num]
@@ -236,7 +263,7 @@ def test_stdin_attrs():
     tls_tc = read_attr(xcm_tls_cert + "/tc.pem")
 
     relay = Relay(proxy_addr, server_addr, tls_cert=tls_cert, tls_key=tls_key,
-                  tls_tc=tls_tc)
+                  tls_tc=tls_tc, valgrind=False)
     relay.start()
 
     os.environ["XCM_TLS_CERT"] = xcm_tls_cert

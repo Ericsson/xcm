@@ -1,0 +1,7 @@
+{
+   <bio_reg>
+   Memcheck:Leak
+   ...
+   fun:reg_ssl_bio
+   ...
+}

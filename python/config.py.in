@@ -18,3 +18,9 @@ def has_cares():
         return int("@XCM_CARES@") == 1
     except ValueError:
         return False
+
+def has_valgrind():
+    try:
+        return int("@XCM_VALGRIND@") == 1
+    except ValueError:
+        return False
