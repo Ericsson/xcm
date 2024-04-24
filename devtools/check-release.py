@@ -242,7 +242,7 @@ def check_meta(repo, release_commit):
     print("  Previous release: %s (API %s)" % (prev_impl_version,
                                                prev_api_version))
     print("Releases:")
-    for version in get_release_versions(repo):
+    for version in sorted(get_release_versions(repo)):
         print("  %s" % version)
 
     validate_against_prev(api_version, impl_version,
