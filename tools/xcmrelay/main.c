@@ -37,20 +37,20 @@ static void usage(const char *name)
     printf(" -s <name>=<value>       Set string attribute on connections "
 	   "to client address.\n");
     printf(" -f <name>=<filename>    Set binary attribute on connections to "
-	   "the contents of\n"
-	   "                         <filename>.\n");
+	   "the contents\n"
+	   "                         of <filename>.\n");
     printf(" -r <name>               Read binary connection attribute from "
 	   "stdin. The\n"
 	   "                         value data must be preceded by a 32-bit "
 	   "length field\n"
 	   "                         in network byte order.\n");
-    printf(" -x                      One subsequent -b, -i, -d, -s, or -f "
-	   "switch configures\n"
-	   "                         a server socket attribute.\n");
-    printf(" -y                      One subsequent -b, -i, -d, -s, or -f "
-	   "switch configures\n"
-	   "                         a server-side connection socket "
-	   "attribute.\n");
+    printf(" -x                      One subsequent -b, -i, -d, -s, -f, " \
+	   "or -r switch\n"
+	   "                         configures a server socket attribute.\n");
+    printf(" -y                      One subsequent -b, -i, -d, -s, -f, " \
+	   "or -r switch\n"
+	   "                         configures a server-side connection "
+	   "socket attribute.\n");
     printf(" -h                      Prints this text.\n");
 }
 
