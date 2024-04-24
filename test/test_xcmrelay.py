@@ -252,6 +252,9 @@ def read_attr(filename):
 
 
 def test_stdin_attrs():
+    if not config.has_tls():
+        pytest.skip("no TLS")
+
     proxy_addr = "tls:127.0.0.42:%d" % xtest.rand_port()
     server_addr = xtest.rand_ux()
 
