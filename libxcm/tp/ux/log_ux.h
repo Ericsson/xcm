@@ -11,6 +11,9 @@
 #define LOG_UX_CONN_ESTABLISHED(s, fd)			\
     LOG_CONN_ESTABLISHED("UNIX domain socket", s, fd)
     
+#define LOG_UX_MAX_MSG_SIZE(s, max_msg_size)				\
+    log_debug_sock(s, "Max message size is %d.", max_msg_size)
+
 #define LOG_UX_UNLINK_FAILED(s, path, reason_errno)                     \
     log_debug_sock(s, "Error removing UNIX domain socket file \"%s\": " \
 		   "errno %d (%s).", path, reason_errno,                \

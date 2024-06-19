@@ -23,12 +23,12 @@
  * UX and UXF UNIX Domain Socket Transports
  */
 
-#define UX_MAX_MSG (65535)
-
 struct ux_socket
 {
     int fd;
     int fd_reg_id;
+
+    int max_msg_size;
 
     char raddr[UX_NAME_MAX+16];
     char laddr[UX_NAME_MAX+16];
@@ -149,33 +149,82 @@ static int enable_pass_cred(int fd)
     return setsockopt(fd, SOL_SOCKET, SO_PASSCRED, &enabled, sizeof(enabled));
 }
 
-static void set_fd(struct xcm_socket *s, int fd)
+/* This is the target max message size, but may (and likely will be)
+ * end up being smaller. 'net.core.wmem_max' is usually set to 212992
+ * bytes.
+ *
+ * The kernel actually allocates twice the requested value in the
+ * setsockopt() call. 'net.core.wmen_max' limit applies to the
+ * user-requested value, not the actual value used.
+ *
+ * For requests that results in an actual socket buffer size of > 256
+ * kB, the UX transport will still limit the messages sent and
+ * received to 256 kB. */
+
+#define UX_MAX_MAX_MSG (256*1024)
+
+/* The kernel's socket buffer does not only hold user data, but also a
+ * header. The kernel-internal per-message header for AF_UNIX
+ * datagrams is usally 24 bytes. To avoiding indicating a certain
+ * xcm.max_msg_size and then failing to deliver up to that limit, a
+ * much larger header is assumed, to properly behave in a scenario
+ * where fields are added to the header (in some future kernel
+ * version). */
+
+#define KERNEL_AF_UNIX_HEADER_SIZE (128)
+
+static int conf_socket_buffer(int fd)
 {
-    struct ux_socket *us = TOUX(s);
+    int target_size = UX_MAX_MAX_MSG;
 
-    ut_assert(us->fd == -1);
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &target_size,
+		   sizeof(target_size)) < 0)
+	return -1;
 
-    us->fd = fd;
+    int actual_size;
+    socklen_t optlen = sizeof(int);
 
-    us->fd_reg_id = xpoll_fd_reg_add(s->xpoll, us->fd, 0);
+    if (getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &actual_size, &optlen) == -1)
+	return -1;
+
+    int usable_size = actual_size - KERNEL_AF_UNIX_HEADER_SIZE;
+
+    /* We don't want to present a larger-than-XCM-internal-
+     * administrative-max to the user, so we pretend we cannot deliver
+     * more than UX_MAX_MAX_MSG. */
+    int max_msg_size = UT_MIN(usable_size, UX_MAX_MAX_MSG);
+
+    return max_msg_size;
 }
 
 static int create_socket(struct xcm_socket *s)
 {
-    int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0);
+    struct ux_socket *us = TOUX(s);
 
-    if (fd < 0)
-	return -1;
-
-    if (enable_pass_cred(fd) < 0) {
-	LOG_PASS_CRED_FAILED(errno);
-	deinit(s, true);
-	return -1;
+    if ((us->fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0)) < 0) {
+	LOG_SOCKET_CREATION_FAILED(errno);
+	goto err;
     }
 
-    set_fd(s, fd);
+    us->fd_reg_id = xpoll_fd_reg_add(s->xpoll, us->fd, 0);
+
+    if ((us->max_msg_size = conf_socket_buffer(us->fd)) < 0) {
+	LOG_SET_SOCKET_BUFFER_SIZE_FAILED(errno);
+	goto err;
+    }
+
+    LOG_UX_MAX_MSG_SIZE(s, us->max_msg_size);
+
+    if (enable_pass_cred(us->fd) < 0) {
+	LOG_PASS_CRED_FAILED(errno);
+	goto err;
+    }
 
     return 0;
+
+err:
+    deinit(s, true);
+    return -1;
 }
 
 static socklen_t sockaddr_un_size(size_t name_len)
@@ -242,14 +291,14 @@ static int ux_connect(struct xcm_socket *s, const char *remote_addr)
 	if (errno == ENOENT)
 	    errno = ECONNREFUSED;
 	LOG_CONN_FAILED(s, errno);
-	goto err_close;
+	goto err_deinit;
     }
 
     LOG_UX_CONN_ESTABLISHED(s, us->fd);
 
     return 0;
 
- err_close:
+ err_deinit:
     deinit(s, true);
  err:
     return -1;
@@ -338,18 +387,26 @@ static void ux_cleanup(struct xcm_socket *s)
 static int ux_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 {
     struct ux_socket *server_us = TOUX(server_s);
+    struct ux_socket *conn_us = TOUX(conn_s);
 
     LOG_ACCEPT_REQ(server_s);
 
-    int conn_fd = ut_accept(server_us->fd, NULL, NULL, SOCK_NONBLOCK);
-    if (conn_fd < 0) {
+    conn_us->fd = ut_accept(server_us->fd, NULL, NULL, SOCK_NONBLOCK);
+    if (conn_us->fd < 0) {
 	LOG_ACCEPT_FAILED(server_s, errno);
 	return -1;
     }
 
-    set_fd(conn_s, conn_fd);
+    conn_us->fd_reg_id = xpoll_fd_reg_add(conn_s->xpoll, conn_us->fd, 0);
 
-    LOG_CONN_ACCEPTED(conn_s, conn_fd);
+    if ((conn_us->max_msg_size = conf_socket_buffer(conn_us->fd)) < 0) {
+	LOG_SET_SOCKET_BUFFER_SIZE_FAILED(errno);
+	return -1;
+    }
+
+    LOG_CONN_ACCEPTED(conn_s, conn_us->fd);
+
+    LOG_UX_MAX_MSG_SIZE(conn_s, conn_us->max_msg_size);
 
     return 0;
 }
@@ -361,7 +418,7 @@ static int ux_send(struct xcm_socket *__restrict s,
 
     LOG_SEND_REQ(s, buf, len);
 
-    TP_GOTO_ON_INVALID_MSG_SIZE(len, UX_MAX_MSG, err);
+    TP_GOTO_ON_INVALID_MSG_SIZE(len, us->max_msg_size, err);
 
     int rc = send(us->fd, buf, len, MSG_NOSIGNAL|MSG_EOR);
 
@@ -566,7 +623,9 @@ static const char *uxf_get_local_addr(struct xcm_socket *s,
 
 static size_t ux_max_msg(struct xcm_socket *conn_s)
 {
-    return UX_MAX_MSG;
+    struct ux_socket *us = TOUX(conn_s);
+
+    return us->max_msg_size;
 }
 
 static int64_t ux_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)

@@ -127,6 +127,36 @@ extern "C" {
  * Connections spawned off a server socket (e.g., with xcm_accept())
  * always have the same service type as their parent socket.
  *
+ * @subsubsection max_msg_size Max Message Size
+ *
+ * The XCM API and the various messaging type transports are designed
+ * for relatively small messages. For bulk data transfer, an
+ * application needs either employ fragmentation and reassembly, or
+ * use a byte stream transport.
+ *
+ * The @p xcm.max_msg_size socket attribute specifies the maximum
+ * message size (see @ref xcm_attr).
+ *
+ * Current XCM transports do not negotiate the maximum message size,
+ * so the @p xcm.max_msg_size limit denotes the @em local limit
+ * only. The remote end will reject messages larger than @em its
+ * limit, and may tear down the connection as a result. Application
+ * protocol level signaling or lockstep upgrade may be required to
+ * resolve such issues.
+ *
+ * Historically, all messaging type transports in XCM have used a
+ * maximum message size of 65535 bytes. This limit was never exposed
+ * in the API, so subsequent changes to message size limits did not
+ * impact the API/ABI.
+ *
+ * As of XCM 1.11.2, the maximum message size varies across different
+ * transports.
+ *
+ * Applications using stack-allocated message buffers may want to
+ * impose their own upper limit (e.g., @p sizeof(msgbuf)) on top of
+ * the @p xcm.max_msg_size, to avoid overrunning the stack if linked
+ * to a newer, message size-wise more capable, XCM library version.
+ *
  * @subsection ordering Ordering Guarantees
  *
  * In-order delivery - that data arrives at the recipient in the same
@@ -769,7 +799,7 @@ extern "C" {
  * xcm.local_addr | All         | String     | RW   | The local address of a socket. Writable only if supplied to xcm_connect_a() together with a TLS, UTLS or TCP type address. Usually only needs to be written on multihomed hosts, in cases where the application needs to specify the source IP address to be used. Also see xcm_local_addr().
  * xcm.blocking   | All         | Boolean    | RW    | See xcm_set_blocking() and xcm_is_blocking(). The default value is true.
  * xcm.remote_addr | Connection | String     | R    | See xcm_remote_addr().
- * xcm.max_msg_size | Connection | Integer   | R    | The maximum size of any message transported by this connection.
+ * xcm.max_msg_size | Connection | Integer   | R    | The local maximum size of any message transported by this connection. The remote end may have a different opinion on what is the upper limit.
  *
  * @subsubsection cnt_attr Generic Counter Attributes
  *
@@ -947,6 +977,13 @@ extern "C" {
  *
  * UX is the most efficient of the XCM transports.
  *
+ * The UX transport has a nominal maximum message size of 262144
+ * bytes. This limit may be lower due to conservative kernel runtime
+ * configuration (i.e., low @p net.core.wmem_max values). In such
+ * cases, the @p xcm.max_msg_size will reflect the actual upper limit,
+ * at the time of socket creation. The max message size may change in
+ * future versions of the UX transport.
+ *
  * @subsubsection ux_naming UX Namespace
  *
  * The standard UNIX Domain Sockets as defined by POSIX uses the file
@@ -1000,6 +1037,9 @@ extern "C" {
  *
  * TCP uses TCP Keepalive to detect lost network connectivity between
  * the peers.
+ *
+ * The TCP transport has a maximum message size of 65535 bytes. This
+ * limit may change in future versions.
  *
  * The TCP transport supports IPv4 and IPv6.
  *
@@ -1092,6 +1132,9 @@ extern "C" {
  *
  * The TLS transport supports IPv4 and IPv6. It disables the Nagle
  * algorithm of TCP.
+ *
+ * The TLS transport has a maximum message size of 65535 bytes. This
+ * limit may change in future versions.
  *
  * The TLS transport honors any limitations set by the X.509
  * extended key usage extension, if present in the remote peer's
@@ -1450,6 +1493,9 @@ extern "C" {
  *
  * To minimize latency, the SCTP transport disables the Nagle
  * algorithm.
+ *
+ * The SCTP transport has a maximum message size of 65535 bytes. This
+ * limit may change in future versions.
  *
  * @subsection btcp_transport BTCP Transport
  *

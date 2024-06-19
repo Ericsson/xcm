@@ -89,9 +89,13 @@
     log_debug_sock(s, "Attempt to change scope id from %"PRId64" to %"	\
 		   PRId64" on accept.", orig_scope, new_scope)
 
-#define LOG_SERVER_REUSEADDR_FAILED(reason_reason)		      \
+#define LOG_SERVER_REUSEADDR_FAILED(reason_errno)		      \
     log_debug("Error setting SO_REUSEADDR on underlying TCP socket: " \
-	      "errno %d (%s).", errno, strerror(errno))
+	      "errno %d (%s).", reason_errno, strerror(reason_errno))
+
+#define LOG_SET_SOCKET_BUFFER_SIZE_FAILED(reason_errno)			\
+    log_debug("Error configuring send socket buffer size: "		\
+	      "errno %d (%s).", reason_errno, strerror(reason_errno))
 
 #define LOG_CLIENT_BIND_ADDR_ERROR(s, addr)				\
     log_debug_sock(s, "Local address \"%s\" is malformed or not an IP " \

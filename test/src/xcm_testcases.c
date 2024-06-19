@@ -39,13 +39,6 @@
 #include "utest.h"
 #include "util.h"
 
-/* For now, all transports are expected to support the below
-   size. However, there's nothing in the API that forces a transport
-   to have this particular max size - on the contrary, the XCM API
-   allows the max size to differ, but available to the application via
-   the "xcm.max_msg_size" attribute. */
-#define MAX_MSG_SIZE (65535)
-
 static bool is_root(void)
 {
     return getuid() == 0;
@@ -129,6 +122,31 @@ static char *gen_tls_or_btls_addr(void)
 }
 
 #endif
+
+static int expected_max_msg_size_tp(const char *transport)
+{
+    if (strcmp(transport, "ux") == 0 || strcmp(transport, "uxf") == 0) {
+	int wmem_max;
+
+	if (tu_read_sysctl_int("net.core.wmem_max", &wmem_max) < 0)
+	    return -1;
+
+	/* see the UX transport of what all this means */
+	int msg_max = wmem_max * 2 - 128;
+
+	return UT_MIN(msg_max, 256*1024);
+    } else
+	return 65535;
+}
+
+static int expected_max_msg_size(struct xcm_socket *conn)
+{
+    char conn_tp[64];
+    if (xcm_attr_get_str(conn, "xcm.transport", conn_tp, sizeof(conn_tp)) < 0)
+	return -1;
+
+    return expected_max_msg_size_tp(conn_tp);
+}
 
 static bool has_domain_name(const char *addr)
 {
@@ -942,9 +960,13 @@ TESTCASE(xcm, basic)
 
 	CHK(bytestream == tu_is_bytestream_addr(test_addr));
 
-	if (!bytestream)
+	if (!bytestream) {
+	    int max_msg_size = expected_max_msg_size(client_conn);
+
 	    CHKNOERR(tu_assure_int64_attr(client_conn, "xcm.max_msg_size",
-					  cmp_type_equal, MAX_MSG_SIZE));
+					  cmp_type_equal, max_msg_size));
+	}
+
 	if (is_utls(test_addr))
 	    CHKNOERR(tu_assure_str_attr(client_conn, "xcm.transport", "ux"));
 	else
@@ -1076,7 +1098,8 @@ TESTCASE_TIMEOUT(xcm, bulk_transfer, 60)
 		if (left > 0) {
 		    size_t chunk_size =
 			UT_MIN(tu_randint(1, bytestream ?
-					  1000000 : MAX_MSG_SIZE),
+					  1000000 :
+					  expected_max_msg_size(connect_sock)),
 			       left);
 		    int rc = xcm_send(connect_sock, data + sent_data,
 				      chunk_size);
@@ -1104,7 +1127,8 @@ TESTCASE_TIMEOUT(xcm, bulk_transfer, 60)
 		    break;
 	    } else {
 		size_t chunk_size =
-		    bytestream ? tu_randint(1, 1000000) : MAX_MSG_SIZE;
+		    bytestream ? tu_randint(1, 1000000) :
+		    expected_max_msg_size(accepted_sock);
 		char chunk[chunk_size];
 		int rc = xcm_receive(accepted_sock, chunk, chunk_size);
 
@@ -2841,28 +2865,29 @@ TESTCASE(xcm, undersized_receive_buffer)
 
 TESTCASE(xcm, oversized_send)
 {
-    /* change this when some transport support even-larger messages */
-    size_t too_large_len = 32*1024*1024;
     int i;
     for (i = 0; i < test_m_addrs_len; i++) {
 	pid_t server_pid = simple_server(NULL, test_m_addrs[i], "none", "none",
 					 NULL, NULL, false);
 
-	char *msg = malloc(too_large_len);
-	CHK(msg);
-
-	memset(msg, 'a', too_large_len);
-
 	struct xcm_socket *client_conn = tu_connect_retry(test_m_addrs[i], 0);
 	CHK(client_conn);
 
-	CHKERRNO(xcm_send(client_conn, msg, too_large_len), EMSGSIZE);
-	CHKERRNO(xcm_send(client_conn, msg, MAX_MSG_SIZE+1), EMSGSIZE);
+	int max_msg_size = expected_max_msg_size(client_conn);
+
+	int buf_len = max_msg_size * 2;
+	char *buf = ut_malloc(max_msg_size * 2);
+
+	memset(buf, 'a', buf_len);
+
+	CHKERRNO(xcm_send(client_conn, buf, buf_len), EMSGSIZE);
+	CHKERRNO(xcm_send(client_conn, buf, max_msg_size + 1), EMSGSIZE);
 
 	int j;
-	for (j = 0; j < too_large_len; j++)
-	    CHK(msg[i] == 'a');
-	free(msg);
+	for (j = 0; j < buf_len; j++)
+	    CHK(buf[i] == 'a');
+
+	ut_free(buf);
 
 	CHKNOERR(xcm_close(client_conn));
 

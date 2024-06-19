@@ -684,6 +684,20 @@ out:
     return len;
 }
 
+int tu_read_sysctl_int(const char *sysctl_name, int *value)
+{
+    char *data = tu_popen_es("sysctl -n %s", sysctl_name);
+
+    if (data == NULL)
+	return -1;
+
+    *value = atoi(data);
+
+    ut_free(data);
+
+    return 0;
+}
+
 int tu_unix_connect(const char *path, bool abstract)
 {
     struct sockaddr_un addr = {
