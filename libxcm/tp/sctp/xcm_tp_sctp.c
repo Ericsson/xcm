@@ -58,6 +58,9 @@ struct sctp_socket
 
 	    int bell_reg_id;
 
+	    char receive_buf[SCTP_MAX_MSG];
+	    int receive_buf_len;
+
 	    /* for conn_state_resolving */
 	    struct xcm_addr_host remote_host;
 	    uint16_t remote_port;
@@ -260,38 +263,6 @@ static int disable_sctp_nagle(int fd)
     return rc;
 }
 
-static int assure_rcv_buf(int fd, int min_bufsz)
-{
-    int bufsz;
-    socklen_t bufsz_len = sizeof(bufsz);
-    if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bufsz, &bufsz_len) < 0)
-	return -1;
-
-    if (bufsz >= min_bufsz)
-	return 0;
-
-    return setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &min_bufsz,
-		      sizeof(min_bufsz));
-}
-
-#define PARTIAL_DELIVERY_POINT (2*SCTP_MAX_MSG)
-
-#define MIN_RCV_BUF_SZ (4*PARTIAL_DELIVERY_POINT)
-
-static int set_partial_delivery_point(int fd)
-{
-    if (assure_rcv_buf(fd, MIN_RCV_BUF_SZ) < 0)
-	return -1;
-
-    int point = PARTIAL_DELIVERY_POINT;
-    int rc = setsockopt(fd, SOL_SCTP, SCTP_PARTIAL_DELIVERY_POINT,
-			&point, sizeof(point));
-    if (rc < 0)
-	LOG_SCTP_SOCKET_OPTION_FAILED("SCTP_PARTIAL_DELIVERY_POINT", point,
-				      errno);
-    return rc;
-}
-
 #define RTO_MIN (100) /* ms */
 
 /* Reducing minimum RTO greatly improves test suite performance
@@ -313,8 +284,7 @@ static int set_rto_min(int fd)
 
 static int set_sctp_conn_opts(int fd)
 {
-    if (disable_sctp_nagle(fd) < 0 || set_partial_delivery_point(fd) < 0
-	|| set_rto_min(fd) < 0) {
+    if (disable_sctp_nagle(fd) < 0 || set_rto_min(fd) < 0) {
 
 	return -1;
     }
@@ -672,14 +642,44 @@ static int sctp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 
     TP_RET_IF_STATE(ss, conn_state_closed, 0);
 
-    int rc = recv(ss->fd, buf, capacity, 0);
+    int receive_capacity = SCTP_MAX_MSG - ss->conn.receive_buf_len;
+
+    struct iovec iov = {
+	.iov_len = receive_capacity,
+	.iov_base = ss->conn.receive_buf + ss->conn.receive_buf_len
+    };
+
+    struct msghdr msg = {
+	.msg_iov = &iov,
+	.msg_iovlen = 1
+    };
+
+    int rc = recvmsg(ss->fd, &msg, 0);
 
     if (rc > 0) {
-	LOG_RCV_MSG(s, rc);
-	XCM_TP_CNT_MSG_INC(ss->conn.cnts, from_lower, rc);
-	LOG_APP_DELIVERED(s, rc);
-	XCM_TP_CNT_MSG_INC(ss->conn.cnts, to_app, rc);
-	return UT_MIN(rc, capacity);
+	ss->conn.receive_buf_len += UT_MIN(rc, receive_capacity);
+
+	if (!(msg.msg_flags & MSG_EOR)) {
+	    LOG_RCV_DATA(s, rc);
+
+	    errno = EAGAIN;
+	    return -1;
+	}
+
+	/* Truncate too large message */
+	ss->conn.receive_buf_len = UT_MIN(ss->conn.receive_buf_len, capacity);
+
+	LOG_RCV_MSG(s, ss->conn.receive_buf_len);
+	XCM_TP_CNT_MSG_INC(ss->conn.cnts, from_lower, ss->conn.receive_buf_len);
+	LOG_APP_DELIVERED(s, ss->conn.receive_buf_len);
+	XCM_TP_CNT_MSG_INC(ss->conn.cnts, to_app, ss->conn.receive_buf_len);
+
+	memcpy(buf, ss->conn.receive_buf, ss->conn.receive_buf_len);
+
+	rc = ss->conn.receive_buf_len;
+	ss->conn.receive_buf_len = 0;
+
+	return rc;
     } else if (rc == 0) {
 	LOG_RCV_EOF(s);
 	SCTP_SET_STATE(s, conn_state_closed);
@@ -693,7 +693,6 @@ static int sctp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 	return -1;
     }
 }
-
 
 static void conn_update(struct xcm_socket *s)
 {
