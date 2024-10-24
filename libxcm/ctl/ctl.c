@@ -230,64 +230,88 @@ static void process_get_all_attr(struct xcm_socket *socket,
     xcm_attr_get_all(socket, add_attr, cfm);
 }
 
-static int process_client(struct client *client, struct ctl *ctl)
+static int client_send(struct client *client, struct ctl *ctl)
 {
-    if (client->is_response_pending) {
-	UT_SAVE_ERRNO;
-	int rc = send(client->fd, &client->pending_response,
-		      sizeof(client->pending_response), MSG_NOSIGNAL);
-	UT_RESTORE_ERRNO(send_errno);
+    UT_SAVE_ERRNO;
+    int rc = send(client->fd, &client->pending_response,
+		  sizeof(client->pending_response), MSG_NOSIGNAL);
+    UT_RESTORE_ERRNO(send_errno);
 
-	if (rc < 0) {
-	    if (send_errno == EAGAIN)
-		return 0;
-	    LOG_CLIENT_ERROR(ctl->socket, client->fd, send_errno);
-	    return -1;
-	}
-
-	client->is_response_pending = false;
-
-	xpoll_fd_reg_mod(ctl->socket->xpoll, client->fd_reg_id, EPOLLIN);
-    } else {
-	struct ctl_proto_msg req = {};
-
-	UT_SAVE_ERRNO;
-	int rc = recv(client->fd, &req, sizeof(req), 0);
-	UT_RESTORE_ERRNO(recv_errno);
-
-	if (rc < 0) {
-	    if (recv_errno == EAGAIN)
-		return 0;
-	    LOG_CLIENT_ERROR(ctl->socket, client->fd, recv_errno);
-	    return -1;
-	} else if (rc == 0) {
-	    LOG_CLIENT_DISCONNECTED(ctl->socket);
-	    return -1;
-	} else if (rc != sizeof(req)) {
-	    LOG_CLIENT_MSG_MALFORMED(ctl->socket);
-	    return -1;
-	}
-
-	client->is_response_pending = true;
-	xpoll_fd_reg_mod(ctl->socket->xpoll, client->fd_reg_id, EPOLLOUT);
-
-	struct ctl_proto_msg *res = &client->pending_response;
-
-	switch (req.type) {
-	case ctl_proto_type_get_attr_req:
-	    process_get_attr(ctl->socket, &(req.get_attr_req), res);
-	    break;
-	case ctl_proto_type_get_all_attr_req:
-	    process_get_all_attr(ctl->socket, res);
-	    break;
-	default:
-	    LOG_CLIENT_MSG_MALFORMED(ctl->socket);
-	    client->is_response_pending = false;
-	    return -1;
-	}
+    if (rc < 0) {
+	if (send_errno == EAGAIN)
+	    return 0;
+	LOG_CLIENT_ERROR(ctl->socket, client->fd, send_errno);
+	return -1;
     }
 
+    client->is_response_pending = false;
+
+    xpoll_fd_reg_mod(ctl->socket->xpoll, client->fd_reg_id, EPOLLIN);
+
     return 0;
+}
+
+
+static int client_receive(struct client *client, struct ctl *ctl)
+{
+    if (!ut_is_readable(client->fd))
+	return 0;
+
+    int rc = -1;
+    struct ctl_proto_msg *req = ut_malloc(sizeof(struct ctl_proto_msg));
+
+    UT_SAVE_ERRNO;
+    int recv_rc = recv(client->fd, req, sizeof(struct ctl_proto_msg), 0);
+    UT_RESTORE_ERRNO(recv_errno);
+
+    if (recv_rc < 0) {
+	if (recv_errno == EAGAIN) {
+	    rc = 0;
+	    goto out;
+	}
+
+	LOG_CLIENT_ERROR(ctl->socket, client->fd, recv_errno);
+	goto out;
+    } else if (recv_rc == 0) {
+	LOG_CLIENT_DISCONNECTED(ctl->socket);
+	goto out;
+    } else if (recv_rc != sizeof(struct ctl_proto_msg)) {
+	LOG_CLIENT_MSG_MALFORMED(ctl->socket);
+	goto out;
+    }
+
+    client->is_response_pending = true;
+    xpoll_fd_reg_mod(ctl->socket->xpoll, client->fd_reg_id, EPOLLOUT);
+
+    struct ctl_proto_msg *res = &client->pending_response;
+
+    switch (req->type) {
+    case ctl_proto_type_get_attr_req:
+	process_get_attr(ctl->socket, &(req->get_attr_req), res);
+	break;
+    case ctl_proto_type_get_all_attr_req:
+	process_get_all_attr(ctl->socket, res);
+	break;
+    default:
+	LOG_CLIENT_MSG_MALFORMED(ctl->socket);
+	client->is_response_pending = false;
+	goto out;
+    }
+
+    rc = 0;
+
+out:
+    ut_free(req);
+
+    return rc;
+}
+
+static int process_client(struct client *client, struct ctl *ctl)
+{
+    if (client->is_response_pending)
+	return client_send(client, ctl);
+    else
+	return client_receive(client, ctl);
 }
 
 static void accept_client(struct ctl *ctl)
