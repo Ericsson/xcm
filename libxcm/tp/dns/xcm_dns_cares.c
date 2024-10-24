@@ -202,11 +202,17 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
     for (i = 0; i < ARES_GETSOCK_MAXNUM; i++)
 	query->channel_fd_reg_ids[i] = -1;
 
-    struct ares_options options = {
-	.timeout = PER_QUERY_TIMEOUT * 1000
-    };
+    struct ares_options opts = {};
+    int opts_mask = 0;
 
-    int rc = ares_init_options(&query->channel, &options, ARES_OPT_TIMEOUTMS);
+    opts.timeout = PER_QUERY_TIMEOUT * 1000;
+    opts_mask |= ARES_OPT_TIMEOUTMS;
+
+    /* make sure cares actually make use of the total time allocated */
+    opts.tries = (timeout / PER_QUERY_TIMEOUT) + 1;
+    opts_mask |= ARES_OPT_TRIES;
+
+    int rc = ares_init_options(&query->channel, &opts, opts_mask);
 
     if (rc == ARES_EFILE) {
 	LOG_DNS_CONF_FILE_ERROR(log_ref);
