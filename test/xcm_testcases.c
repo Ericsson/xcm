@@ -7604,7 +7604,7 @@ TESTCASE(xcm, ctl_iter)
 	pid_t server_pid =
 	    pingpong_run_async_server(test_addr, 1, true);
 
-	tu_msleep(500);
+	tu_msleep(is_in_valgrind() ? 1500 : 250);
 
 	const int ctls_per_server_socket = is_utls(test_addr) ? 3 : 1;
 
