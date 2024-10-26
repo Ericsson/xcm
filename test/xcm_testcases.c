@@ -5499,39 +5499,70 @@ TESTCASE(xcm, tls_zero_revocations_crl)
     return UTEST_SUCCESS;
 }
 
-static pid_t hello_server(const char *addr, const char *server_cert_dir,
-			  const struct xcm_attr_map *attrs, const char *msg)
+struct hello_server
 {
-    pid_t p = fork();
-    if (p < 0)
-	return -1;
-    else if (p > 0)
-	return p;
+    const char *addr;
+    const char *msg;
+    volatile bool stop;
+    int established_conns;
+    bool ok;
+};
 
-    prctl(PR_SET_PDEATHSIG, SIGKILL);
+static void *hello_server_thread(void *arg)
+{
+    struct hello_server *server = arg;
 
-    if (server_cert_dir != NULL)
-	if (setenv("XCM_TLS_CERT", server_cert_dir, 1) < 0)
-	    exit(EXIT_FAILURE);
+    struct xcm_attr_map *attrs =
+	create_cert_attrs_dir(get_cert_base(), "server");
 
-    struct xcm_socket *server_sock = xcm_server_a(addr, attrs);
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/server/crl.pem", get_cert_base());
+    xcm_attr_map_add_str(attrs, "tls.crl_file", path);
+
+    xcm_attr_map_add_bool(attrs, "tls.check_crl", true);
+
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+    struct xcm_socket *server_sock = xcm_server_a(server->addr, attrs);
+
+    xcm_attr_map_destroy(attrs);
 
     if (server_sock == NULL)
-	exit(EXIT_FAILURE);
+	return NULL;
 
-    if (xcm_set_blocking(server_sock, true) < 0)
-	exit(EXIT_FAILURE);
-
-    for (;;) {
+    do {
 	struct xcm_socket *conn_sock = xcm_accept(server_sock);
 
-	if (conn_sock != NULL) {
-	    if (msg != NULL)
-		xcm_send(conn_sock, msg, strlen(msg));
-
-	    xcm_close(conn_sock);
+	if (conn_sock == NULL) {
+	    tu_msleep(10);
+	    continue;
 	}
-    }
+
+	while (xcm_finish(conn_sock) < 0 && errno == EAGAIN)
+	    ;
+
+	if (xcm_finish(conn_sock) < 0) {
+	    xcm_close(conn_sock);
+	    continue;
+	}
+
+	if (xcm_set_blocking(conn_sock, true) < 0)
+	    return NULL;
+
+	int rc = xcm_send(conn_sock, server->msg, strlen(server->msg));
+
+	if (rc >= 0)
+	    server->established_conns++;
+
+	xcm_close(conn_sock);
+    } while (!server->stop);
+
+    puts("stopped");
+    server->ok = true;
+
+    xcm_close(server_sock);
+
+    return NULL;
 }
 
 static int hello_client(const char *addr, const char *client_cert_dir,
@@ -5629,23 +5660,22 @@ TESTCASE(xcm, tls_detect_crl_changes)
             )
 	);
 
-    char server_cert_dir[PATH_MAX];
-    get_cert_path(server_cert_dir, "server");
-
     tu_executef_es("cp -p %s/server/allowed-crl.pem %s/server/crl.pem",
 		   get_cert_base(), get_cert_base());
 
     char *tls_addr = gen_tls_addr();
 
-    struct xcm_attr_map *server_attrs = xcm_attr_map_create();
-    xcm_attr_map_add_bool(server_attrs, "tls.check_crl", true);
-
     const char *msg = "hello";
 
-    pid_t server_pid =
-	hello_server(tls_addr, server_cert_dir, server_attrs, msg);
+    struct hello_server *server = ut_malloc(sizeof(struct hello_server));
+    *server = (struct hello_server) {
+	.addr = tls_addr,
+	.msg = msg
+    };
 
-    xcm_attr_map_destroy(server_attrs);
+    pthread_t server_thread;
+    CHK(pthread_create(&server_thread, NULL, hello_server_thread, server)
+	== 0);
 
     char client_cert_dir[PATH_MAX];
     get_cert_path(client_cert_dir, "client");
@@ -5662,9 +5692,14 @@ TESTCASE(xcm, tls_detect_crl_changes)
 
     CHKNOERR(hello_client(tls_addr, client_cert_dir, msg, 0));
 
-    kill(server_pid, SIGTERM);
-    tu_wait(server_pid);
+    server->stop = true;
 
+    CHK(pthread_join(server_thread, NULL) == 0);
+
+    CHK(server->ok);
+    CHKINTEQ(server->established_conns, 2);
+
+    ut_free(server);
     ut_free(tls_addr);
 
     return UTEST_SUCCESS;
