@@ -23,7 +23,7 @@ extern "C" {
  * * Address handling library: xcm_addr.h.
  * * Socket attribute APIs: xcm_attr.h and xcm_attr_map.h.
  * * API and implementation version information: xcm_version.h.
- * * Obsolete, but still available, functions: xcm_compat.h.
+ * * Obsolete (but still available) APIs: xcm_compat.h.
  *
  * @author Mattias Rönnblom
  * @version 0.25 [API]
@@ -1444,7 +1444,7 @@ extern "C" {
 
 /*!
  * @file xcm.h
- * @brief This file contains the core Extensible Connection-oriented Messaging (XCM) API.
+ * @brief Core XCM API.
  */
 
 #include <errno.h>

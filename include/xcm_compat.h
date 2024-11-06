@@ -11,7 +11,7 @@ extern "C" {
 
 /*!
  * @file xcm_compat.h
- * @brief This file contains obsolete parts of the XCM core API.
+ * @brief Obsolete parts of the XCM API.
  *
  * It should not be included directly, but rather only via <xcm.h>.
  */

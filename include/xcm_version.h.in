@@ -11,9 +11,10 @@ extern "C" {
 
 /*!
  * @file xcm_version.h
- * @brief This file contains functions and macros to retrieve XCM
- *        version information. The library (i.e., implementation) version
- *        uses the semver convention.
+ * @brief Functions and macros to retrieve XCM versioning information.
+ *
+ * The library (i.e., implementation) version uses the semver
+ * convention.
  */
 
 /**

@@ -11,7 +11,7 @@ extern "C" {
 
 /*!
  * @file xcm_attr_map.h
- * @brief This file contains the XCM attribute map API.
+ * @brief XCM attribute map API.
  *
  * An XCM attribute map is a set of key-value pairs. The key is an
  * attribute name in the form of a string. One key maps to at most one

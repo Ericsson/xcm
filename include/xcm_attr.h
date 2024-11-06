@@ -11,7 +11,9 @@ extern "C" {
 
 /*!
  * @file xcm_attr.h
- * @brief This file contains the XCM attribute access API. See @ref attributes for an overview.
+ * @brief XCM socket attribute access API.
+ *
+ * See @ref attributes for an overview.
  *
  */
 

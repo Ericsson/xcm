@@ -11,7 +11,7 @@ extern "C" {
 
 /*!
  * @file xcm_attr_types.h
- * @brief This file contains type definitions for the XCM attribute access API.
+ * @brief XCM attribute value type definitions.
  */
 
 /*! Enumeration representing the different attribute value types. */

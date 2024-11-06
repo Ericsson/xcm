@@ -17,9 +17,7 @@ extern "C" {
 #include <sys/types.h>
 
 /*! @file xcm_addr.h
- * @brief This is an API for building and parsing Connection-oriented
- *        Messaging (XCM) addresses.
- * @author Mattias Rönnblom
+ * @brief API for parsing and building XCM addresses.
  */
 
 /** Protocol string for the combined TLS+UX transport. */
