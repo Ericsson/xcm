@@ -5557,7 +5557,6 @@ static void *hello_server_thread(void *arg)
 	xcm_close(conn_sock);
     } while (!server->stop);
 
-    puts("stopped");
     server->ok = true;
 
     xcm_close(server_sock);
