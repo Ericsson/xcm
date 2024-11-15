@@ -164,9 +164,6 @@ void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
 
     int rc = vsnprintf(buf+len, left, format, ap);
     ut_assert(rc >= 0);
-
-    if (rc >= left) /* NUL-terminate on truncation */
-	buf[left - 1] = '\0';
 }
 
 void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
