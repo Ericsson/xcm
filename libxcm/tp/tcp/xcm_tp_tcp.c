@@ -64,8 +64,7 @@ static const char *tcp_get_local_addr(struct xcm_socket *s,
 				      bool suppress_tracing);
 static size_t tcp_max_msg(struct xcm_socket *conn_s);
 static int64_t tcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void tcp_attr_foreach(struct xcm_socket *s,
-			     xcm_attr_foreach_cb foreach_cb, void *user);
+static void tcp_attr_populate(struct xcm_socket *s, struct attr_tree *tree);
 static size_t tcp_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops tcp_ops = {
@@ -84,7 +83,7 @@ static struct xcm_tp_ops tcp_ops = {
     .get_local_addr = tcp_get_local_addr,
     .max_msg = tcp_max_msg,
     .get_cnt = tcp_get_cnt,
-    .attr_foreach = tcp_attr_foreach,
+    .attr_populate = tcp_attr_populate,
     .priv_size = tcp_priv_size
 };
 
@@ -564,10 +563,9 @@ static int64_t tcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     return ts->conn.cnts[cnt];
 }
 
-static void tcp_attr_foreach(struct xcm_socket *s,
-			     xcm_attr_foreach_cb foreach_cb, void *user)
+static void tcp_attr_populate(struct xcm_socket *s, struct attr_tree *tree)
 {
     struct tcp_socket *ts = TOTCP(s);
 
-    xcm_tp_socket_attr_foreach(ts->btcp_socket, foreach_cb, user);
+    xcm_tp_socket_attr_populate(ts->btcp_socket, tree);
 }

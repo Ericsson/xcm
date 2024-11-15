@@ -469,129 +469,26 @@ const char *xcm_local_addr(struct xcm_socket *s)
     return xcm_tp_socket_get_local_addr(s, false);
 }
 
-struct find_state
+static struct attr_tree *build_attr_tree(struct xcm_socket *s)
 {
-    const char *name;
-    const struct xcm_tp_attr *attr;
-    struct xcm_socket *attr_socket;
-};
+    struct attr_tree *attr_tree = attr_tree_create();
 
-static bool attr_find_cb(const struct xcm_tp_attr *attr,
-			 struct xcm_socket *attr_socket,
-			 void *cb_data)
-{
-    struct find_state *state = cb_data;
+    xcm_tp_common_attr_populate(s, attr_tree);
+    xcm_tp_socket_attr_populate(s, attr_tree);
 
-    if (strcmp(attr->name, state->name) == 0) {
-	state->attr = attr;
-	state->attr_socket = attr_socket;
-	return false;
-    }
-
-    return true;
-}
-
-static int socket_attr_lookup(struct xcm_socket *s, const char *name,
-			      const struct xcm_tp_attr **attr,
-			      struct xcm_socket **attr_socket)
-{
-    struct find_state state = {
-	.name = name
-    };
-
-    xcm_tp_common_attr_foreach(s, attr_find_cb, &state);
-
-    if (state.attr == NULL)
-	xcm_tp_socket_attr_foreach(s, attr_find_cb, &state);
-
-    if (state.attr != NULL) {
-	*attr = state.attr;
-	*attr_socket = state.attr_socket;
-	return 0;
-    }
-
-    return -1;
-}
-
-static bool valid_set_attr_len(enum xcm_attr_type type, size_t len)
-{
-    switch (type) {
-    case xcm_attr_type_bool:
-	return len == sizeof(bool);
-    case xcm_attr_type_int64:
-	return len == sizeof(int64_t);
-    case xcm_attr_type_double:
-	return len == sizeof(double);
-    case xcm_attr_type_str:
-	return len > 0;
-    case xcm_attr_type_bin:
-	return true;
-    default:
-	ut_assert(0);
-    }
-}
-
-/* for historical reasons, we accept larger-than-needed buffers on get */
-static bool valid_get_attr_capacity(enum xcm_attr_type type, size_t capacity)
-{
-    switch (type) {
-    case xcm_attr_type_bool:
-	return capacity >= sizeof(bool);
-    case xcm_attr_type_int64:
-	return capacity >= sizeof(int64_t);
-    case xcm_attr_type_double:
-	return capacity >= sizeof(double);
-    case xcm_attr_type_str:
-	return capacity > 0;
-    case xcm_attr_type_bin:
-	return true;
-    default:
-	ut_assert(0);
-    }
+    return attr_tree;
 }
 
 int xcm_attr_set(struct xcm_socket *s, const char *name,
 		 enum xcm_attr_type type, const void *value, size_t len)
 {
-    if (!valid_set_attr_len(type, len)) {
-	LOG_ATTR_SET_INVALID_LEN(s, name, len);
-	errno = EINVAL;
-	goto err;
-    }
+    struct attr_tree *attr_tree = build_attr_tree(s);
 
-    LOG_ATTR_SET_REQ(s, name, type, value, len);
+    int rc = attr_tree_set_value(attr_tree, name, type, value, len, s);
 
-    const struct xcm_tp_attr *attr;
-    struct xcm_socket *attr_socket;
-
-    if (socket_attr_lookup(s, name, &attr, &attr_socket) < 0) {
-	LOG_ATTR_SET_NON_EXISTENT(s);
-	errno = ENOENT;
-	goto err;
-    }
-
-    if (attr->set == NULL) {
-	LOG_ATTR_SET_RO(s);
-	errno = EACCES;
-	goto err;
-    }
-
-    if (type != attr->type) {
-	LOG_ATTR_SET_INVALID_TYPE(s, attr->type, type);
-	errno = EINVAL;
-	goto err;
-    }
-
-    int rc = attr->set(attr_socket, value, len);
-    if (rc < 0)
-	goto err_log;
+    attr_tree_destroy(attr_tree);
 
     return rc;
-
-err_log:
-    LOG_ATTR_SET_FAILED(s, errno);
-err:
-    return -1;
 }
 
 int xcm_attr_set_bool(struct xcm_socket *s, const char *name, bool value)
@@ -618,41 +515,13 @@ int xcm_attr_set_str(struct xcm_socket *s, const char *name,
 int xcm_attr_get(struct xcm_socket *s, const char *name,
 		 enum xcm_attr_type *type, void *value, size_t capacity)
 {
-    LOG_GET_ATTR_REQ(s, name);
+    struct attr_tree *attr_tree = build_attr_tree(s);
 
-    const struct xcm_tp_attr *attr;
-    struct xcm_socket *attr_socket;
+    int rc = attr_tree_get_value(attr_tree, name, type, value, capacity, s);
 
-    if (socket_attr_lookup(s, name, &attr, &attr_socket) < 0) {
-	errno = ENOENT;
-	goto err;
-    }
-
-    if (attr->get == NULL) {
-	errno = EACCES;
-	goto err;
-    }
-
-    if (!valid_get_attr_capacity(attr->type, capacity)) {
-	LOG_ATTR_GET_INVALID_CAPACITY(s, name, capacity);
-	errno = EINVAL;
-	goto err;
-    }
-
-    if (type != NULL)
-	*type = attr->type;
-
-    int rc = attr->get(attr_socket, value, capacity);
-    if (rc < 0)
-	goto err;
-
-    LOG_GET_ATTR_RESULT(s, name, attr->type, value, rc);
+    attr_tree_destroy(attr_tree);
 
     return rc;
-
- err:
-    LOG_GET_ATTR_FAILED(s, errno);
-    return -1;
 }
 
 static int attr_get_with_type(struct xcm_socket *s, const char *name,
@@ -733,48 +602,11 @@ int xcm_attr_get_bin(struct xcm_socket *s, const char *name,
     return rc;
 }
 
-struct forward_state
-{
-    xcm_attr_cb cb;
-    void *cb_data;
-};
-
-static bool attr_forward_cb(const struct xcm_tp_attr *attr,
-			    struct xcm_socket *attr_socket,
-			    void *cb_data)
-{
-    struct forward_state *state = cb_data;
-
-    size_t value_capacity = 256;
-    char *value = ut_malloc(value_capacity);
-
-    int rc;
-    for (;;) {
-	rc = attr->get(attr_socket, value, value_capacity);
-
-	if (rc < 0 && errno == EOVERFLOW) {
-	    value_capacity *= 2;
-	    value = ut_realloc(value, value_capacity);
-	} else
-	    break;
-    }
-
-    if (rc >= 0)
-	state->cb(attr->name, attr->type, value, rc, state->cb_data);
-
-    ut_free(value);
-
-    return true;
-}
-
 void xcm_attr_get_all(struct xcm_socket *s, xcm_attr_cb cb, void *cb_data)
 {
-    struct forward_state state = {
-	.cb = cb,
-	.cb_data = cb_data
-    };
+    struct attr_tree *attr_tree = build_attr_tree(s);
 
-    xcm_tp_common_attr_foreach(s, attr_forward_cb, &state);
+    attr_tree_get_all(attr_tree, cb, cb_data);
 
-    xcm_tp_socket_attr_foreach(s, attr_forward_cb, &state);
+    attr_tree_destroy(attr_tree);
 }

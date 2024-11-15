@@ -61,8 +61,7 @@ static const char *tls_get_local_addr(struct xcm_socket *conn_s,
 				      bool suppress_tracing);
 static size_t tls_max_msg(struct xcm_socket *conn_s);
 static int64_t tls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void tls_attr_foreach(struct xcm_socket *s,
-			     xcm_attr_foreach_cb foreach_cb, void *cb_data);
+static void tls_attr_populate(struct xcm_socket *s, struct attr_tree *tree);
 static size_t tls_priv_size(enum xcm_socket_type type);
 
 const static struct xcm_tp_ops tls_ops = {
@@ -81,7 +80,7 @@ const static struct xcm_tp_ops tls_ops = {
     .get_local_addr = tls_get_local_addr,
     .max_msg = tls_max_msg,
     .get_cnt = tls_get_cnt,
-    .attr_foreach = tls_attr_foreach,
+    .attr_populate = tls_attr_populate,
     .priv_size = tls_priv_size
 };
 
@@ -563,10 +562,9 @@ static int64_t tls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     return ts->conn.cnts[cnt];
 }
 
-static void tls_attr_foreach(struct xcm_socket *s,
-			     xcm_attr_foreach_cb foreach_cb, void *cb_data)
+static void tls_attr_populate(struct xcm_socket *s, struct attr_tree *tree)
 {
     struct tls_socket *ts = TOTLS(s);
 
-    xcm_tp_socket_attr_foreach(ts->btls_socket, foreach_cb, cb_data);
+    xcm_tp_socket_attr_populate(ts->btls_socket, tree);
 }

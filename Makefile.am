@@ -44,8 +44,11 @@ XCMCTL_VERSION_AGE=$(XCMCTL_VERSION_CURRENT)
 libxcm_la_SOURCES = \
 	common/slist.c \
 	common/util.c \
-	libxcm/core/xpoll.c \
+	libxcm/core/attr_node.c \
+	libxcm/core/attr_path.c \
+	libxcm/core/attr_tree.c \
 	libxcm/core/log.c \
+	libxcm/core/log_attr_tree.c \
 	libxcm/core/timer_mgr.c \
 	libxcm/core/xcm.c \
 	libxcm/core/xcm_addr.c \
@@ -53,6 +56,7 @@ libxcm_la_SOURCES = \
 	libxcm/core/xcm_attr_map.c \
 	libxcm/core/xcm_compat.c \
 	libxcm/core/xcm_version.c \
+	libxcm/core/xpoll.c \
 	libxcm/tp/common/active_fd.c \
 	libxcm/tp/common/common_tp.c \
 	libxcm/tp/common/dns_attr.c \
@@ -169,17 +173,25 @@ endif
 
 UTEST_SOURCES = test/utest/utest.c  test/utest/utestreport.c \
         test/utest/utesthumanreport.c
-TEST_CPPFLAGS=-I$(srcdir)/test -I$(srcdir)/test/utest
+TEST_CPPFLAGS=-I$(srcdir)/test -I$(srcdir)/test/utest \
+	-I$(srcdir)/libxcm/core -I$(srcdir)/libxcm/tp/common
 
 XCMTEST_TESTCASE_SOURCES = \
 	test/addr_testcases.c \
 	test/attr_map_testcases.c \
+	test/attr_path_testcases.c \
+	test/attr_tree_testcases.c \
 	test/slist_testcases.c \
 	test/xcm_testcases.c
 
 xcmtest_SOURCES = \
 	$(XCMTEST_TESTCASE_SOURCES) \
 	$(UTEST_SOURCES) \
+	libxcm/core/log.c \
+	libxcm/core/attr_node.c \
+	libxcm/core/attr_path.c \
+	libxcm/core/attr_tree.c \
+	libxcm/core/log_attr_tree.c \
 	common/slist.c \
 	common/util.c \
 	test/iowrap.c \

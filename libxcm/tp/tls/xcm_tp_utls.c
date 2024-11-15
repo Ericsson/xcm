@@ -62,8 +62,7 @@ static const char *utls_get_local_addr(struct xcm_socket *socket,
 static size_t utls_max_msg(struct xcm_socket *conn_s);
 static int64_t utls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static void utls_enable_ctl(struct xcm_socket *s);
-static void utls_attr_foreach(struct xcm_socket *s,
-			      xcm_attr_foreach_cb foreach_cb, void *cb_data);
+static void utls_attr_populate(struct xcm_socket *s, struct attr_tree *tree);
 static size_t utls_priv_size(enum xcm_socket_type type);
 
 static struct xcm_tp_ops utls_ops = {
@@ -84,7 +83,7 @@ static struct xcm_tp_ops utls_ops = {
     .max_msg = utls_max_msg,
     .get_cnt = utls_get_cnt,
     .enable_ctl = utls_enable_ctl,
-    .attr_foreach = utls_attr_foreach,
+    .attr_populate = utls_attr_populate,
     .priv_size = utls_priv_size
 };
 
@@ -661,13 +660,12 @@ static void utls_get_attrs(struct xcm_socket *s,
 }
 #endif
 
-static void utls_attr_foreach(struct xcm_socket *s,
-			      xcm_attr_foreach_cb foreach_cb, void *cb_data)
+static void utls_attr_populate(struct xcm_socket *s, struct attr_tree *tree)
 {
     struct utls_socket *us = TOUTLS(s);
 
     if (us->ux_socket != NULL)
-	xcm_tp_socket_attr_foreach(us->ux_socket, foreach_cb, cb_data);
+	xcm_tp_socket_attr_populate(us->ux_socket, tree);
     if (us->tls_socket != NULL)
-	xcm_tp_socket_attr_foreach(us->tls_socket, foreach_cb, cb_data);
+	xcm_tp_socket_attr_populate(us->tls_socket, tree);
 }

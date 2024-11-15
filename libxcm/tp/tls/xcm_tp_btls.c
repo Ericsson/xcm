@@ -135,8 +135,7 @@ static const char *btls_get_remote_addr(struct xcm_socket *s,
 static int btls_set_local_addr(struct xcm_socket *s, const char *local_addr);
 static const char *btls_get_local_addr(struct xcm_socket *conn_s,
 				      bool suppress_tracing);
-static void btls_attr_foreach(struct xcm_socket *s,
-			      xcm_attr_foreach_cb foreach_cb, void *cb_data);
+static void btls_attr_populate(struct xcm_socket *s, struct attr_tree *tree);
 static int64_t btls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
 static size_t btls_priv_size(enum xcm_socket_type type);
 
@@ -155,7 +154,7 @@ const static struct xcm_tp_ops btls_ops = {
     .set_local_addr = btls_set_local_addr,
     .get_local_addr = btls_get_local_addr,
     .get_cnt = btls_get_cnt,
-    .attr_foreach = btls_attr_foreach,
+    .attr_populate = btls_attr_populate,
     .priv_size = btls_priv_size
 };
 
@@ -1289,7 +1288,8 @@ static int64_t btls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     return bts->conn.cnts[cnt];
 }
 
-static int set_client_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_client_attr(struct xcm_socket *s, void *context,
+			   const void *value, size_t len)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1304,7 +1304,8 @@ static int set_client_attr(struct xcm_socket *s, const void *value, size_t len)
     return 0;
 }
 
-static int get_client_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_client_attr(struct xcm_socket *s, void *context, void *value,
+			   size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_client, value, capacity);
 }
@@ -1325,36 +1326,38 @@ static int set_early_bool_attr(struct xcm_socket *s, bool *attr,
     return 0;
 }
 
-static int set_auth_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_auth_attr(struct xcm_socket *s, void *context,
+			 const void *value, size_t len)
 {
     return set_early_bool_attr(s, &(TOBTLS(s)->tls_auth), value, len);
 }
 
-static int get_auth_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_auth_attr(struct xcm_socket *s, void *context,
+			 void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_auth, value, capacity);
 }
 
-static int set_check_crl_attr(struct xcm_socket *s, const void *value,
-			      size_t len)
+static int set_check_crl_attr(struct xcm_socket *s, void *context,
+			      const void *value, size_t len)
 {
     return set_early_bool_attr(s, &(TOBTLS(s)->check_crl), value, len);
 }
 
-static int get_check_crl_attr(struct xcm_socket *s, void *value,
-			      size_t capacity)
+static int get_check_crl_attr(struct xcm_socket *s, void *context,
+			      void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->check_crl, value, capacity);
 }
 
-static int set_check_time_attr(struct xcm_socket *s, const void *value,
-			       size_t len)
+static int set_check_time_attr(struct xcm_socket *s, void *context,
+			       const void *value, size_t len)
 {
     return set_early_bool_attr(s, &(TOBTLS(s)->check_time), value, len);
 }
 
-static int get_check_time_attr(struct xcm_socket *s, void *value,
-			       size_t capacity)
+static int get_check_time_attr(struct xcm_socket *s, void *context,
+			       void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->check_time, value, capacity);
 }
@@ -1380,8 +1383,8 @@ static int set_file_attr(struct xcm_socket *s, const void *filename,
     return 0;
 }
 
-static int set_cert_file_attr(struct xcm_socket *s, const void *filename,
-			      size_t len)
+static int set_cert_file_attr(struct xcm_socket *s, void *context,
+			      const void *filename, size_t len)
 {
     return set_file_attr(s, filename, len, &(TOBTLS(s)->cert), NULL);
 }
@@ -1397,46 +1400,46 @@ static int get_file_attr(const struct item *item, void *filename,
     return xcm_tp_get_str_attr(item->data, filename, capacity);
 }
 
-static int get_cert_file_attr(struct xcm_socket *s, void *filename,
-			      size_t capacity)
+static int get_cert_file_attr(struct xcm_socket *s, void *context,
+			      void *filename, size_t capacity)
 {
     return get_file_attr(&TOBTLS(s)->cert, filename, capacity);
 }
 
-static int set_key_file_attr(struct xcm_socket *s, const void *filename,
-			     size_t len)
+static int set_key_file_attr(struct xcm_socket *s, void *context,
+			     const void *filename, size_t len)
 {
     return set_file_attr(s, filename, len, &(TOBTLS(s)->key), NULL);
 }
 
-static int get_key_file_attr(struct xcm_socket *s, void *filename,
-			     size_t capacity)
+static int get_key_file_attr(struct xcm_socket *s, void *context,
+			     void *filename, size_t capacity)
 {
     return get_file_attr(&TOBTLS(s)->key, filename, capacity);
 }
 
-static int set_tc_file_attr(struct xcm_socket *s, const void *filename,
-			    size_t len)
+static int set_tc_file_attr(struct xcm_socket *s, void *context,
+			    const void *filename, size_t len)
 {
     return set_file_attr(s, filename, len, &(TOBTLS(s)->tc),
 			 &(TOBTLS(s)->tc_set));
 }
 
-static int get_tc_file_attr(struct xcm_socket *s, void *filename,
-			    size_t capacity)
+static int get_tc_file_attr(struct xcm_socket *s, void *context,
+			    void *filename, size_t capacity)
 {
     return get_file_attr(&TOBTLS(s)->tc, filename, capacity);
 }
 
-static int set_crl_file_attr(struct xcm_socket *s, const void *filename,
-			     size_t len)
+static int set_crl_file_attr(struct xcm_socket *s, void *context,
+			     const void *filename, size_t len)
 {
     return set_file_attr(s, filename, len, &(TOBTLS(s)->crl),
 			 &(TOBTLS(s)->crl_set));
 }
 
-static int get_crl_file_attr(struct xcm_socket *s, void *filename,
-			     size_t capacity)
+static int get_crl_file_attr(struct xcm_socket *s, void *context,
+			     void *filename, size_t capacity)
 {
     return get_file_attr(&TOBTLS(s)->crl, filename, capacity);
 }
@@ -1481,7 +1484,8 @@ static int set_value_attr(struct xcm_socket *s, const void *value, size_t len,
     return 0;
 }
 
-static int set_cert_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_cert_attr(struct xcm_socket *s, void *context,
+			 const void *value, size_t len)
 {
     return set_value_attr(s, value, len, &(TOBTLS(s)->cert), false, NULL);
 }
@@ -1498,45 +1502,52 @@ static int get_value_attr(const struct item *item, void *value,
 			       value, capacity);
 }
 
-static int get_cert_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_cert_attr(struct xcm_socket *s, void *context,
+			 void *value, size_t capacity)
 {
     return get_value_attr(&TOBTLS(s)->cert, value, capacity);
 }
 
-static int set_key_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_key_attr(struct xcm_socket *s, void *context,
+			const void *value, size_t len)
 {
     return set_value_attr(s, value, len, &(TOBTLS(s)->key), true, NULL);
 }
 
-static int get_key_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_key_attr(struct xcm_socket *s, void *context,
+			void *value, size_t capacity)
 {
     return get_value_attr(&TOBTLS(s)->key, value, capacity);
 }
 
-static int set_tc_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_tc_attr(struct xcm_socket *s, void *context,
+		       const void *value, size_t len)
 {
     return set_value_attr(s, value, len, &(TOBTLS(s)->tc), false,
 			  &(TOBTLS(s)->tc_set));
 }
 
-static int get_tc_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_tc_attr(struct xcm_socket *s, void *context,
+		       void *value, size_t capacity)
 {
     return get_value_attr(&TOBTLS(s)->tc, value, capacity);
 }
 
-static int set_crl_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_crl_attr(struct xcm_socket *s, void *context,
+			const void *value, size_t len)
 {
     return set_value_attr(s, value, len, &(TOBTLS(s)->crl), false,
 			  &(TOBTLS(s)->crl_set));
 }
 
-static int get_crl_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_crl_attr(struct xcm_socket *s, void *context,
+			void *value, size_t capacity)
 {
     return get_value_attr(&TOBTLS(s)->crl, value, capacity);
 }
 
-static int set_verify_peer_name_attr(struct xcm_socket *s, const void *value,
-				     size_t len)
+static int set_verify_peer_name_attr(struct xcm_socket *s, void *context,
+				     const void *value, size_t len)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1551,8 +1562,8 @@ static int set_verify_peer_name_attr(struct xcm_socket *s, const void *value,
     return 0;
 }
 
-static int get_verify_peer_name_attr(struct xcm_socket *s, void *value,
-				     size_t capacity)
+static int get_verify_peer_name_attr(struct xcm_socket *s, void *context,
+				     void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->verify_peer_name, value, capacity);
 }
@@ -1599,8 +1610,8 @@ static void add_subject_alternative_names(X509 *cert,
 
 #define SAN_DELIMITER ':'
 
-static int set_peer_names_attr(struct xcm_socket *s, const void *value,
-			       size_t len)
+static int set_peer_names_attr(struct xcm_socket *s, void *context,
+			       const void *value, size_t len)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1704,8 +1715,8 @@ static int get_actual_peer_names_attr(struct xcm_socket *s, void *value,
     return strlen(value) + 1;
 }
 
-static int get_peer_names_attr(struct xcm_socket *s, void *value,
-			       size_t capacity)
+static int get_peer_names_attr(struct xcm_socket *s, void *context,
+			       void *value, size_t capacity)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1721,8 +1732,8 @@ static int get_peer_names_attr(struct xcm_socket *s, void *value,
 	return get_valid_peer_names_attr(s, value, capacity);
 }
 
-static int get_peer_subject_key_id(struct xcm_socket *s, void *value,
-				   size_t capacity)
+static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
+				   void *value,  size_t capacity)
 {
     struct btls_socket *bts = TOBTLS(s);
     if (s->type != xcm_socket_type_conn) {
@@ -1757,67 +1768,60 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *value,
     return len;
 }
 
-/* The common attributes are split in two to maintain some order when the
-   attributes are listed over the control interface */
-#define TLS_COMMON_ATTRS						\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CLIENT, xcm_attr_type_bool,	\
-			set_client_attr, get_client_attr),		\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_AUTH, xcm_attr_type_bool,		\
-			set_auth_attr, get_auth_attr),			\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CHECK_CRL, xcm_attr_type_bool,	\
-			set_check_crl_attr, get_check_crl_attr),	\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CHECK_TIME, xcm_attr_type_bool,	\
-			set_check_time_attr, get_check_time_attr),	\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_VERIFY_PEER_NAME, xcm_attr_type_bool, \
-			set_verify_peer_name_attr, \
-			get_verify_peer_name_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_PEER_NAMES, xcm_attr_type_str, \
-			set_peer_names_attr, get_peer_names_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT_FILE, xcm_attr_type_str, \
-			set_cert_file_attr, get_cert_file_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY_FILE, xcm_attr_type_str, \
-			set_key_file_attr, get_key_file_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC_FILE, xcm_attr_type_str, \
-			set_tc_file_attr, get_tc_file_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CRL_FILE, xcm_attr_type_str, \
-			set_crl_file_attr, get_crl_file_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CERT, xcm_attr_type_bin, \
-			set_cert_attr, get_cert_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_KEY, xcm_attr_type_bin, \
-			set_key_attr, get_key_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_TC, xcm_attr_type_bin, \
-			set_tc_attr, get_tc_attr), \
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TLS_CRL, xcm_attr_type_bin, \
-			set_crl_attr, get_crl_attr)
+static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
+{
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CLIENT, s, xcm_attr_type_bool,
+		     set_client_attr, get_client_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_AUTH, s, xcm_attr_type_bool,
+		     set_auth_attr, get_auth_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_CRL, s, xcm_attr_type_bool,
+		     set_check_crl_attr, get_check_crl_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_TIME, s, xcm_attr_type_bool,
+		     set_check_time_attr, get_check_time_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_VERIFY_PEER_NAME, s,
+		     xcm_attr_type_bool, set_verify_peer_name_attr,
+		     get_verify_peer_name_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_PEER_NAMES, s, xcm_attr_type_str,
+		     set_peer_names_attr, get_peer_names_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CERT_FILE, s, xcm_attr_type_str,
+		     set_cert_file_attr, get_cert_file_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_KEY_FILE, s, xcm_attr_type_str,
+		     set_key_file_attr, get_key_file_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_TC_FILE, s, xcm_attr_type_str,
+		     set_tc_file_attr, get_tc_file_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CRL_FILE, s, xcm_attr_type_str,
+		     set_crl_file_attr, get_crl_file_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CERT, s, xcm_attr_type_bin,
+		     set_cert_attr, get_cert_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_KEY, s, xcm_attr_type_bin,
+		     set_key_attr, get_key_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_TC, s, xcm_attr_type_bin,
+		     set_tc_attr, get_tc_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CRL, s, xcm_attr_type_bin,
+		     set_crl_attr, get_crl_attr);
+}
 
-static struct xcm_tp_attr btls_conn_attrs[] = {
-    TLS_COMMON_ATTRS,
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID,
-			xcm_attr_type_bin, get_peer_subject_key_id)
+static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
+{
+    populate_common(s, tree);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID, s,
+		     xcm_attr_type_bin, get_peer_subject_key_id);
 };
 
-static struct xcm_tp_attr btls_server_attrs[] = {
-    TLS_COMMON_ATTRS
+
+static void populate_server(struct xcm_socket *s, struct attr_tree *tree)
+{
+    populate_common(s, tree);
 };
 
-static void btls_attr_foreach(struct xcm_socket *s,
-			     xcm_attr_foreach_cb foreach_cb, void *cb_data)
+static void btls_attr_populate(struct xcm_socket *s, struct attr_tree *tree)
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    const struct xcm_tp_attr* btls_attrs;
-    size_t btls_attrs_len;
+    if (s->type == xcm_socket_type_conn)
+	populate_conn(s, tree);
+    else
+	populate_server(s, tree);
 
-    if (s->type == xcm_socket_type_conn) {
-	btls_attrs = btls_conn_attrs;
-	btls_attrs_len = UT_ARRAY_LEN(btls_conn_attrs);
-    } else {
-	btls_attrs = btls_server_attrs;
-	btls_attrs_len = UT_ARRAY_LEN(btls_server_attrs);
-    }
-
-    xcm_tp_attr_list_foreach(btls_attrs, btls_attrs_len, s, foreach_cb,
-			     cb_data);
-    
-    xcm_tp_socket_attr_foreach(bts->btcp_socket, foreach_cb, cb_data);
+    xcm_tp_socket_attr_populate(bts->btcp_socket, tree);
 }

@@ -99,8 +99,7 @@ static int btcp_set_local_addr(struct xcm_socket *s, const char *local_addr);
 static const char *btcp_get_local_addr(struct xcm_socket *socket,
 				      bool suppress_tracing);
 static int64_t btcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt);
-static void btcp_attr_foreach(struct xcm_socket *s,
-			      xcm_attr_foreach_cb foreach_cb, void *user);
+static void btcp_attr_populate(struct xcm_socket *s, struct attr_tree *tree);
 static size_t btcp_priv_size(enum xcm_socket_type type);
 
 static void try_establish(struct xcm_socket *s);
@@ -120,7 +119,7 @@ static struct xcm_tp_ops btcp_ops = {
     .set_local_addr = btcp_set_local_addr,
     .get_local_addr = btcp_get_local_addr,
     .get_cnt = btcp_get_cnt,
-    .attr_foreach = btcp_attr_foreach,
+    .attr_populate = btcp_attr_populate,
     .priv_size = btcp_priv_size
 };
 
@@ -892,7 +891,8 @@ static int64_t btcp_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
 
 #define GEN_TCP_FIELD_GET(field_name)					\
     static int get_ ## field_name ## _attr(struct xcm_socket *s,	\
-					   void *value, size_t capacity) \
+					   void *context, void *value,	\
+					   size_t capacity)		\
     {									\
 	return tcp_get_ ## field_name ##_attr(TOBTCP(s)->fd, value);	\
     }
@@ -904,7 +904,7 @@ GEN_TCP_FIELD_GET(segs_in)
 GEN_TCP_FIELD_GET(segs_out)
 
 #define GEN_TCP_SET(attr_name, attr_type)				\
-    static int set_ ## attr_name ## _attr(struct xcm_socket *s,		\
+    static int set_ ## attr_name ## _attr(struct xcm_socket *s, void *context, \
 					  const void *value, size_t len) \
     {									\
 	struct btcp_socket *bts = TOBTCP(s);				\
@@ -915,7 +915,7 @@ GEN_TCP_FIELD_GET(segs_out)
     }
 
 #define GEN_TCP_GET(attr_name, attr_type)				\
-    static int get_ ## attr_name ## _attr(struct xcm_socket *s,		\
+    static int get_ ## attr_name ## _attr(struct xcm_socket *s, void *context, \
 					  void *value, size_t capacity)	\
     {									\
 	struct btcp_socket *bts = TOBTCP(s);				\
@@ -935,8 +935,8 @@ GEN_TCP_ACCESS(keepalive_interval, int64_t)
 GEN_TCP_ACCESS(keepalive_count, int64_t)
 GEN_TCP_ACCESS(user_timeout, int64_t)
 
-static int set_dns_timeout_attr(struct xcm_socket *s, const void *value,
-				size_t len)
+static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
+				const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -954,8 +954,8 @@ static int set_dns_timeout_attr(struct xcm_socket *s, const void *value,
     return 0;
 }
 
-static int get_dns_timeout_attr(struct xcm_socket *s, void *value,
-				size_t capacity)
+static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
+				void *value, size_t capacity)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -966,8 +966,8 @@ static int get_dns_timeout_attr(struct xcm_socket *s, void *value,
     return xcm_tp_get_double_attr(timeout, value, capacity);
 }
 
-static int set_dns_algorithm_attr(struct xcm_socket *s, const void *value,
-				  size_t len)
+static int set_dns_algorithm_attr(struct xcm_socket *s, void *context,
+				  const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -989,8 +989,8 @@ static int set_dns_algorithm_attr(struct xcm_socket *s, const void *value,
     return 0;
 }
 
-static int get_dns_algorithm_attr(struct xcm_socket *s, void *value,
-				  size_t capacity)
+static int get_dns_algorithm_attr(struct xcm_socket *s, void *context,
+				  void *value, size_t capacity)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -1006,8 +1006,8 @@ static int get_dns_algorithm_attr(struct xcm_socket *s, void *value,
     return xcm_tp_get_str_attr(algorithm_str, value, capacity);
 }
 
-static int set_tcp_connect_timeout_attr(struct xcm_socket *s, const void *value,
-					size_t len)
+static int set_tcp_connect_timeout_attr(struct xcm_socket *s, void *context,
+					const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -1030,8 +1030,8 @@ static int set_tcp_connect_timeout_attr(struct xcm_socket *s, const void *value,
     return 0;
 }
 
-static int get_tcp_connect_timeout_attr(struct xcm_socket *s, void *value,
-					size_t capacity)
+static int get_tcp_connect_timeout_attr(struct xcm_socket *s, void *context,
+					void *value, size_t capacity)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -1045,7 +1045,8 @@ static int get_tcp_connect_timeout_attr(struct xcm_socket *s, void *value,
 				  capacity);
 }
 
-static int set_scope_attr(struct xcm_socket *s, const void *value, size_t len)
+static int set_scope_attr(struct xcm_socket *s, void *context,
+			  const void *value, size_t len)
 {
     struct btcp_socket *bts = TOBTCP(s);
 
@@ -1079,7 +1080,8 @@ static int set_scope_attr(struct xcm_socket *s, const void *value, size_t len)
     return 0;
 }
 
-static int get_scope_attr(struct xcm_socket *s, void *value, size_t capacity)
+static int get_scope_attr(struct xcm_socket *s, void *context, void *value,
+			  size_t capacity)
 {
     int64_t scope = TOBTCP(s)->scope;
 
@@ -1092,58 +1094,52 @@ static int get_scope_attr(struct xcm_socket *s, void *value, size_t capacity)
     }
 }
 
-#define COMMON_ATTRS							\
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_IPV6_SCOPE, xcm_attr_type_int64,	\
-			set_scope_attr, get_scope_attr)
-
-const static struct xcm_tp_attr conn_attrs[] = {
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_TIMEOUT, xcm_attr_type_double,
-			set_dns_timeout_attr, get_dns_timeout_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_DNS_ALGORITHM, xcm_attr_type_str,
-			set_dns_algorithm_attr, get_dns_algorithm_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_CONNECT_TIMEOUT, xcm_attr_type_double,
-			set_tcp_connect_timeout_attr,
-			get_tcp_connect_timeout_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_RTT, xcm_attr_type_int64,
-			get_rtt_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_TOTAL_RETRANS, xcm_attr_type_int64,
-			get_total_retrans_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_IN, xcm_attr_type_int64,
-			get_segs_in_attr),
-    XCM_TP_DECL_RO_ATTR(XCM_ATTR_TCP_SEGS_OUT, xcm_attr_type_int64,
-			get_segs_out_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE, xcm_attr_type_bool,
-			set_keepalive_attr, get_keepalive_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_TIME, xcm_attr_type_int64,
-			set_keepalive_time_attr, get_keepalive_time_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_INTERVAL, xcm_attr_type_int64,
-			set_keepalive_interval_attr,
-			get_keepalive_interval_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_KEEPALIVE_COUNT, xcm_attr_type_int64,
-			set_keepalive_count_attr, get_keepalive_count_attr),
-    XCM_TP_DECL_RW_ATTR(XCM_ATTR_TCP_USER_TIMEOUT, xcm_attr_type_int64,
-			set_user_timeout_attr, get_user_timeout_attr),
-    COMMON_ATTRS
-};
-
-static struct xcm_tp_attr server_attrs[] = {
-    COMMON_ATTRS
-};
-
-static void btcp_attr_foreach(struct xcm_socket *s,
-			      xcm_attr_foreach_cb foreach_cb, void *cb_data)
+static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 {
-    const struct xcm_tp_attr *attr_list;
-    size_t attr_list_len;
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_IPV6_SCOPE, s, xcm_attr_type_int64,
+		     set_scope_attr, get_scope_attr);
+}
 
-    if (s->type == xcm_socket_type_conn) {
-	attr_list = conn_attrs;
-	attr_list_len = UT_ARRAY_LEN(conn_attrs);
-    } else {
-	attr_list = server_attrs;
-	attr_list_len = UT_ARRAY_LEN(server_attrs);
-    }
+static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
+{
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_TIMEOUT, s, xcm_attr_type_double,
+		     set_dns_timeout_attr, get_dns_timeout_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_ALGORITHM, s, xcm_attr_type_str,
+		     set_dns_algorithm_attr, get_dns_algorithm_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_CONNECT_TIMEOUT, s,
+		     xcm_attr_type_double, set_tcp_connect_timeout_attr,
+		     get_tcp_connect_timeout_attr);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TCP_RTT, s, xcm_attr_type_int64,
+		     get_rtt_attr);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TCP_TOTAL_RETRANS, s, xcm_attr_type_int64,
+		     get_total_retrans_attr);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TCP_SEGS_IN, s, xcm_attr_type_int64,
+		     get_segs_in_attr);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TCP_SEGS_OUT, s, xcm_attr_type_int64,
+		     get_segs_out_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_KEEPALIVE, s, xcm_attr_type_bool,
+		     set_keepalive_attr, get_keepalive_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_KEEPALIVE_TIME, s, xcm_attr_type_int64,
+		     set_keepalive_time_attr, get_keepalive_time_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_KEEPALIVE_INTERVAL, s,
+		     xcm_attr_type_int64, set_keepalive_interval_attr,
+		     get_keepalive_interval_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_KEEPALIVE_COUNT, s, xcm_attr_type_int64,
+		     set_keepalive_count_attr, get_keepalive_count_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_USER_TIMEOUT, s, xcm_attr_type_int64,
+		     set_user_timeout_attr, get_user_timeout_attr);
+    populate_common(s, tree);
+};
 
-    xcm_tp_attr_list_foreach(attr_list, attr_list_len, s, foreach_cb,
-			     cb_data);
+static void populate_server(struct xcm_socket *s, struct attr_tree *tree)
+{
+    populate_common(s, tree);
+}
+
+static void btcp_attr_populate(struct xcm_socket *s, struct attr_tree *tree)
+{
+    if (s->type == xcm_socket_type_conn)
+	populate_conn(s, tree);
+    else
+	populate_server(s, tree);
 }

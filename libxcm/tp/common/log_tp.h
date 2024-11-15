@@ -3,8 +3,8 @@
  * Copyright(c) 2020 Ericsson AB
  */
 
-#ifndef LOG_SOCK_H
-#define LOG_SOCK_H
+#ifndef LOG_TP_H
+#define LOG_TP_H
 
 #include "log.h"
 #include "xcm_addr.h"
@@ -341,9 +341,7 @@
 		   "invalid length %zd bytes.", attr_name, attr_len)
 
 #define LOG_ATTR_SET_INVALID_TYPE(s, expected_type, actual_type)	\
-    log_debug_sock(s, "Attribute is of type %s, but new value of type "	\
-		   "%s.", log_attr_type_name(expected_type),		\
-		   log_attr_type_name(actual_type))
+    do {} while (0)
 
 #define LOG_ATTR_SET_NON_EXISTENT(s)			\
     log_debug_sock(s, "Attribute does not exist.")
@@ -387,7 +385,6 @@ const char *log_xcm_ip_str(const struct xcm_addr_ip *ip);
 
 void log_attr_str_value(enum xcm_attr_type type, const void *value, size_t len,
 			char *buf, size_t capacity);
-const char *log_attr_type_name(enum xcm_attr_type type);
 void log_attrs_aprintf(char *buf, size_t capacity,
 		       const struct xcm_attr_map *attrs);
 

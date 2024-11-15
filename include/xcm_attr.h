@@ -40,7 +40,7 @@ extern "C" {
  * -------------|------------
  * ENOENT       | The attribute does not exist.
  * EACCES       | The attribute exists, but is read-only.
- * EINVAL       | The attribute name is too long, the attribute value type, value or value length is not valid for the specified attribute.
+ * EINVAL       | The attribute name has an invalid syntax or is too long, or the attribute value type, value or value length is not valid for the specified attribute.
  */
 
 int xcm_attr_set(struct xcm_socket *socket, const char *name,
@@ -128,6 +128,7 @@ int xcm_attr_set_str(struct xcm_socket *socket, const char *name,
  * ENOENT       | The attribute does not exist.
  * EACCES       | The attribute exists, but is write-only.
  * EOVERFLOW    | The user-supplied buffer was too small to fit the value.
+ * EINVAL       | The attribute name has an invalid syntax or is too long.
  */
 
 int xcm_attr_get(struct xcm_socket *socket, const char *name,
@@ -145,7 +146,6 @@ int xcm_attr_get(struct xcm_socket *socket, const char *name,
  * errno        | Description
  * -------------|------------
  * ENOENT       | The attribute does not exist, or is not boolean.
- *
  * See xcm_attr_get() for other possible errno values.
  */
 
