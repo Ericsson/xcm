@@ -3596,6 +3596,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.peer_cert.subject.cn", "foo"), EACCES);
 
     return UTEST_SUCCESS;
 }
@@ -6819,6 +6820,12 @@ TESTCASE(xcm, tls_get_subject_alternative_names)
     char name[1024];
     int name_len;
 
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer_cert.subject.cn",
+					 name, sizeof(name)));
+    CHKSTREQ(name, "b0");
+
+    name[0] = '\0';
     CHKNOERR(name_len = xcm_attr_get(server_conn,
 				     "tls.peer_cert.dns_names[0]",
 				     &type, name, sizeof(name)));

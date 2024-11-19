@@ -1750,10 +1750,6 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
 				   void *value, size_t capacity)
 {
     struct btls_socket *bts = TOBTLS(s);
-    if (s->type != xcm_socket_type_conn) {
-	errno = ENOENT;
-	return -1;
-    }
 
     if (bts->conn.state != conn_state_ready)
 	return 0;
@@ -1780,6 +1776,43 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     X509_free(remote_cert);
 
     return len;
+}
+
+static int get_peer_subject_cn(struct xcm_socket *s, void *context,
+			       void *value, size_t capacity)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if (bts->conn.state != conn_state_ready)
+	return 0;
+
+    X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
+    if (remote_cert == NULL) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    X509_NAME *name = X509_get_subject_name(remote_cert);
+
+    char cn[1024];
+    int len = X509_NAME_get_text_by_NID(name, NID_commonName, cn, sizeof(cn));
+
+    if (len < 0) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    if (len >= capacity) {
+	errno = EOVERFLOW;
+	X509_free(remote_cert);
+	return -1;
+    }
+
+    strcpy(value, cn);
+
+    X509_free(remote_cert);
+
+    return len + 1;
 }
 
 static int get_names_elem(struct xcm_socket *s, int type, int index,
@@ -1913,6 +1946,8 @@ static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
     populate_common(s, tree);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID, s,
 		     xcm_attr_type_bin, get_peer_subject_key_id);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN, s,
+		     xcm_attr_type_str, get_peer_subject_cn);
     populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_DNS_NAMES, GEN_DNS,
 			get_dns_name_attr);
     populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_EMAIL_NAMES, GEN_EMAIL,

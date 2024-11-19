@@ -1383,6 +1383,7 @@ extern "C" {
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.
  * tls.peer_names           | All         | String      | RW   | At socket creation, a list of acceptable peer subject names. After connection establishment, a list of actual peer subject names. Writable only at socket creation.
  * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or TLS authentication is disabled and the remote peer did not send a certificate).
+ * tls.peer_cert.subject.cn | Connection  | String      | R    | The common name (CN) of the remote peer's subject field, provided the certificate (including a CN in the subject DN) exists.
  * tls.peer_cert.dns_names  | Connection  | List        | R    | A list of strings, where each element is a remote peer's subject alternative names (SAN) of the DNS type. The subject field CN is not included in this list.
  * tls.peer_cert.email_names | Connection | List        | R    | A list of strings, where each element is a remote peer's subject alternative names (SAN) of the RFC 822 type.
  *
