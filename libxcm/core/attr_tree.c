@@ -240,7 +240,6 @@ int attr_tree_get_value(struct attr_tree *tree, const char *path_str,
 	return -1;
     }
 
-
     if (!attr_node_is_value(value_node)) {
 	LOG_ATTR_TREE_NODE_IS_NOT_VALUE(log_ref, path_str);
 	errno = EACCES;
@@ -266,6 +265,42 @@ int attr_tree_get_value(struct attr_tree *tree, const char *path_str,
     LOG_ATTR_TREE_GET_RESULT(log_ref, path_str, value_type, value, rc);
 
     return rc;
+}
+
+int attr_tree_get_list_len(struct attr_tree *tree, const char *path_str,
+			   void *log_ref)
+{
+    LOG_ATTR_TREE_LIST_LEN_REQ(log_ref, path_str);
+
+    struct attr_path *path = attr_path_parse(path_str, true);
+
+    if (path == NULL) {
+	LOG_ATTR_TREE_INVALID_SYNTAX(log_ref, path_str);
+	errno = EINVAL;
+	return -1;
+    }
+
+    struct attr_node *list_node = node_lookup(tree->root, path);
+
+    attr_path_destroy(path);
+
+    if (list_node == NULL) {
+	LOG_ATTR_TREE_NON_EXISTENT(log_ref, path_str);
+	errno = ENOENT;
+	return -1;
+    }
+
+    if (!attr_node_is_list(list_node)) {
+	LOG_ATTR_TREE_NODE_IS_NOT_LIST(log_ref, path_str);
+	errno = EACCES;
+	return -1;
+    }
+
+    int len = attr_node_list_len(list_node);
+
+    LOG_ATTR_TREE_LIST_LEN_RESULT(log_ref, path_str, len);
+
+    return len;
 }
 
 static void visit_value(const char *path, const struct attr_node *value_node,

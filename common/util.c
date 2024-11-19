@@ -174,15 +174,23 @@ void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
     va_end(ap);
 }
 
-char *ut_asprintf(const char *fmt, ...)
+char *ut_vasprintf(const char *fmt, va_list ap)
 {
-    va_list ap;
-    va_start(ap, fmt);
     char *str;
 
     int rc = vasprintf(&str, fmt, ap);
     if (rc < 0)
 	ut_fatal();
+
+    return str;
+}
+
+char *ut_asprintf(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+
+    char *str = ut_vasprintf(fmt, ap);
 
     va_end(ap);
 

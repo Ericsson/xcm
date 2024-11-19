@@ -441,8 +441,13 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
 			  sizeof(actual_value));
     else {
 	type = xcm_attr_type_str;
-	rc = xcm_attr_get_str(s, attr_name, actual_value,
-			      sizeof(actual_value));
+	if (tu_randbool())
+	    rc = xcm_attr_get_str(s, attr_name, actual_value,
+				  sizeof(actual_value));
+	else
+	    rc = xcm_attr_getf_str(s, actual_value,
+				   sizeof(actual_value), "%s", attr_name);
+	    
     }
 
     if (rc < 0 || type != xcm_attr_type_str ||
@@ -477,8 +482,12 @@ int tu_assure_bool_attr(struct xcm_socket *s, const char *attr_name,
 			  sizeof(actual_value));
 	if (type != xcm_attr_type_bool)
 	    return -1;
-    } else
-	rc = xcm_attr_get_bool(s, attr_name, &actual_value);
+    } else {
+	if (tu_randbool())
+	    rc = xcm_attr_get_bool(s, attr_name, &actual_value);
+	else
+	    rc = xcm_attr_getf_bool(s, &actual_value, "%s", attr_name);
+    }
 
     if (rc != sizeof(bool))
 	return -1;
@@ -515,8 +524,13 @@ int tu_assure_int64_attr(struct xcm_socket *s, const char *attr_name,
 			  sizeof(actual_value));
 	if (type != xcm_attr_type_int64)
 	    return -1;
-    } else
-	rc = xcm_attr_get_int64(s, attr_name, &actual_value);
+    } else {
+	if (tu_randbool())
+	    rc = xcm_attr_get_int64(s, attr_name, &actual_value);
+	else
+	    rc = xcm_attr_getf_int64(s, &actual_value, "%s", attr_name);
+    }
+		
 
     if (rc != sizeof(int64_t))
 	return -1;
@@ -555,8 +569,12 @@ int tu_assure_double_attr(struct xcm_socket *s, const char *attr_name,
 			  sizeof(actual_value));
 	if (type != xcm_attr_type_double)
 	    return -1;
-    } else
-	rc = xcm_attr_get_double(s, attr_name, &actual_value);
+    } else {
+	if (tu_randbool())
+	    rc = xcm_attr_get_double(s, attr_name, &actual_value);
+	else
+	    rc = xcm_attr_getf_double(s, &actual_value, "%s", attr_name);
+    }
 
     if (rc != sizeof(double))
 	return -1;
@@ -596,9 +614,14 @@ int tu_assure_bin_attr(struct xcm_socket *s, const char *attr_name,
 			  sizeof(actual_value));
 	if (type != xcm_attr_type_bin)
 	    return -1;
-    } else
-	rc = xcm_attr_get_bin(s, attr_name, actual_value,
-			      sizeof(actual_value));
+    } else {
+	if (tu_randbool())
+	    rc = xcm_attr_get_bin(s, attr_name, actual_value,
+				  sizeof(actual_value));
+	else
+	    rc = xcm_attr_getf_bin(s, actual_value, sizeof(actual_value),
+				   "%s", attr_name);
+    }
 
     if (rc != len || memcmp(expected_value, actual_value, len) != 0)
 	return -1;

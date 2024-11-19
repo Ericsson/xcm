@@ -139,3 +139,28 @@ TESTCASE(attr_tree, basic)
 
     return UTEST_SUCCESS;
 }
+
+TESTCASE(attr_tree, list_len)
+{
+    struct attr_tree *tree = attr_tree_create();
+
+    CHKERRNO(attr_tree_get_list_len(tree, "a.b.c", NULL), ENOENT);
+
+    attr_tree_add_value_node(tree, "a.b.c[0]", NULL, NULL, xcm_attr_type_int64,
+			     NULL, NULL);
+
+    CHKINTEQ(attr_tree_get_list_len(tree, "a.b.c", NULL), 1);
+
+    attr_tree_add_value_node(tree, "a.b.c[1].d.e0", NULL, NULL,
+			     xcm_attr_type_int64, NULL, NULL);
+    attr_tree_add_value_node(tree, "a.b.c[1].d.e1", NULL, NULL,
+			     xcm_attr_type_bool, NULL, NULL);
+
+    CHKINTEQ(attr_tree_get_list_len(tree, "a.b.c", NULL), 2);
+
+    CHKERRNO(attr_tree_get_list_len(tree, "a.b.c[1]", NULL), ENOENT);
+
+    attr_tree_destroy(tree);
+
+    return UTEST_SUCCESS;
+}

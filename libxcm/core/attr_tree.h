@@ -34,6 +34,9 @@ int attr_tree_get_value(struct attr_tree *tree, const char *path,
 			enum xcm_attr_type *type, void *value,
 			size_t capacity, void *log_ref);
 
+int attr_tree_get_list_len(struct attr_tree *tree, const char *path,
+			   void *log_ref);
+
 void attr_tree_get_all(struct attr_tree *tree, xcm_attr_cb cb, void *cb_data);
 
 #endif

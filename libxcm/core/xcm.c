@@ -5,6 +5,7 @@
 
 #include "xcm.h"
 
+#include "attr_path.h"
 #include "util.h"
 #include "xcm_attr_names.h"
 #include "xcm_tp.h"
@@ -525,8 +526,8 @@ int xcm_attr_get(struct xcm_socket *s, const char *name,
 }
 
 static int attr_get_with_type(struct xcm_socket *s, const char *name,
-			 enum xcm_attr_type required_type, void *value,
-			 size_t capacity)
+			      enum xcm_attr_type required_type, void *value,
+			      size_t capacity)
 {
     enum xcm_attr_type actual_type;
     int rc = xcm_attr_get(s, name, &actual_type, value, capacity);
@@ -599,6 +600,114 @@ int xcm_attr_get_bin(struct xcm_socket *s, const char *name,
 	return -1;
     }
 
+    return rc;
+}
+
+int xcm_attr_get_list_len(struct xcm_socket *s, const char *name)
+{
+    struct attr_tree *attr_tree = build_attr_tree(s);
+
+    int rc = attr_tree_get_list_len(attr_tree, name, s);
+
+    attr_tree_destroy(attr_tree);
+
+    return rc;
+}
+
+int xcm_attr_getf(struct xcm_socket *s, enum xcm_attr_type *type,
+		  void *value, size_t capacity, const char *name_fmt, ...)
+{
+    va_list ap;
+    va_start(ap, name_fmt);
+
+    char *name = ut_vasprintf(name_fmt, ap);
+
+    int rc = xcm_attr_get(s, name, type, value, capacity);
+
+    va_end(ap);
+
+    ut_free(name);
+
+    return rc;
+}
+
+static int attr_vgetf_with_type(struct xcm_socket *s,
+				enum xcm_attr_type required_type, void *value,
+				size_t capacity, const char *name_fmt,
+				va_list ap)
+{
+    char *name = ut_vasprintf(name_fmt, ap);
+
+    int rc = attr_get_with_type(s, name, required_type, value, capacity);
+
+    ut_free(name);
+
+    return rc;
+}
+
+int xcm_attr_getf_bool(struct xcm_socket *s, bool *value,
+		       const char *name_fmt, ...)
+{
+    va_list ap;
+    va_start(ap, name_fmt);
+
+    int rc = attr_vgetf_with_type(s, xcm_attr_type_bool, value,
+				  sizeof(bool), name_fmt, ap);
+
+    va_end(ap);
+    return rc;
+}
+
+
+int xcm_attr_getf_int64(struct xcm_socket *s, int64_t *value,
+			const char *name_fmt, ...)
+{
+    va_list ap;
+    va_start(ap, name_fmt);
+
+    int rc = attr_vgetf_with_type(s, xcm_attr_type_int64, value,
+				  sizeof(int64_t), name_fmt, ap);
+
+    va_end(ap);
+    return rc;
+}
+
+int xcm_attr_getf_double(struct xcm_socket *s, double *value,
+			 const char *name_fmt, ...)
+{
+    va_list ap;
+    va_start(ap, name_fmt);
+
+    int rc = attr_vgetf_with_type(s, xcm_attr_type_double, value,
+				  sizeof(double), name_fmt, ap);
+
+    va_end(ap);
+    return rc;
+}
+
+int xcm_attr_getf_str(struct xcm_socket *s, char *value, size_t capacity,
+		      const char *name_fmt, ...)
+{
+    va_list ap;
+    va_start(ap, name_fmt);
+
+    int rc = attr_vgetf_with_type(s, xcm_attr_type_str, value,
+				  capacity, name_fmt, ap);
+
+    va_end(ap);
+    return rc;
+}
+
+int xcm_attr_getf_bin(struct xcm_socket *s, void *value, size_t capacity,
+		      const char *name_fmt, ...)
+{
+    va_list ap;
+    va_start(ap, name_fmt);
+
+    int rc = attr_vgetf_with_type(s, xcm_attr_type_bin, value,
+				  capacity, name_fmt, ap);
+
+    va_end(ap);
     return rc;
 }
 

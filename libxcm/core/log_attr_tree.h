@@ -32,7 +32,7 @@
 		   log_attr_type_name(actual_type))
 
 #define LOG_ATTR_TREE_NODE_IS_NOT_VALUE(s, path_str)			\
-    log_debug_sock(s, "Attribute is at \"%s\" is a dictionary or list.")
+    log_debug_sock(s, "Attribute at \"%s\" is a dictionary or list.")
 
 #define LOG_ATTR_TREE_NON_EXISTENT(s, name)			\
     log_debug_sock(s, "Attribute \"%s\" does not exist.", name)
@@ -65,9 +65,19 @@
 		       value_s);					\
     } while (0)
 
+#define LOG_ATTR_TREE_NODE_IS_NOT_LIST(s, path_str)			\
+    log_debug_sock(s, "Attribute at \"%s\" is not a list.")
+
+#define LOG_ATTR_TREE_LIST_LEN_RESULT(s, attr_name, len)		\
+    log_debug_sock(s, "Length of \"%s\" is %d.", attr_name, len)
+
 #define LOG_ATTR_TREE_GET_FAILED(s, reason_errno)		    \
     log_debug_sock(s, "Attribute retrieval failed; errno %d (%s).", \
 		   reason_errno, strerror(reason_errno))
+
+#define LOG_ATTR_TREE_LIST_LEN_REQ(s, attr_name)			\
+    log_debug_sock(s, "Application retrieving list length of "		\
+		   "attribute \"%s\".", attr_name)
 
 #define LOG_ATTR_TREE_GET_ALL_ATTR_REQ(s)				\
     log_debug_sock(s, "Attempting to retrieve the name and values of all " \

@@ -48,6 +48,8 @@ void ut_vaprintf(char *buf, size_t capacity, const char *format, va_list ap)
     __attribute__ ((format (printf, 3, 0)));
 void ut_aprintf(char *buf, size_t capacity, const char *format, ...)
     __attribute__ ((format (printf, 3, 4)));
+char *ut_vasprintf(const char *fmt, va_list ap)
+    __attribute__ ((format (printf, 1, 0)));
 char *ut_asprintf(const char *fmt, ...)
     __attribute__ ((format (printf, 1, 2)));
 

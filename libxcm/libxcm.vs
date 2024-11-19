@@ -37,6 +37,13 @@
     xcm_attr_get_double;
     xcm_attr_get_str;
     xcm_attr_get_bin;
+    xcm_attr_getf;
+    xcm_attr_getf_bool;
+    xcm_attr_getf_int64;
+    xcm_attr_getf_double;
+    xcm_attr_getf_str;
+    xcm_attr_getf_bin;
+    xcm_attr_get_list_len;
     xcm_attr_get_all;
     xcm_attr_map_create;
     xcm_attr_map_clone;

@@ -26,8 +26,8 @@ extern "C" {
  * * Obsolete (but still available) APIs: xcm_compat.h.
  *
  * @author Mattias Rönnblom
- * @version 0.25 [API]
- * @version 1.10.1 [Implementation]
+ * @version 0.26 [API]
+ * @version 1.11.0 [Implementation]
  *
  * The low API/ABI version number is a result of all XCM releases
  * being backward compatible, and thus left the major version at 0.
@@ -607,57 +607,128 @@ extern "C" {
  *
  * @section attributes Socket Attributes
  *
- * Tied to an XCM server or connection socket is a set of key-value
- * pairs known as attributes. Which attributes are available varies
- * across different transports, and different socket types.
+ * Associated to a XCM server or connection socket is a set of XCM
+ * socket attributes.
  *
- * An attribute's name is a string, and follows a hierarchical naming
- * schema. For example, all generic XCM attributes, available in all
- * transports, have the prefix "xcm.". Transport-specific attributes
- * are prefixed with the transport or protocol name (e.g. "tcp." for
- * TCP-specific attributes applicable to the TLS, BTLS, TCP, and BTCP
- * transports).
+ * Socket attributes represent both read-only state (e.g., TCP
+ * round-trip time), and read-write run-time configuration (e.g., TCP
+ * keepalive configuration).
+ *
+ * Which attributes are present varies across different transports,
+ * socket types (i.e., server or connection) and socket states (i.e.,
+ * fully established or not).
+ *
+ * The socket attribute API <xcm_attr.h> provides access to
+ * transport-specific parameters, without the need to extend the API
+ * with transport-specific function calls.
+ *
+ * Socket attributes are organized as a tree. An attribute's name is a
+ * string which describes a path to a node in the tree. The leaf nodes
+ * are one of a number of primitive types, such as integers and
+ * strings (see <xcm_attr_types.h> for the full list). Composite
+ * (interior) nodes are either dictionaries or lists.
  *
  * An attribute may be read-only, write-only or available both for
  * reading and writing. This is referred to as the attribute's mode.
  * The mode may vary across the lifetime of the socket. For example,
- * an attribute may be writable at the time of the xcm_connect()
+ * an attribute may be writable at the time of the xcm_connect_a()
  * call, and read-only thereafter.
  *
- * The attribute value is coded in the native C data type and byte
- * order. Strings are NUL-terminated, and the NUL character is
- * included in the length of the attribute. There are four value
- * types; a boolean type, a 64-bit signed integer type, a string type
- * and a type for arbitrary binary data. See xcm_attr_types.h for
- * details.
+ * @subsection attribute_names Attribute Names
+ *
+ * An attribute name (or, path name) is a string consisting of a
+ * sequence of dictionary keys and list indices. Keys are separated by
+ * a colon ".", and indices are enclosed in square brackes
+ * "[<index>]".
+ *
+ * Read from the left, each segment in the path moves one level away
+ * from the root.
+ *
+ * Here are some examples of attribute path names:
+ * @code
+ * xcm.blocking
+ * tls.peer_cert.dir_names[2]
+ * @endcode
+ *
+ * @subsection attribute_values Attribute Values
+ *
+ * The attribute's value is coded in the native C data type and native
+ * CPU byte order. Strings are NUL-terminated, and the NUL character
+ * is included in the length of the attribute. There are four value
+ * types; a boolean type, a 64-bit signed integer type, a string type,
+ * a type for arbitrary binary data, and a double-precision floating
+ * point type. See xcm_attr_types.h for details.
+ *
+ * In the current API, only leaf nodes can be accessed (e.g., it's not
+ * possible to retrieve a list or a dictionary as a single call).
  *
  * The attribute access API is in xcm_attr.h.
  *
- * Retrieving an integer attribute's value may look like this:
+ * @subsection attribute_structure Basic Structure
+ *
+ * The socket attribute tree has an unnamed root. This root dictionary
+ * has a number of keys.
+ *
+ * The generic XCM attributes, available in all transports, are
+ * organized under the "xcm" key. Transport-specific attributes are
+ * prefixed with the transport or protocol name (e.g. "tcp" for
+ * TCP-specific attributes applicable to the TLS, BTLS, TCP, and BTCP
+ * transports).
+ *
+ * @subsection attribute_access Attribute Access
+ *
+ * Retrieving the value of an attribute is done using xcm_attr_get(),
+ * or any of its many type-specific convenience functions.
+ *
+ * Below is an example of reading an integer attribute value.
  * ~~~~~~~~~~~~~{.c}
  * int64_t rtt;
- * xcm_attr_get(tcp_conn_socket, "tcp.rtt", NULL, &rtt, sizeof(rtt));
+ * xcm_attr_get_int(tcp_conn_socket, "tcp.rtt", &rtt);
  * printf("Current TCP round-trip time estimate is %ld us.", rtt);
  * ~~~~~~~~~~~~~
  *
- * Changing an integer attribyte value may be done in the following manner:
+ * Iterating over a list may look something like below.
  * ~~~~~~~~~~~~~{.c}
- * int64_t interval = 10;
- * xcm_attr_set(tcp_conn_socket, "tcp.keepalive_interval", xcm_attr_type_int64, &interval, sizeof(interval));
+ * int len = xcm_attr_list_len(tls_conn_socket, "tls.peer_cert.dns_names");
+ *
+ * for (int i = 0; i < len; i++) {
+ *     char name[256];
+ *     xcm_attr_get_elem_str(tls_conn_socket, "tls.peer_cert.dns_names", i,
+ *                           name, sizeof(name));
+ *     printf("DNS subject alternative name: %s\n", name);
+ * }
  * ~~~~~~~~~~~~~
  *
- * Both of these examples are missing error handling.
+ * Modyfing the value of an attribute is done using xcm_attr_set(), or
+ * any of its many type-specific convenience functions.
  *
- * @subsection attr_map Attribute Maps
+ * For example, setting the value of a boolean attribyte may be done
+ * like below.
+ * ~~~~~~~~~~~~~{.c}
+ * xcm_attr_set_bool(tcp_conn_socket, "tcp.keepalive", false);
+ * ~~~~~~~~~~~~~
  *
- * XCM allows supplying a set of writable attributes at the time of
- * socket creation, by using the xcm_connect_a(),
- * xcm_server_a(), or xcm_accept_a() functions.
+ * Please note that all of these examples lack the error handling
+ * required in a real application.
+ *
+ * @subsection attr_bulk Socket Instantiation Configuration
+ *
+ * An application may modify multiple attributes in one go, as a part
+ * of socket creation, by populating an attribute map and passing it
+ * to xcm_connect_a(), xcm_server_a(), or xcm_accept_a().
+ *
+ * Certain attributes' default values (e.g., attribute controlling
+ * what TLS credentials are used) may only be modified in this manner.
+ *
+ * Each key-value pair in the attribute maps is used as an instruction
+ * to set a node in the socket attribute tree to a particular
+ * value. The node's path is the key's name, and new desired value of
+ * the node is the key's value.
  *
  * The attribute sets are represented by the @c xcm_attr_map type in
  * xcm_attr_map.h.
  *
- * The caller retains the ownership of the @c xcm_attr_map passed to
+ * The caller retains the ownership of the attribute map passed to
  * xcm_connect_a(), xcm_server_a(), or xcm_accept_a(), and may destroy
  * it after the call has completed, or reuse it.
  *
@@ -809,8 +880,8 @@ extern "C" {
  * 
  * @section thread_safety Thread Safety
  *
- * XCM API calls are MT safe provided they operate on different
- * sockets. Calls pertaining to the same sockets are not MT safe.
+ * XCM API calls are MT safe provided the threads do not operate on
+ * the same socket, at the same time.
  *
  * Thus, multiple threads may make XCM API calls in parallel, provided
  * the calls refer to different XCM sockets.
