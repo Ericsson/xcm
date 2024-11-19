@@ -140,14 +140,19 @@ TESTCASE(attr_tree, basic)
     return UTEST_SUCCESS;
 }
 
-TESTCASE(attr_tree, list_len)
+TESTCASE(attr_tree, list)
 {
     struct attr_tree *tree = attr_tree_create();
 
     CHKERRNO(attr_tree_get_list_len(tree, "a.b.c", NULL), ENOENT);
 
-    attr_tree_add_value_node(tree, "a.b.c[0]", NULL, NULL, xcm_attr_type_int64,
-			     NULL, NULL);
+    struct test_context context_a = {
+	.v = -99
+    };
+    struct xcm_socket *s = (void *)42;
+
+    attr_tree_add_value_node(tree, "a.b.c[0]", s, &context_a,
+			     xcm_attr_type_int64, NULL, test_get);
 
     CHKINTEQ(attr_tree_get_list_len(tree, "a.b.c", NULL), 1);
 
@@ -159,6 +164,13 @@ TESTCASE(attr_tree, list_len)
     CHKINTEQ(attr_tree_get_list_len(tree, "a.b.c", NULL), 2);
 
     CHKERRNO(attr_tree_get_list_len(tree, "a.b.c[1]", NULL), ENOENT);
+
+    enum xcm_attr_type type;
+    int64_t v;
+
+    CHKINTEQ(attr_tree_get_value(tree, "a.b.c[0]", &type, &v, sizeof(v), NULL),
+	     sizeof(int64_t));
+    CHK(v == -99);
 
     attr_tree_destroy(tree);
 

@@ -26,6 +26,9 @@ void attr_tree_add_value_node(struct attr_tree *tree, const char *path,
 #define ATTR_TREE_ADD_RO(tree, path, s, type, get_fun) \
     attr_tree_add_value_node(tree, path, s, NULL, type, NULL, get_fun)
 
+struct attr_node *attr_tree_add_list_node(struct attr_tree *tree,
+					  const char *path);
+
 int attr_tree_set_value(struct attr_tree *tree, const char *path,
 			enum xcm_attr_type type, const void *value,
 			size_t len, void *log_ref);

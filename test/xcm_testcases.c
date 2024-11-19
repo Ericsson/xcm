@@ -1927,14 +1927,41 @@ TESTCASE(xcm, nonexistent_attr)
 {
     int i;
     for (i=0; i<test_m_addrs_len; i++) {
-	struct xcm_attr_map *attrs = xcm_attr_map_create();
-	xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
-	xcm_attr_map_add_str(attrs, "xcm.nonexistent", "foo");
+        struct xcm_attr_map *attrs = xcm_attr_map_create();
+        xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+        xcm_attr_map_add_str(attrs, "xcm.nonexistent", "foo");
 
-	CHKNULLERRNO(xcm_server_a(test_m_addrs[i], attrs), ENOENT);
-	CHKNULLERRNO(xcm_connect_a(test_m_addrs[i], attrs), ENOENT);
+        CHKNULLERRNO(xcm_server_a(test_m_addrs[i], attrs), ENOENT);
+        CHKNULLERRNO(xcm_connect_a(test_m_addrs[i], attrs), ENOENT);
 
-	xcm_attr_map_destroy(attrs);
+        xcm_attr_map_destroy(attrs);
+    }
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, invalid_attr)
+{
+    const char *invalid_attrs[] = {
+	"xcm.blocking[", "xcm.blocking]", "xcm.blocking[]", "[", "]", ".."
+    };
+
+    int i;
+    for (i = 0; i < test_m_addrs_len; i++) {
+
+	int k;
+	for (k = 0; k < UT_ARRAY_LEN(invalid_attrs); k++) {
+	    const char *invalid_attr = invalid_attrs[k];
+
+	    struct xcm_attr_map *attrs = xcm_attr_map_create();
+	    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+	    xcm_attr_map_add_str(attrs, invalid_attr, "foo");
+
+	    CHKNULLERRNO(xcm_server_a(test_m_addrs[i], attrs), EINVAL);
+	    CHKNULLERRNO(xcm_connect_a(test_m_addrs[i], attrs), EINVAL);
+
+	    xcm_attr_map_destroy(attrs);
+	}
     }
 
     return UTEST_SUCCESS;
@@ -6573,21 +6600,21 @@ TESTCASE(xcm, tls_get_peer_names)
 	    client_done = true;
     }
 
-    char san[1024];
-    int san_len;
+    char names[1024];
+    int names_len;
 
-    CHKNOERR((san_len = xcm_attr_get_str(server_conn, "tls.peer_names",
-					 san, sizeof(san))));
+    CHKNOERR((names_len = xcm_attr_get_str(server_conn, "tls.peer_names",
+					 names, sizeof(names))));
 
-    const char *server_peer_san = "b:b-alt0:b-alt1";
-    CHKSTREQ(san, server_peer_san);
-    CHKINTEQ(strlen(server_peer_san) + 1, san_len);
+    const char *server_peer_names = "b:b-alt0:b-alt1";
+    CHKSTREQ(names, server_peer_names);
+    CHKINTEQ(strlen(server_peer_names) + 1, names_len);
 
-    CHKNOERR((san_len = xcm_attr_get_str(client_conn, "tls.peer_names",
-					 san, sizeof(san))));
-    const char *client_peer_san = "a";
-    CHKSTREQ(san, client_peer_san);
-    CHKINTEQ(strlen(client_peer_san) + 1, san_len);
+    CHKNOERR((names_len = xcm_attr_get_str(client_conn, "tls.peer_names",
+					 names, sizeof(names))));
+    const char *client_peer_names = "a";
+    CHKSTREQ(names, client_peer_names);
+    CHKINTEQ(strlen(client_peer_names) + 1, names_len);
 
     xcm_attr_map_destroy(client_attrs);
     xcm_attr_map_destroy(server_attrs);
@@ -6702,6 +6729,161 @@ TESTCASE(xcm, tls_get_peer_subject_key_id)
 
     kill(server_pid, SIGTERM);
     tu_wait(server_pid);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_get_subject_alternative_names)
+{
+    CHKNOERR(
+	gen_certs(
+	    "\n"
+	    "certs:\n"
+	    "  root:\n"
+	    "    subject_name: root\n"
+	    "    ca: True\n"
+	    "  a:\n"
+	    "    subject_name: a\n"
+	    "    issuer: root\n"
+	    "  b:\n"
+	    "    subject_name: b0\n"
+	    "    dns_names:\n"
+	    "      - b1\n"
+	    "      - b2\n"
+	    "    email_names:\n"
+	    "      - foo@bar.com\n"
+	    "    dir_names:\n"
+	    "      - \"CN=ericsson.com,O=Ericsson AB,C=SE\"\n"
+	    "    issuer: root\n"
+	    "\n"
+	    "files:\n"
+	    "  - type: cert\n"
+	    "    id: a\n"
+	    "    path: ep-a/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: a\n"
+	    "    path: ep-a/key.pem\n"
+	    "\n"
+	    "  - type: cert\n"
+	    "    id: b\n"
+	    "    path: ep-b/cert.pem\n"
+	    "  - type: key\n"
+	    "    id: b\n"
+	    "    path: ep-b/key.pem\n"
+	    "\n"
+	    "  - type: bundle\n"
+	    "    certs:\n"
+	    "      - root\n"
+	    "    paths:\n"
+	    "      - ep-a/tc.pem\n"
+	    "      - ep-b/tc.pem\n"
+	    )
+	);
+
+    char *tls_addr = gen_tls_or_btls_addr();
+
+    struct xcm_attr_map *server_attrs =
+	create_cert_attrs_dir(get_cert_base(), "ep-a");
+    xcm_attr_map_add_bool(server_attrs, "xcm.blocking", false);
+    struct xcm_socket *server_sock = tu_server_a(tls_addr, server_attrs);
+    CHK(server_sock);
+    struct xcm_socket *server_conn = NULL;
+
+    struct xcm_attr_map *client_attrs =
+	create_cert_attrs_dir(get_cert_base(), "ep-b");
+    xcm_attr_map_add_bool(client_attrs, "xcm.blocking", false);
+    struct xcm_socket *client_conn = tu_connect_a(tls_addr, client_attrs);
+    CHK(client_conn);
+
+    bool server_done = false;
+    bool client_done = false;
+
+    while (!(server_done && client_done)) {
+	if (server_conn != NULL) {
+	    int rc = xcm_finish(server_conn);
+	    if (rc < 0)
+		CHKERRNOEQ(EAGAIN);
+	    else
+		server_done = true;
+	} else
+	    server_conn = xcm_accept(server_sock);
+
+	int rc = xcm_finish(client_conn);
+	if (rc < 0)
+	    CHKERRNOEQ(EAGAIN);
+	else
+	    client_done = true;
+    }
+
+    enum xcm_attr_type type;
+    char name[1024];
+    int name_len;
+
+    CHKNOERR(name_len = xcm_attr_get(server_conn,
+				     "tls.peer_cert.dns_names[0]",
+				     &type, name, sizeof(name)));
+
+    CHK(type == xcm_attr_type_str);
+    CHKSTREQ(name, "b0");
+    CHKINTEQ(strlen(name) + 1, name_len);
+
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer_cert.dns_names[0]",
+					 name, sizeof(name)));
+
+    CHKSTREQ(name, "b0");
+    CHKINTEQ(strlen(name) + 1, name_len);
+
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer_cert.dns_names[1]",
+					 name, sizeof(name)));
+
+    CHKSTREQ(name, "b1");
+
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer_cert.dns_names[2]",
+					 name, sizeof(name)));
+
+    CHKSTREQ(name, "b2");
+
+    CHKNOERR(name_len = xcm_attr_getf_str(server_conn,name, sizeof(name),
+					  "tls.peer_cert.dns_names[%d]", 1));
+
+    CHKSTREQ(name, "b1");
+
+    /* Subject alternative name of DNS type */
+    CHKINTEQ(xcm_attr_get_list_len(server_conn,
+				   "tls.peer_cert.dns_names"), 3);
+
+    CHKINTEQ(xcm_attr_get_list_len(client_conn,
+				   "tls.peer_cert.dns_names"), 1);
+
+    CHKERRNO(xcm_attr_get_list_len(server_conn,
+				   "tls.peer_cert.dns_names[0]"), ENOENT);
+
+    CHKERRNO(xcm_attr_get_str(server_conn,"tls.peer_cert.dns_names[3]",
+			      name, sizeof(name)), ENOENT);
+
+    CHKERRNO(xcm_attr_set_str(server_conn,"tls.peer_cert.dns_names[1]",
+			      name), EACCES);
+
+    /* Subject alternative name of RFC822 (email) type */
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer_cert.email_names[0]",
+					 name, sizeof(name)));
+    CHKSTREQ(name, "foo@bar.com");
+
+    CHKINTEQ(xcm_attr_get_list_len(server_conn,
+				   "tls.peer_cert.email_names"), 1);
+
+    xcm_attr_map_destroy(client_attrs);
+    xcm_attr_map_destroy(server_attrs);
+
+    CHKNOERR(xcm_close(server_sock));
+    CHKNOERR(xcm_close(server_conn));
+    CHKNOERR(xcm_close(client_conn));
+
+    ut_free(tls_addr);
 
     return UTEST_SUCCESS;
 }

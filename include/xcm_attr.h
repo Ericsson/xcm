@@ -234,8 +234,11 @@ int xcm_attr_get_bin(struct xcm_socket *socket, const char *name,
 
 /** Retrieves the value of a socket attribute using a formatted name.
  *
- * This builds an attribute name using the user-provided format
- * string, and calls xcm_attr_get().
+ * This function builds an attribute name using the user-provided
+ * format string and arguments, and calls xcm_attr_get().
+ *
+ * xcm_attr_getf() may be used to access a particular element in a
+ * list, for example.
  *
  * The format string has the same syntax as that of printf().
  *

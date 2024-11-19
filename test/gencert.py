@@ -41,7 +41,8 @@ class Usage(enum.Enum):
 
 now = datetime.datetime.now(datetime.timezone.utc)
 
-def create_cert(subject_names, ca, issuer_key, issuer_cert, usage, validity):
+def create_cert(subject_names, dns_names, email_names, dir_names, ca,
+                issuer_key, issuer_cert, usage, validity):
     private_key = gen_private_key()
 
     public_key = private_key.public_key()
@@ -51,8 +52,11 @@ def create_cert(subject_names, ca, issuer_key, issuer_cert, usage, validity):
 
     constraints = x509.BasicConstraints(ca=ca, path_length=None)
 
-    dns_names = [x509.DNSName(subject_name) for subject_name in subject_names]
-    alt_name = x509.SubjectAlternativeName(dns_names)
+    alt_name = x509.SubjectAlternativeName(
+        [x509.DNSName(dns_name) for dns_name in (subject_names + dns_names)] +
+        [x509.RFC822Name(email_name) for email_name in email_names] +
+        [x509.DirectoryName(x509.Name.from_rfc4514_string(dir_name)) for dir_name in dir_names]
+    )
 
     ski = x509.SubjectKeyIdentifier.from_public_key(public_key)
 
@@ -112,6 +116,33 @@ def get_subject_names(conf):
         return conf['subject_names']
     
 
+def get_dns_names(conf):
+    if 'dns_name' in conf:
+        return [conf['dns_name']]
+    elif 'dns_names' in conf:
+        return conf['dns_names']
+    else:
+        return []
+
+
+def get_email_names(conf):
+    if 'email_name' in conf:
+        return [conf['email_name']]
+    elif 'email_names' in conf:
+        return conf['email_names']
+    else:
+        return []
+
+
+def get_dir_names(conf):
+    if 'dir_name' in conf:
+        return [conf['dir_name']]
+    elif 'dir_names' in conf:
+        return conf['dir_names']
+    else:
+        return []
+
+
 def get_usage(conf):
     server_auth = conf.get('server_auth')
     client_auth = conf.get('client_auth')
@@ -143,6 +174,9 @@ def create_certs(conf_certs):
     certs = {}
     for id, params in conf_certs.items():
         subject_names = get_subject_names(params)
+        dns_names = get_dns_names(params)
+        email_names = get_email_names(params)
+        dir_names = get_dir_names(params)
         ca = params.get('ca', False)
 
         issuer = params.get('issuer')
@@ -158,8 +192,8 @@ def create_certs(conf_certs):
         usage = get_usage(params)
 
         keys[id], certs[id] = \
-            create_cert(subject_names, ca, issuer_key, issuer_cert, usage,
-                        validity)
+            create_cert(subject_names, dns_names, email_names, dir_names, ca,
+                        issuer_key, issuer_cert, usage, validity)
 
     return keys, certs
 

@@ -87,31 +87,46 @@ static struct attr_node* ensure_containers(struct attr_tree *tree,
     return container;
 }
 
-void attr_tree_add_value_node(struct attr_tree *tree, const char *path_str,
-			      struct xcm_socket *s, void *context,
-			      enum xcm_attr_type type, attr_set set,
-			      attr_get get)
+static void add_node(struct attr_tree *tree, const char *path_str,
+		     struct attr_node *node)
 {
     struct attr_path *path = attr_path_parse(path_str, true);
     ut_assert(attr_pcomp_is_key(attr_path_get_comp(path, 0)));
 
     struct attr_node *container = ensure_containers(tree, path);
 
-    struct attr_node *value_node =
-	attr_node_value(s, context, type, set, get);
-
     size_t last = attr_path_num_comps(path) - 1;
-    const struct attr_pcomp *value_comp = attr_path_get_comp(path, last);
+    const struct attr_pcomp *comp = attr_path_get_comp(path, last);
 
-    if (attr_pcomp_is_index(value_comp))
-	attr_node_list_append(container, value_node);
+    if (attr_pcomp_is_index(comp))
+	attr_node_list_append(container, node);
     else {
-	const char *key = attr_pcomp_get_key(value_comp);
+	const char *key = attr_pcomp_get_key(comp);
 
-	attr_node_dict_add_key(container, key, value_node);
+	attr_node_dict_add_key(container, key, node);
     }
 
     attr_path_destroy(path);
+}
+
+void attr_tree_add_value_node(struct attr_tree *tree, const char *path_str,
+			      struct xcm_socket *s, void *context,
+			      enum xcm_attr_type type, attr_set set,
+			      attr_get get)
+{
+    struct attr_node *value_node = attr_node_value(s, context, type, set, get);
+
+    add_node(tree, path_str, value_node);
+}
+
+struct attr_node *attr_tree_add_list_node(struct attr_tree *tree,
+					  const char *path_str)
+{
+    struct attr_node *list_node = attr_node_list();
+
+    add_node(tree, path_str, list_node);
+
+    return list_node;
 }
 
 static bool valid_set_attr_len(enum xcm_attr_type type, size_t len)
@@ -144,10 +159,11 @@ static struct attr_node *node_lookup(struct attr_node *root,
 	if (attr_pcomp_is_key(comp) && attr_node_is_dict(node)) {
 	    const char *key = attr_pcomp_get_key(comp);
 	    next = attr_node_dict_get_key(node, key);
-	} else if (attr_pcomp_is_index(comp) && attr_node_is_list(node) &&
-		   i < attr_node_list_len(node))  {
+	} else if (attr_pcomp_is_index(comp) && attr_node_is_list(node)) {
 	    size_t index = attr_pcomp_get_index(comp);
-	    next = attr_node_list_get_index(node, index);
+
+	    if (index < attr_node_list_len(node))
+		next = attr_node_list_get_index(node, index);
 	}
 
 	if (next == NULL)
@@ -292,7 +308,9 @@ int attr_tree_get_list_len(struct attr_tree *tree, const char *path_str,
 
     if (!attr_node_is_list(list_node)) {
 	LOG_ATTR_TREE_NODE_IS_NOT_LIST(log_ref, path_str);
-	errno = EACCES;
+	/* ENONENT be consistent with how xcm_get_attr() works. EACCES
+	   would probably have been more intuitive. */
+	errno = ENOENT;
 	return -1;
     }
 

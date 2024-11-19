@@ -71,6 +71,9 @@
 #define XCM_ATTR_TLS_PEER_NAMES "tls.peer_names"
 #define XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID "tls.peer_subject_key_id"
 
+#define XCM_ATTR_TLS_PEER_CERT_DNS_NAMES "tls.peer_cert.dns_names"
+#define XCM_ATTR_TLS_PEER_CERT_EMAIL_NAMES "tls.peer_cert.email_names"
+
 /* IPv6-level attributes */
 
 #define XCM_ATTR_IPV6_SCOPE "ipv6.scope"
