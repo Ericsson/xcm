@@ -693,8 +693,8 @@ extern "C" {
  *
  * for (int i = 0; i < len; i++) {
  *     char name[256];
- *     xcm_attr_get_elem_str(tls_conn_socket, "tls.peer_cert.dns_names", i,
- *                           name, sizeof(name));
+ *     xcm_attr_getf_str(tls_conn_socket, name, sizeof(name),
+ *                       "tls.peer_cert.dns_names[%d]", i);
  *     printf("DNS subject alternative name: %s\n", name);
  * }
  * ~~~~~~~~~~~~~
