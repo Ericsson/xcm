@@ -43,15 +43,18 @@ static void append(struct slist *slist, const char *str, size_t str_len)
 
     slist->elems = ut_realloc(slist->elems, sizeof(char *) * new_len);
 
-    slist->elems[slist->len] = ut_calloc(str_len + 1);
-    memcpy(slist->elems[slist->len], str, str_len);
+    if (str != NULL) {
+	slist->elems[slist->len] = ut_calloc(str_len + 1);
+	memcpy(slist->elems[slist->len], str, str_len);
+    } else
+	slist->elems[slist->len] = NULL;
 
     slist->len = new_len;
 }
 
 void slist_append(struct slist *slist, const char *str)
 {
-    append(slist, str, strlen(str));
+    append(slist, str, str != NULL ? strlen(str) : 0);
 }
 
 const char *slist_get(const struct slist *slist, size_t index)

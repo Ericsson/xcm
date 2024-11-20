@@ -84,6 +84,7 @@ endif
 
 if TLS
 libxcm_la_SOURCES += \
+	libxcm/tp/tls/cert.c \
 	libxcm/tp/tls/ctx_store.c \
 	libxcm/tp/tls/item.c \
 	libxcm/tp/tls/log_tls.c \

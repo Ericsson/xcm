@@ -3,6 +3,7 @@
  * Copyright(c) 2020-2021 Ericsson AB
  */
 
+#include "cert.h"
 #include "common_tp.h"
 #include "ctx_store.h"
 #include "dns_attr.h"
@@ -1569,59 +1570,6 @@ static int get_verify_peer_name_attr(struct xcm_socket *s, void *context,
     return xcm_tp_get_bool_attr(TOBTLS(s)->verify_peer_name, value, capacity);
 }
 
-static void add_subject_field_cn(X509 *cert, struct slist *subject_names)
-{
-    X509_NAME *name = X509_get_subject_name(cert);
-
-    char cn[1024];
-    int len = X509_NAME_get_text_by_NID(name, NID_commonName, cn, sizeof(cn));
-
-    if (len < 0)
-	return;
-
-    if (!slist_has(subject_names, cn))
-	slist_append(subject_names, cn);
-}
-
-static void add_subject_alternative_names(X509 *cert, int type, bool unique,
-					  struct slist *names)
-{
-    STACK_OF(GENERAL_NAME) *exts = (STACK_OF(GENERAL_NAME) *)
-	X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
-
-    int i;
-    for (i = 0; i < sk_GENERAL_NAME_num(exts); i++) {
-	GENERAL_NAME *ext = sk_GENERAL_NAME_value(exts, i);
-
-	if (ext->type != type)
-	    continue;
-
-	ASN1_IA5STRING *asn1_name = type == GEN_DNS ?
-	    ext->d.dNSName : ext->d.rfc822Name;
-
-	const char *name = (const char *)ASN1_STRING_get0_data(asn1_name);
-
-	if (ASN1_STRING_length(asn1_name) != strlen(name))
-	    continue;
-
-	if (unique && slist_has(names, name))
-	    continue;
-
-	slist_append(names, name);
-    }
-
-    sk_GENERAL_NAME_pop_free(exts, GENERAL_NAME_free);
-}
-
-static struct slist *get_subject_alternative_names(X509 *cert, int type)
-{
-    struct slist *names = slist_create();
-
-    add_subject_alternative_names(cert, type, false, names);
-
-    return names;
-}
-
 #define SAN_DELIMITER ':'
 
 static int set_peer_names_attr(struct xcm_socket *s, void *context,
@@ -1694,15 +1642,11 @@ static int get_actual_peer_names_attr(struct xcm_socket *s, void *value,
 {
     struct btls_socket *bts = TOBTLS(s);
     X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
+
     if (remote_cert == NULL)
 	return 0;
 
-    memset(value, 0, capacity);
-
-    struct slist *subject_names = slist_create();
-
-    add_subject_field_cn(remote_cert, subject_names);
-    add_subject_alternative_names(remote_cert, GEN_DNS, true, subject_names);
+    struct slist *subject_names = cert_get_subject_names(remote_cert);
 
     X509_free(remote_cert);
 
@@ -1758,24 +1702,23 @@ static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
     if (remote_cert == NULL)
 	return 0;
 
-    const ASN1_OCTET_STRING *key = X509_get0_subject_key_id(remote_cert);
-    if (key == NULL) {
+    if (!cert_has_ski(remote_cert)) {
 	X509_free(remote_cert);
 	return 0;
     }
 
-    int len = ASN1_STRING_length(key);
-    if (len > capacity) {
+    size_t ski_len = cert_get_ski_len(remote_cert);
+    if (ski_len > capacity) {
 	errno = EOVERFLOW;
 	X509_free(remote_cert);
 	return -1;
     }
-
-    memcpy(value, ASN1_STRING_get0_data(key), len);
+	
+    cert_get_ski(remote_cert, value);
 
     X509_free(remote_cert);
 
-    return len;
+    return ski_len;
 }
 
 static int get_peer_subject_cn(struct xcm_socket *s, void *context,
@@ -1789,34 +1732,37 @@ static int get_peer_subject_cn(struct xcm_socket *s, void *context,
     X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
     if (remote_cert == NULL) {
 	errno = ENOENT;
-	return -1;
+	goto err;
     }
 
-    X509_NAME *name = X509_get_subject_name(remote_cert);
+    char *cn = cert_get_subject_field_cn(remote_cert);
 
-    char cn[1024];
-    int len = X509_NAME_get_text_by_NID(name, NID_commonName, cn, sizeof(cn));
+    X509_free(remote_cert);
 
-    if (len < 0) {
+    if (cn == NULL) {
 	errno = ENOENT;
-	return -1;
+	goto err;
     }
 
-    if (len >= capacity) {
+    if (capacity <= strlen(cn)) {
 	errno = EOVERFLOW;
-	X509_free(remote_cert);
-	return -1;
+	goto err_free;
     }
 
     strcpy(value, cn);
 
-    X509_free(remote_cert);
+    ut_free(cn);
 
-    return len + 1;
+    return strlen(value) + 1;
+
+err_free:
+    ut_free(cn);
+err:
+    return -1;
 }
 
-static int get_names_elem(struct xcm_socket *s, int type, int index,
-			  void *value, size_t capacity)
+static int get_san_attr(struct xcm_socket *s, enum cert_san_type san_type,
+			size_t index, void *value, size_t capacity)
 {
     struct btls_socket *bts = TOBTLS(s);
     X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
@@ -1827,65 +1773,49 @@ static int get_names_elem(struct xcm_socket *s, int type, int index,
 	goto out;
     }
 
-    struct slist *names = get_subject_alternative_names(remote_cert, type);
+    size_t count = cert_count_san(remote_cert, san_type);
 
-    X509_free(remote_cert);
-
-    if (index >= slist_len(names)) {
+    if (index >= count) {
 	errno = ENOENT;
-	goto out_free;
+	goto out_free_cert;
     }
 
-    const char *name = slist_get(names, index);
+    char *name = cert_get_san(remote_cert, san_type, index);
+
+    if (name == NULL) {
+	errno = ENOENT;
+	goto out_free_cert;
+    }
 
     if (strlen(name) >= capacity) {
 	errno = EOVERFLOW;
-	goto out_free;
+	goto out_free_name;
     }
 
     strcpy(value, name);
 
     rc = strlen(name) + 1;
 
-out_free:
-    slist_destroy(names);
+out_free_name:
+    ut_free(name);
+out_free_cert:
+    X509_free(remote_cert);
 out:
     return rc;
 }
 
-static int get_names_len(struct xcm_socket *s, int type)
-{
-    struct btls_socket *bts = TOBTLS(s);
-    X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
-
-    if (remote_cert == NULL) {
-	errno = ENOENT;
-	return -1;
-    }
-
-    struct slist *names = get_subject_alternative_names(remote_cert, type);
-
-    X509_free(remote_cert);
-
-    int len = slist_len(names);
-
-    slist_destroy(names);
-
-    return len;
-}
-
-static int get_dns_name_attr(struct xcm_socket *s, void *context, void *value,
-			     size_t capacity)
+static int get_san_dns_attr(struct xcm_socket *s, void *context,
+			    void *value, size_t capacity)
 {
     size_t index = (uintptr_t)context;
-    return get_names_elem(s, GEN_DNS, index, value, capacity);
+    return get_san_attr(s, cert_san_type_dns, index, value, capacity);
 }
 
-static int get_email_name_attr(struct xcm_socket *s, void *context,
-			       void *value, size_t capacity)
+static int get_san_email_attr(struct xcm_socket *s, void *context,
+			      void *value, size_t capacity)
 {
-    size_t index = (size_t)context;
-    return get_names_elem(s, GEN_EMAIL, index, value, capacity);
+    size_t index = (uintptr_t)context;
+    return get_san_attr(s, cert_san_type_email, index, value, capacity);
 }
 
 static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
@@ -1922,23 +1852,30 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 }
 
 static void populate_conn_names(struct xcm_socket *s, struct attr_tree *tree,
-				const char *list_path, int name_type,
-				attr_get get)
+				const char *list_path,
+				enum cert_san_type san_type, attr_get get)
 {
-    int len = get_names_len(s, name_type);
+    struct btls_socket *bts = TOBTLS(s);
 
-    if (len >= 0) {
-	struct attr_node *names = attr_tree_add_list_node(tree, list_path);
+    X509 *remote_cert = SSL_get_peer_certificate(bts->conn.ssl);
 
-	int i;
-	for (i = 0; i < len; i++) {
-	    void *context = (void*)(uintptr_t)i;
-	    struct attr_node *elem =
-		attr_node_value(s, context, xcm_attr_type_str, NULL, get);
+    if (remote_cert == NULL)
+	return;
 
-	    attr_node_list_append(names, elem);
-	}
+    size_t len = cert_count_san(remote_cert, san_type);
+
+    struct attr_node *names = attr_tree_add_list_node(tree, list_path);
+
+    size_t i;
+    for (i = 0; i < len; i++) {
+	void *context = (void *)(uintptr_t)i;
+	struct attr_node *elem =
+	    attr_node_value(s, context, xcm_attr_type_str, NULL, get);
+
+	attr_node_list_append(names, elem);
     }
+
+    X509_free(remote_cert);
 }
 
 static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
@@ -1948,10 +1885,10 @@ static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
 		     xcm_attr_type_bin, get_peer_subject_key_id);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN, s,
 		     xcm_attr_type_str, get_peer_subject_cn);
-    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_DNS, GEN_DNS,
-			get_dns_name_attr);
-    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS, GEN_EMAIL,
-			get_email_name_attr);
+    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_DNS,
+			cert_san_type_dns, get_san_dns_attr);
+    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS,
+			cert_san_type_email, get_san_email_attr);
 };
 
 static void populate_server(struct xcm_socket *s, struct attr_tree *tree)
