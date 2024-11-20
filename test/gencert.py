@@ -55,7 +55,8 @@ def create_cert(subject_names, san_dns, san_email, san_dir, ca,
     alt_name = x509.SubjectAlternativeName(
         [x509.DNSName(dns_name) for dns_name in (subject_names + san_dns)] +
         [x509.RFC822Name(email_name) for email_name in san_email] +
-        [x509.DirectoryName(x509.Name.from_rfc4514_string(dir_name)) for dir_name in san_dir]
+        [x509.DirectoryName(x509.Name.from_rfc4514_string(dir_name)) \
+         for dir_name in san_dir]
     )
 
     ski = x509.SubjectKeyIdentifier.from_public_key(public_key)

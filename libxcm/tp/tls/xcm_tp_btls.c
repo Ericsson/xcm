@@ -1780,24 +1780,26 @@ static int get_san_attr(struct xcm_socket *s, enum cert_san_type san_type,
 	goto out_free_cert;
     }
 
-    char *name = cert_get_san(remote_cert, san_type, index);
+    char *san = san_type == cert_san_type_dir ?
+	cert_get_dir_cn(remote_cert, index) :
+	cert_get_san(remote_cert, san_type, index);
 
-    if (name == NULL) {
+    if (san == NULL) {
 	errno = ENOENT;
 	goto out_free_cert;
     }
 
-    if (strlen(name) >= capacity) {
+    if (strlen(san) >= capacity) {
 	errno = EOVERFLOW;
-	goto out_free_name;
+	goto out_free_san;
     }
 
-    strcpy(value, name);
+    strcpy(value, san);
 
-    rc = strlen(name) + 1;
+    rc = strlen(san) + 1;
 
-out_free_name:
-    ut_free(name);
+out_free_san:
+    ut_free(san);
 out_free_cert:
     X509_free(remote_cert);
 out:
@@ -1816,6 +1818,14 @@ static int get_san_email_attr(struct xcm_socket *s, void *context,
 {
     size_t index = (uintptr_t)context;
     return get_san_attr(s, cert_san_type_email, index, value, capacity);
+}
+
+static int get_san_dir_cn_attr(struct xcm_socket *s, void *context,
+			       void *value, size_t capacity)
+{
+    size_t index = (uintptr_t)context;
+    
+    return get_san_attr(s, cert_san_type_dir, index, value, capacity);
 }
 
 static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
@@ -1851,9 +1861,9 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 		     set_crl_attr, get_crl_attr);
 }
 
-static void populate_conn_names(struct xcm_socket *s, struct attr_tree *tree,
-				const char *list_path,
-				enum cert_san_type san_type, attr_get get)
+static void populate_conn_san(struct xcm_socket *s, struct attr_tree *tree,
+			      const char *list_path, const char *key,
+			      enum cert_san_type san_type, attr_get get)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1869,8 +1879,17 @@ static void populate_conn_names(struct xcm_socket *s, struct attr_tree *tree,
     size_t i;
     for (i = 0; i < len; i++) {
 	void *context = (void *)(uintptr_t)i;
-	struct attr_node *elem =
+
+	struct attr_node *value_node =
 	    attr_node_value(s, context, xcm_attr_type_str, NULL, get);
+
+	struct attr_node *elem;
+	if (key == NULL)
+	    elem = value_node;
+	else {
+	    elem = attr_node_dict();
+	    attr_node_dict_add_key(elem, key, value_node);
+	}
 
 	attr_node_list_append(names, elem);
     }
@@ -1885,10 +1904,13 @@ static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
 		     xcm_attr_type_bin, get_peer_subject_key_id);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN, s,
 		     xcm_attr_type_str, get_peer_subject_cn);
-    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_DNS,
-			cert_san_type_dns, get_san_dns_attr);
-    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS,
-			cert_san_type_email, get_san_email_attr);
+    populate_conn_san(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_DNS,
+		      NULL, cert_san_type_dns, get_san_dns_attr);
+    populate_conn_san(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS,
+		      NULL, cert_san_type_email, get_san_email_attr);
+    populate_conn_san(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_DIRS,
+		      XCM_ATTR_TLS_PEER_CERT_SAN_DIR_CN,
+		      cert_san_type_dir, get_san_dir_cn_attr);
 };
 
 static void populate_server(struct xcm_socket *s, struct attr_tree *tree)

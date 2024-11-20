@@ -7,21 +7,28 @@
 
 #include "cert.h"
 
-char *cert_get_subject_field_cn(X509 *cert)
+static char *get_cn(const X509_NAME *x509_name)
 {
-    X509_NAME *x509_name = X509_get_subject_name(cert);
-
-    char cn[1024];
-    int len = X509_NAME_get_text_by_NID(x509_name, NID_commonName,
-					cn, sizeof(cn));
+    int len = X509_NAME_get_text_by_NID(x509_name, NID_commonName, NULL, 0);
 
     if (len < 0)
 	return NULL;
 
-    return ut_strdup(cn);
+    char *cn = ut_malloc(len + 1);
+
+    X509_NAME_get_text_by_NID(x509_name, NID_commonName, cn, len + 1);
+
+    return cn;
 }
 
-typedef void (*foreach_san_cb)(const char *name, void *cb_data);
+char *cert_get_subject_field_cn(X509 *cert)
+{
+    X509_NAME *x509_name = X509_get_subject_name(cert);
+
+    return get_cn(x509_name);
+}
+
+typedef void (*foreach_san_cb)(const void *data, void *cb_data);
 
 static int san_type_to_openssl_type(enum cert_san_type type)
 {
@@ -30,6 +37,8 @@ static int san_type_to_openssl_type(enum cert_san_type type)
 	return GEN_DNS;
     case cert_san_type_email:
 	return GEN_EMAIL;
+    case cert_san_type_dir:
+	return GEN_DIRNAME;
     default:
 	ut_assert(0);
     }
@@ -50,15 +59,29 @@ static void foreach_san(X509 *cert, enum cert_san_type san_type,
 	if (ext->type != type)
 	    continue;
 
-	ASN1_IA5STRING *asn1_name = type == GEN_DNS ?
-	    ext->d.dNSName : ext->d.rfc822Name;
+	const void *data;
 
-	const char *name = (const char *)ASN1_STRING_get0_data(asn1_name);
+	switch (type) {
+	case GEN_DNS:
+	case GEN_EMAIL: {
+	    ASN1_IA5STRING *asn1_name = type == GEN_DNS ?
+		ext->d.dNSName : ext->d.rfc822Name;
 
-	if (ASN1_STRING_length(asn1_name) != strlen(name))
-	    continue;
+	    data = (const void *)ASN1_STRING_get0_data(asn1_name);
 
-	cb(name, cb_data);
+	    if (ASN1_STRING_length(asn1_name) != strlen(data))
+		continue;
+
+	    break;
+	}
+	case GEN_DIRNAME:
+	    data = ext->d.dirn;
+	    break;
+	default:
+	    ut_assert(0);
+	}
+
+	cb(data, cb_data);
     }
 
     sk_GENERAL_NAME_pop_free(exts, GENERAL_NAME_free);
@@ -70,7 +93,7 @@ struct add_san_param
     bool unique;
 };
 
-static void add_san_cb(const char *name, void *cb_data)
+static void add_san_cb(const void *name, void *cb_data)
 {
     struct add_san_param *param = cb_data;
 
@@ -109,7 +132,7 @@ struct slist *cert_get_subject_names(X509 *cert)
     return names;
 }
 
-static void count_san_cb(const char *name, void *cb_data)
+static void count_san_cb(const void *name, void *cb_data)
 {
     size_t *count = cb_data;
     (*count)++;
@@ -129,7 +152,7 @@ struct get_san_param
     char *name;
 };
 
-static void get_san_cb(const char *name, void *cb_data)
+static void get_san_cb(const void *name, void *cb_data)
 {
     struct get_san_param *param = cb_data;
 
@@ -142,6 +165,8 @@ static void get_san_cb(const char *name, void *cb_data)
 
 char *cert_get_san(X509 *cert, enum cert_san_type san_type, size_t index)
 {
+    ut_assert(san_type == cert_san_type_email || san_type == cert_san_type_dns);
+
     struct get_san_param param = {
 	.target_index = index
     };
@@ -149,6 +174,38 @@ char *cert_get_san(X509 *cert, enum cert_san_type san_type, size_t index)
     foreach_san(cert, san_type, get_san_cb, &param);
 
     return param.name;
+}
+
+struct get_dir_cn_param
+{
+    size_t current_index;
+    size_t target_index;
+    char *cn;
+};
+
+static void get_dir_cn_cb(const void *data, void *cb_data)
+{
+    struct get_dir_cn_param *param = cb_data;
+
+    if (param->current_index == param->target_index) {
+	const X509_NAME *x509_name = data;
+
+	param->cn = get_cn(x509_name);
+    }
+
+    param->current_index++;
+}
+
+
+char *cert_get_dir_cn(X509 *cert, size_t index)
+{
+    struct get_dir_cn_param param = {
+	.target_index = index
+    };
+
+    foreach_san(cert, cert_san_type_dir, get_dir_cn_cb, &param);
+
+    return param.cn;
 }
 
 bool cert_has_ski(X509 *cert)

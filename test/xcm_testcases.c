@@ -6754,6 +6754,7 @@ TESTCASE(xcm, tls_get_subject_alternative_names)
 	    "    san_email:\n"
 	    "      - foo@bar.com\n"
 	    "    san_dir:\n"
+	    "      - \"O=Noname AB,C=SE\"\n"
 	    "      - \"CN=ericsson.com,O=Ericsson AB,C=SE\"\n"
 	    "    issuer: root\n"
 	    "\n"
@@ -6869,6 +6870,31 @@ TESTCASE(xcm, tls_get_subject_alternative_names)
 				   "tls.peer.cert.san.dns[0]"), ENOENT);
 
     CHKERRNO(xcm_attr_get_str(server_conn,"tls.peer.cert.san.dns[3]",
+			      name, sizeof(name)), ENOENT);
+
+    CHKERRNO(xcm_attr_set_str(server_conn,"tls.peer.cert.san.dns[1]",
+			      name), EACCES);
+
+    /* Subject alternative name of RFC822 (email) type */
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer.cert.san.emails[0]",
+					 name, sizeof(name)));
+    CHKSTREQ(name, "foo@bar.com");
+
+    /* Subject alternative name of directory name type */
+    CHKINTEQ(xcm_attr_get_list_len(server_conn,
+				   "tls.peer.cert.san.dirs"), 2);
+
+    /* the first entry has no CN field */
+    CHKERRNO(xcm_attr_get_str(server_conn,"tls.peer.cert.san.dirs[0].cn",
+			      name, sizeof(name)), ENOENT);
+
+    CHKNOERR(name_len = xcm_attr_get_str(server_conn,
+					 "tls.peer.cert.san.dirs[1].cn",
+					 name, sizeof(name)));
+    CHKSTREQ(name, "ericsson.com");
+
+    CHKERRNO(xcm_attr_get_str(server_conn,"tls.peer.cert.san.sans[2].cn",
 			      name, sizeof(name)), ENOENT);
 
     CHKERRNO(xcm_attr_set_str(server_conn,"tls.peer.cert.san.dns[1]",

@@ -73,6 +73,8 @@
 #define XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN "tls.peer.cert.subject.cn"
 #define XCM_ATTR_TLS_PEER_CERT_SAN_DNS "tls.peer.cert.san.dns"
 #define XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS "tls.peer.cert.san.emails"
+#define XCM_ATTR_TLS_PEER_CERT_SAN_DIRS "tls.peer.cert.san.dirs"
+#define XCM_ATTR_TLS_PEER_CERT_SAN_DIR_CN "cn"
 
 /* IPv6-level attributes */
 
