@@ -3596,7 +3596,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.verify_peer_name", false), EACCES);
     CHKERRNO(xcm_attr_set_str(conn, "tls.peer_names", "foo"), EACCES);
-    CHKERRNO(xcm_attr_set_str(conn, "tls.peer_cert.subject.cn", "foo"), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.peer.cert.subject.cn", "foo"), EACCES);
 
     return UTEST_SUCCESS;
 }
@@ -6748,12 +6748,12 @@ TESTCASE(xcm, tls_get_subject_alternative_names)
 	    "    issuer: root\n"
 	    "  b:\n"
 	    "    subject_name: b0\n"
-	    "    dns_names:\n"
+	    "    san_dns:\n"
 	    "      - b1\n"
 	    "      - b2\n"
-	    "    email_names:\n"
+	    "    san_email:\n"
 	    "      - foo@bar.com\n"
-	    "    dir_names:\n"
+	    "    san_dir:\n"
 	    "      - \"CN=ericsson.com,O=Ericsson AB,C=SE\"\n"
 	    "    issuer: root\n"
 	    "\n"
@@ -6821,13 +6821,13 @@ TESTCASE(xcm, tls_get_subject_alternative_names)
     int name_len;
 
     CHKNOERR(name_len = xcm_attr_get_str(server_conn,
-					 "tls.peer_cert.subject.cn",
+					 "tls.peer.cert.subject.cn",
 					 name, sizeof(name)));
     CHKSTREQ(name, "b0");
 
     name[0] = '\0';
     CHKNOERR(name_len = xcm_attr_get(server_conn,
-				     "tls.peer_cert.dns_names[0]",
+				     "tls.peer.cert.san.dns[0]",
 				     &type, name, sizeof(name)));
 
     CHK(type == xcm_attr_type_str);
@@ -6835,53 +6835,53 @@ TESTCASE(xcm, tls_get_subject_alternative_names)
     CHKINTEQ(strlen(name) + 1, name_len);
 
     CHKNOERR(name_len = xcm_attr_get_str(server_conn,
-					 "tls.peer_cert.dns_names[0]",
+					 "tls.peer.cert.san.dns[0]",
 					 name, sizeof(name)));
 
     CHKSTREQ(name, "b0");
     CHKINTEQ(strlen(name) + 1, name_len);
 
     CHKNOERR(name_len = xcm_attr_get_str(server_conn,
-					 "tls.peer_cert.dns_names[1]",
+					 "tls.peer.cert.san.dns[1]",
 					 name, sizeof(name)));
 
     CHKSTREQ(name, "b1");
 
     CHKNOERR(name_len = xcm_attr_get_str(server_conn,
-					 "tls.peer_cert.dns_names[2]",
+					 "tls.peer.cert.san.dns[2]",
 					 name, sizeof(name)));
 
     CHKSTREQ(name, "b2");
 
     CHKNOERR(name_len = xcm_attr_getf_str(server_conn,name, sizeof(name),
-					  "tls.peer_cert.dns_names[%d]", 1));
+					  "tls.peer.cert.san.dns[%d]", 1));
 
     CHKSTREQ(name, "b1");
 
     /* Subject alternative name of DNS type */
     CHKINTEQ(xcm_attr_get_list_len(server_conn,
-				   "tls.peer_cert.dns_names"), 3);
+				   "tls.peer.cert.san.dns"), 3);
 
     CHKINTEQ(xcm_attr_get_list_len(client_conn,
-				   "tls.peer_cert.dns_names"), 1);
+				   "tls.peer.cert.san.dns"), 1);
 
     CHKERRNO(xcm_attr_get_list_len(server_conn,
-				   "tls.peer_cert.dns_names[0]"), ENOENT);
+				   "tls.peer.cert.san.dns[0]"), ENOENT);
 
-    CHKERRNO(xcm_attr_get_str(server_conn,"tls.peer_cert.dns_names[3]",
+    CHKERRNO(xcm_attr_get_str(server_conn,"tls.peer.cert.san.dns[3]",
 			      name, sizeof(name)), ENOENT);
 
-    CHKERRNO(xcm_attr_set_str(server_conn,"tls.peer_cert.dns_names[1]",
+    CHKERRNO(xcm_attr_set_str(server_conn,"tls.peer.cert.san.dns[1]",
 			      name), EACCES);
 
     /* Subject alternative name of RFC822 (email) type */
     CHKNOERR(name_len = xcm_attr_get_str(server_conn,
-					 "tls.peer_cert.email_names[0]",
+					 "tls.peer.cert.san.emails[0]",
 					 name, sizeof(name)));
     CHKSTREQ(name, "foo@bar.com");
 
     CHKINTEQ(xcm_attr_get_list_len(server_conn,
-				   "tls.peer_cert.email_names"), 1);
+				   "tls.peer.cert.san.emails"), 1);
 
     xcm_attr_map_destroy(client_attrs);
     xcm_attr_map_destroy(server_attrs);

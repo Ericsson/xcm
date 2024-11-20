@@ -41,7 +41,7 @@ class Usage(enum.Enum):
 
 now = datetime.datetime.now(datetime.timezone.utc)
 
-def create_cert(subject_names, dns_names, email_names, dir_names, ca,
+def create_cert(subject_names, san_dns, san_email, san_dir, ca,
                 issuer_key, issuer_cert, usage, validity):
     private_key = gen_private_key()
 
@@ -53,9 +53,9 @@ def create_cert(subject_names, dns_names, email_names, dir_names, ca,
     constraints = x509.BasicConstraints(ca=ca, path_length=None)
 
     alt_name = x509.SubjectAlternativeName(
-        [x509.DNSName(dns_name) for dns_name in (subject_names + dns_names)] +
-        [x509.RFC822Name(email_name) for email_name in email_names] +
-        [x509.DirectoryName(x509.Name.from_rfc4514_string(dir_name)) for dir_name in dir_names]
+        [x509.DNSName(dns_name) for dns_name in (subject_names + san_dns)] +
+        [x509.RFC822Name(email_name) for email_name in san_email] +
+        [x509.DirectoryName(x509.Name.from_rfc4514_string(dir_name)) for dir_name in san_dir]
     )
 
     ski = x509.SubjectKeyIdentifier.from_public_key(public_key)
@@ -116,29 +116,29 @@ def get_subject_names(conf):
         return conf['subject_names']
     
 
-def get_dns_names(conf):
+def get_san_dns(conf):
     if 'dns_name' in conf:
         return [conf['dns_name']]
-    elif 'dns_names' in conf:
-        return conf['dns_names']
+    elif 'san_dns' in conf:
+        return conf['san_dns']
     else:
         return []
 
 
-def get_email_names(conf):
+def get_san_email(conf):
     if 'email_name' in conf:
         return [conf['email_name']]
-    elif 'email_names' in conf:
-        return conf['email_names']
+    elif 'san_email' in conf:
+        return conf['san_email']
     else:
         return []
 
 
-def get_dir_names(conf):
+def get_san_dir(conf):
     if 'dir_name' in conf:
         return [conf['dir_name']]
-    elif 'dir_names' in conf:
-        return conf['dir_names']
+    elif 'san_dir' in conf:
+        return conf['san_dir']
     else:
         return []
 
@@ -174,9 +174,9 @@ def create_certs(conf_certs):
     certs = {}
     for id, params in conf_certs.items():
         subject_names = get_subject_names(params)
-        dns_names = get_dns_names(params)
-        email_names = get_email_names(params)
-        dir_names = get_dir_names(params)
+        san_dns = get_san_dns(params)
+        san_email = get_san_email(params)
+        san_dir = get_san_dir(params)
         ca = params.get('ca', False)
 
         issuer = params.get('issuer')
@@ -192,7 +192,7 @@ def create_certs(conf_certs):
         usage = get_usage(params)
 
         keys[id], certs[id] = \
-            create_cert(subject_names, dns_names, email_names, dir_names, ca,
+            create_cert(subject_names, san_dns, san_email, san_dir, ca,
                         issuer_key, issuer_cert, usage, validity)
 
     return keys, certs

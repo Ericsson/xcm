@@ -70,9 +70,9 @@
 #define XCM_ATTR_TLS_VERIFY_PEER_NAME "tls.verify_peer_name"
 #define XCM_ATTR_TLS_PEER_NAMES "tls.peer_names"
 #define XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID "tls.peer_subject_key_id"
-#define XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN "tls.peer_cert.subject.cn"
-#define XCM_ATTR_TLS_PEER_CERT_DNS_NAMES "tls.peer_cert.dns_names"
-#define XCM_ATTR_TLS_PEER_CERT_EMAIL_NAMES "tls.peer_cert.email_names"
+#define XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN "tls.peer.cert.subject.cn"
+#define XCM_ATTR_TLS_PEER_CERT_SAN_DNS "tls.peer.cert.san.dns"
+#define XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS "tls.peer.cert.san.emails"
 
 /* IPv6-level attributes */
 

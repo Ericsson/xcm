@@ -1948,9 +1948,9 @@ static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
 		     xcm_attr_type_bin, get_peer_subject_key_id);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN, s,
 		     xcm_attr_type_str, get_peer_subject_cn);
-    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_DNS_NAMES, GEN_DNS,
+    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_DNS, GEN_DNS,
 			get_dns_name_attr);
-    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_EMAIL_NAMES, GEN_EMAIL,
+    populate_conn_names(s, tree, XCM_ATTR_TLS_PEER_CERT_SAN_EMAILS, GEN_EMAIL,
 			get_email_name_attr);
 };
 
