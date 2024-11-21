@@ -7,7 +7,7 @@ import multiprocessing
 import os
 import random
 
-CERT_DIR = "./test/cert/%d" % os.getpid()
+CERT_DIR = "./test/data/cert/%d" % os.getpid()
 
 CERT_CONF = """
 base-path: %s
@@ -38,7 +38,7 @@ files:
 
 
 def setup_cert():
-    os.system("echo '%s' | ./test/gencert.py" % CERT_CONF)
+    os.system("echo '%s' | ./test/tools/gencert.py" % CERT_CONF)
     os.environ["XCM_TLS_CERT"] = CERT_DIR
 
 

@@ -172,18 +172,18 @@ echod_LDADD = libxcm.la
 echod_LDFLAGS = @EVENT_LIBS@
 endif
 
-UTEST_SOURCES = test/utest/utest.c  test/utest/utestreport.c \
-        test/utest/utesthumanreport.c
-TEST_CPPFLAGS=-I$(srcdir)/test -I$(srcdir)/test/utest \
+UTEST_SOURCES = test/src/utest/utest.c  test/src/utest/utestreport.c \
+        test/src/utest/utesthumanreport.c
+TEST_CPPFLAGS=-I$(srcdir)/test -I$(srcdir)/test/src/utest \
 	-I$(srcdir)/libxcm/core -I$(srcdir)/libxcm/tp/common
 
 XCMTEST_TESTCASE_SOURCES = \
-	test/addr_testcases.c \
-	test/attr_map_testcases.c \
-	test/attr_path_testcases.c \
-	test/attr_tree_testcases.c \
-	test/slist_testcases.c \
-	test/xcm_testcases.c
+	test/src/addr_testcases.c \
+	test/src/attr_map_testcases.c \
+	test/src/attr_path_testcases.c \
+	test/src/attr_tree_testcases.c \
+	test/src/slist_testcases.c \
+	test/src/xcm_testcases.c
 
 xcmtest_SOURCES = \
 	$(XCMTEST_TESTCASE_SOURCES) \
@@ -195,10 +195,10 @@ xcmtest_SOURCES = \
 	libxcm/core/log_attr_tree.c \
 	common/slist.c \
 	common/util.c \
-	test/iowrap.c \
-	test/pingpong.c \
-	test/testutil.c \
-	test/tnet.c
+	test/src/iowrap.c \
+	test/src/pingpong.c \
+	test/src/testutil.c \
+	test/src/tnet.c
 
 xcmtest_CPPFLAGS=$(AM_CPPFLAGS) $(TEST_CPPFLAGS) -DUT_STD_ASSERT
 xcmtest_LDFLAGS = @RT_LIBS@ @PTHREAD_LIBS@ -ldl -no-install
@@ -220,9 +220,7 @@ clean-local:
 	rm -rf doc/latex
 	rm -f common/*.d libxcm/*.d libxcmc/*.d example/*.d tools/*.d
 	rm -f .doxygenerated
-	rm -rf test/cert
-	rm -rf test/ctl
-	rm -rf test/uxf
+	rm -rf test/data
 
 distclean-local:
 	rm -rf autom4te.cache m4
@@ -239,12 +237,12 @@ xcmtest-run: xcmtest
 	fi
 
 if LTTNG
-LTTNGWRAP=./test/with_lttng.sh
+LTTNGWRAP=./test/tools/with_lttng.sh
 endif
 
 if VALGRIND
 xcmtest-run-valgrind: xcmtest
-	cmd="$(LTTNGWRAP) valgrind --tool=memcheck --leak-check=full -q --suppressions=./test/lttng.supp --suppressions=./test/glibc.supp --num-callers=20 --error-exitcode=1 ./xcmtest -v -c"; \
+	cmd="$(LTTNGWRAP) valgrind --tool=memcheck --leak-check=full -q --suppressions=./test/src/lttng.supp --suppressions=./test/src/glibc.supp --num-callers=20 --error-exitcode=1 ./xcmtest -v -c"; \
 	if [ "`id -u`" = 0 ]; then \
 		$$cmd -p 8 $(TESTS); \
 	else \
@@ -257,13 +255,13 @@ xcm_PYTHON=python/xcm.py
 xcmdir = $(pythondir)
 python-test: libxcm.la
 	python3 -m flake8 $(xcm_PYTHON) \
-		python/test_xcm.py test/test_xcmrelay.py
+		python/test_xcm.py test/src/test_xcmrelay.py
 	LD_LIBRARY_PATH=$(builddir)/.libs \
 		$(PYTEST) -vv $(PYTESTOPTS) -s $(PYTESTS)
 endif
 
 verify-versioning:
-	./test/verify_versioning.py $(srcdir)/include/xcm.h \
+	./test/tools/verify_versioning.py $(srcdir)/include/xcm.h \
 		$(srcdir)/README.md $(builddir) \
 		@XCM_ABI_MAJOR_VERSION@ @XCM_ABI_MINOR_VERSION@ \
 		@XCM_MAJOR_VERSION@ @XCM_MINOR_VERSION@ \

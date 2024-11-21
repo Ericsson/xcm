@@ -46,9 +46,9 @@ class Relay:
         if self.valgrind:
             cmd.extend(["valgrind", "--tool=memcheck", "--leak-check=full",
                         "--num-callers=20", "-q",
-                        "--suppressions=./test/lttng.supp",
-                        "--suppressions=./test/openssl.supp",
-                        "--suppressions=./test/glibc.supp",
+                        "--suppressions=./test/src/lttng.supp",
+                        "--suppressions=./test/src/openssl.supp",
+                        "--suppressions=./test/src/glibc.supp",
                         "--error-exitcode=1"])
 
         cmd.append("./.libs/xcmrelay")

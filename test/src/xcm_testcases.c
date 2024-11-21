@@ -68,7 +68,7 @@ static bool kernel_has_tcp_info_segs(void)
 #define IPT_CMD "iptables -w 10"
 #define IPT6_CMD "ip6tables -w 10"
 
-#define TEST_UXF_DIR "./test/uxf"
+#define TEST_UXF_DIR "./test/data/uxf"
 
 static char *gen_ux_addr(void)
 {
@@ -645,7 +645,7 @@ static int count_fd(void)
 
 static void test_ctl_dir(char *buf)
 {
-    snprintf(buf, 32, "./test/ctl/%d", getpid());
+    snprintf(buf, 32, "./test/data/ctl/%d", getpid());
 }
 
 #define CTL_PREFIX "ctl-"
@@ -725,7 +725,7 @@ static int conf_rto_min(void)
 static const char *get_cert_base(void)
 {
     static char cdir[64];
-    snprintf(cdir, sizeof(cdir), "./test/cert/%d", getpid());
+    snprintf(cdir, sizeof(cdir), "./test/data/cert/%d", getpid());
     return cdir;
 }
 
@@ -744,7 +744,7 @@ static int gen_certs(const char *conf)
 {
     remove_certs();
 
-    return tu_executef_es("echo 'base-path: %s\n%s' | ./test/gencert.py",
+    return tu_executef_es("echo 'base-path: %s\n%s' | ./test/tools/gencert.py",
 			  get_cert_base(), conf);
 }
 
