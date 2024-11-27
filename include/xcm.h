@@ -647,7 +647,7 @@ extern "C" {
  * Here are some examples of attribute path names:
  * @code
  * xcm.blocking
- * tls.peer.cert.san.email[2]
+ * tls.peer.cert.san.emails[2]
  * @endcode
  *
  * @subsection attribute_values Attribute Values
@@ -689,7 +689,7 @@ extern "C" {
  *
  * Iterating over a list may look something like below.
  * ~~~~~~~~~~~~~{.c}
- * int len = xcm_attr_list_len(tls_conn_socket, "tls.peer.cert.san.dns");
+ * int len = xcm_attr_get_list_len(tls_conn_socket, "tls.peer.cert.san.dns");
  *
  * for (int i = 0; i < len; i++) {
  *     char name[256];
@@ -1385,7 +1385,7 @@ extern "C" {
  * tls.peer_subject_key_id  | Connection  | String      | R    | The X509v3 Subject Key Identifier of the remote peer, or a zero-length string in case no certificate available (e.g, the TLS connection is not established or TLS authentication is disabled and the remote peer did not send a certificate).
  * tls.peer.cert.subject.cn | Connection  | String      | R    | The common name (CN) of the remote peer's subject field, provided the certificate (including a CN in the subject DN) exists.
  * tls.peer.cert.san.dns  | Connection  | List        | R    | A list of strings, where each element is a remote peer's subject alternative name (SAN) of the DNS type. The subject field CN is not included in this list.
- * tls.peer.cert.san.email | Connection | List        | R    | A list of strings, where each element is a remote peer's SAN of the RFC 822 type.
+ * tls.peer.cert.san.emails | Connection | List        | R    | A list of strings, where each element is a remote peer's SAN of the RFC 822 type.
  * tls.peer.cert.san.dirs | Connection | List        | R    | A list of dictionaries. Each element represents is a remote peer's SAN of the directory name type, and contains the key "cn", holding the directory name DN's CN, if the CN is present.
  *
  * In addition to the TLS-specific attributes, a TLS socket also has
