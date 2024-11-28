@@ -257,7 +257,7 @@ int xcm_attr_get_bin(struct xcm_socket *socket, const char *name,
 int xcm_attr_getf(struct xcm_socket *socket, enum xcm_attr_type *type,
 		  void *value, size_t capacity, const char *fmt, ...)
 #ifndef __DOXYGEN__
-    __attribute__(format (printf, 5, 6))
+    __attribute__((format (printf, 5, 6)))
 #endif
     ;
 
@@ -279,7 +279,7 @@ int xcm_attr_getf(struct xcm_socket *socket, enum xcm_attr_type *type,
 int xcm_attr_getf_bool(struct xcm_socket *socket, bool *value,
 		       const char *name_fmt, ...)
 #ifndef __DOXYGEN__
-    __attribute__(format (printf, 3, 4))
+    __attribute__((format (printf, 3, 4)))
 #endif
     ;
 
@@ -302,7 +302,7 @@ int xcm_attr_getf_bool(struct xcm_socket *socket, bool *value,
 int xcm_attr_getf_int64(struct xcm_socket *socket, int64_t *value,
 			const char *name_fmt, ...)
 #ifndef __DOXYGEN__
-    __attribute__(format (printf, 3, 4))
+    __attribute__((format (printf, 3, 4)))
 #endif
     ;
 
@@ -325,7 +325,7 @@ int xcm_attr_getf_int64(struct xcm_socket *socket, int64_t *value,
 int xcm_attr_getf_double(struct xcm_socket *socket, double *value,
 			 const char *name_fmt, ...)
 #ifndef __DOXYGEN__
-    __attribute__(format (printf, 3, 4))
+    __attribute__((format (printf, 3, 4)))
 #endif
     ;
 
@@ -350,7 +350,7 @@ int xcm_attr_getf_double(struct xcm_socket *socket, double *value,
 int xcm_attr_getf_str(struct xcm_socket *socket, char *value, size_t capacity,
 		      const char *name_fmt, ...)
 #ifndef __DOXYGEN__
-    __attribute__(format (printf, 4, 5))
+    __attribute__((format (printf, 4, 5)))
 #endif
     ;
 
@@ -374,7 +374,7 @@ int xcm_attr_getf_str(struct xcm_socket *socket, char *value, size_t capacity,
 int xcm_attr_getf_bin(struct xcm_socket *socket, void *value, size_t capacity,
 		      const char *name_fmt, ...)
 #ifndef __DOXYGEN__
-    __attribute__(format (printf, 4, 5))
+    __attribute__((format (printf, 4, 5)))
 #endif
     ;
 
