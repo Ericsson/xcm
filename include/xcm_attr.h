@@ -256,7 +256,10 @@ int xcm_attr_get_bin(struct xcm_socket *socket, const char *name,
 
 int xcm_attr_getf(struct xcm_socket *socket, enum xcm_attr_type *type,
 		  void *value, size_t capacity, const char *fmt, ...)
-    __attribute__ ((format (printf, 5, 6)));
+#ifndef __DOXYGEN__
+    __attribute__(format (printf, 5, 6))
+#endif
+    ;
 
 /** Retrieves the value of a boolean socket attribute using a formatted name.
  *
@@ -275,7 +278,10 @@ int xcm_attr_getf(struct xcm_socket *socket, enum xcm_attr_type *type,
 
 int xcm_attr_getf_bool(struct xcm_socket *socket, bool *value,
 		       const char *name_fmt, ...)
-    __attribute__ ((format (printf, 3, 4)));
+#ifndef __DOXYGEN__
+    __attribute__(format (printf, 3, 4))
+#endif
+    ;
 
 /** Retrieves the value of an integer socket attribute using a formatted name.
  *
@@ -295,7 +301,10 @@ int xcm_attr_getf_bool(struct xcm_socket *socket, bool *value,
 
 int xcm_attr_getf_int64(struct xcm_socket *socket, int64_t *value,
 			const char *name_fmt, ...)
-    __attribute__ ((format (printf, 3, 4)));
+#ifndef __DOXYGEN__
+    __attribute__(format (printf, 3, 4))
+#endif
+    ;
 
 /** Retrieves the value of a double type socket attribute using a formatted name.
  *
@@ -315,7 +324,10 @@ int xcm_attr_getf_int64(struct xcm_socket *socket, int64_t *value,
 
 int xcm_attr_getf_double(struct xcm_socket *socket, double *value,
 			 const char *name_fmt, ...)
-    __attribute__ ((format (printf, 3, 4)));
+#ifndef __DOXYGEN__
+    __attribute__(format (printf, 3, 4))
+#endif
+    ;
 
 /** Retrieves the value of a string socket attribute using a formatted name.
  *
@@ -337,7 +349,10 @@ int xcm_attr_getf_double(struct xcm_socket *socket, double *value,
 
 int xcm_attr_getf_str(struct xcm_socket *socket, char *value, size_t capacity,
 		      const char *name_fmt, ...)
-    __attribute__ ((format (printf, 4, 5)));
+#ifndef __DOXYGEN__
+    __attribute__(format (printf, 4, 5))
+#endif
+    ;
 
 /** Retrieves the value of a binary socket attribute using a formatted name.
  *
@@ -358,7 +373,10 @@ int xcm_attr_getf_str(struct xcm_socket *socket, char *value, size_t capacity,
 
 int xcm_attr_getf_bin(struct xcm_socket *socket, void *value, size_t capacity,
 		      const char *name_fmt, ...)
-    __attribute__ ((format (printf, 4, 5)));
+#ifndef __DOXYGEN__
+    __attribute__(format (printf, 4, 5))
+#endif
+    ;
 
 /** Get the length of a socket attribute list.
  *
