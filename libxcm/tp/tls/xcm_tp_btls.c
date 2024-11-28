@@ -1034,7 +1034,7 @@ static int btls_send(struct xcm_socket *__restrict s,
     UT_RESTORE_ERRNO(write_errno);
 
     if (rc > 0) {
-	LOG_SEND_ACCEPTED(s, buf, rc);
+	LOG_SEND_ACCEPTED(s, buf, (size_t)rc);
 	XCM_TP_CNT_BYTES_INC(bts->conn.cnts, from_app, rc);
 
 	LOG_LOWER_DELIVERED_PART(s, rc);

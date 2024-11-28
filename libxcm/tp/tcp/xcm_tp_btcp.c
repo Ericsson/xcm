@@ -640,7 +640,7 @@ static int btcp_send(struct xcm_socket *__restrict s,
 	int rc = send(bts->fd, buf, len, MSG_NOSIGNAL);
 
 	if (rc > 0) {
-	    LOG_SEND_ACCEPTED(s, buf, rc);
+	    LOG_SEND_ACCEPTED(s, buf, (size_t)rc);
 	    XCM_TP_CNT_BYTES_INC(bts->conn.cnts, from_app, rc);
 
 	    LOG_LOWER_DELIVERED_PART(s, rc);
@@ -979,7 +979,7 @@ static int set_dns_algorithm_attr(struct xcm_socket *s, void *context,
     enum tconnect_algorithm algorithm = tconnect_algorithm_enum(value);
 
     if (algorithm == tconnect_algorithm_none) {
-	LOG_INVALID_DNS_ALGORITHM(s, value);
+	LOG_INVALID_DNS_ALGORITHM(s, (const char *)value);
 	errno = EINVAL;
 	return -1;
     }

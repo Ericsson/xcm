@@ -113,7 +113,7 @@
 	    ut_aprintf(buf, sizeof(buf), "; CRL \"%s\"",		\
 		       item_unsensitive_data(crl));			\
 	ut_aprintf(buf, sizeof(buf), ".");				\
-	log_debug_sock(s, buf);						\
+	log_debug_sock(s, "%s", buf);					\
     } while (0)
 
 #define LOG_TLS_CREATING_CTX(s, cert, key, tc, crl)			\
@@ -142,7 +142,7 @@ void hash_description(uint8_t *hash, size_t hash_len, char *buf);
 	    ut_aprintf(buf, sizeof(buf), "; CRL \"%s\"",		\
 		       item_unsensitive_data(crl));			\
 	ut_aprintf(buf, sizeof(buf), " %s %s.", event, hash_desc);	\
-	log_debug_sock(s, buf);						\
+	log_debug_sock(s, "%s", buf);					\
     } while (0)
     
 #define LOG_TLS_CTX_HASH(s, cert, key, tc, crl, hash, hash_size)	\

@@ -392,7 +392,7 @@ static int ux_receive(struct xcm_socket *__restrict s,
     int rc = recv(us->fd, buf, capacity, MSG_TRUNC);
 
     if (rc > 0) {
-	LOG_RCV_MSG(s, rc);
+	LOG_RCV_MSG(s, (size_t)rc);
 	XCM_TP_CNT_MSG_INC(us->cnts, from_lower, rc);
 	LOG_APP_DELIVERED(s, rc);
 	XCM_TP_CNT_MSG_INC(us->cnts, to_app, rc);

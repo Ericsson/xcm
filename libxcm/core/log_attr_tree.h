@@ -32,7 +32,7 @@
 		   log_attr_type_name(actual_type))
 
 #define LOG_ATTR_TREE_NODE_IS_NOT_VALUE(s, path_str)			\
-    log_debug_sock(s, "Attribute at \"%s\" is a dictionary or list.")
+    log_debug_sock(s, "Attribute at \"%s\" is a dictionary or list.", path_str)
 
 #define LOG_ATTR_TREE_NON_EXISTENT(s, name)			\
     log_debug_sock(s, "Attribute \"%s\" does not exist.", name)
@@ -66,7 +66,7 @@
     } while (0)
 
 #define LOG_ATTR_TREE_NODE_IS_NOT_LIST(s, path_str)			\
-    log_debug_sock(s, "Attribute at \"%s\" is not a list.")
+    log_debug_sock(s, "Attribute at \"%s\" is not a list.", path_str)
 
 #define LOG_ATTR_TREE_LIST_LEN_RESULT(s, attr_name, len)		\
     log_debug_sock(s, "Length of \"%s\" is %d.", attr_name, len)

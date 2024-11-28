@@ -196,7 +196,7 @@
 		   "layer.")
 
 #define LOG_SEND_BUF_LINGER(conn_sock, left)				\
-    log_debug_sock(conn_sock, "%zd bytes not yet delivered to lower "	\
+    log_debug_sock(conn_sock, "%d bytes not yet delivered to lower "	\
 		   "layer.", left)
 
 #define LOG_FILL_BUFFER_ATTEMPT(conn_sock, len)				\
@@ -226,7 +226,7 @@
 		   len)
 
 #define LOG_RCV_MSG(conn_sock, len)					\
-    log_debug_sock(conn_sock, "Received a complete %d byte message from " \
+    log_debug_sock(conn_sock, "Received a complete %zd byte message from " \
 		   "lower layer.", len)
 
 #define LOG_RCV_MSG_TRUNCATED(conn_sock, capacity, len) \

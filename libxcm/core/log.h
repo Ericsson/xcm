@@ -40,5 +40,7 @@ bool log_is_enabled(enum log_type type);
 
 void __log_event(enum log_type type, const char *file, int line,
 		 const char *function, struct xcm_socket *s,
-		 const char *format, ...);
+		 const char *format, ...)
+    __attribute__((format (printf, 6, 7)));
+
 #endif
