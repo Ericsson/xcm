@@ -350,8 +350,7 @@ extern "C" {
  * the thread (i.e., putting the thread to sleep) is signaled in the
  * typical UNIX manner, by returning an NULL or -1, (depending on the
  * return type) and setting errno to EAGAIN. Unlike most other errno
- * values, EAGAIN is a temporary conditional, and not a terminal
- * error.
+ * values, EAGAIN is a temporary condition, and not a fatal error.
  *
  * For xcm_send(), xcm_connect() and xcm_accept(), XCM signaling
  * success means that the XCM layer has accepted the request. It may
