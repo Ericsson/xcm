@@ -124,7 +124,9 @@ xcm_attr_map_add_str_c = xcm_c.xcm_attr_map_add_str
 xcm_attr_map_add_str_c.restype = None
 xcm_attr_map_add_str_c.argtypes = [c_void_p, c_char_p, c_char_p]
 
-MAX_MSG = 65535
+# Applications should use the xcm.max_msg socket attribute, rather than
+# this constant
+MAX_MSG = 262144
 
 FD_READABLE = (1 << 0)
 FD_WRITABLE = (1 << 1)
