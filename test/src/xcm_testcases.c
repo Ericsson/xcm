@@ -135,8 +135,10 @@ static int expected_max_msg_size_tp(const char *transport)
 	int msg_max = wmem_max * 2 - 128;
 
 	return UT_MIN(msg_max, 256*1024);
-    } else
+    } else if (strcmp(transport, "sctp") == 0)
 	return 65535;
+    else
+	return 256*1024;
 }
 
 static int expected_max_msg_size(struct xcm_socket *conn)

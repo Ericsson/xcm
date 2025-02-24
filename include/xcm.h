@@ -1038,7 +1038,7 @@ extern "C" {
  * TCP uses TCP Keepalive to detect lost network connectivity between
  * the peers.
  *
- * The TCP transport has a maximum message size of 65535 bytes. This
+ * The TCP transport has a maximum message size of 262144 bytes. This
  * limit may change in future versions.
  *
  * The TCP transport supports IPv4 and IPv6.
@@ -1133,7 +1133,7 @@ extern "C" {
  * The TLS transport supports IPv4 and IPv6. It disables the Nagle
  * algorithm of TCP.
  *
- * The TLS transport has a maximum message size of 65535 bytes. This
+ * The TLS transport has a maximum message size of 262144 bytes. This
  * limit may change in future versions.
  *
  * The TLS transport honors any limitations set by the X.509

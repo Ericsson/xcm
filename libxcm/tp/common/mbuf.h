@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MBUF_MSG_MAX (65535)
+#define MBUF_MSG_MAX (256*1024)
 #define MBUF_HDR_LEN (sizeof(uint32_t))
 #define MBUF_WIRE_MAX (MBUF_MSG_MAX+MBUF_HDR_LEN)
 
