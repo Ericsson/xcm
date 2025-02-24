@@ -71,13 +71,6 @@ class Relay:
         self.process.stdin.write(stdin_data)
         self.process.stdin.flush()
 
-        if self.valgrind:
-            startup_time = 1
-        else:
-            startup_time = 0.25
-
-        time.sleep(startup_time)
-
     def stop(self):
         self.process.send_signal(signal.SIGHUP)
         assert self.process.wait() == 0
@@ -97,13 +90,29 @@ def relay(request):
     r.stop()
 
 
+CONNECT_RETRY_TIMEOUT = 3
+
+
+def connect_retry(addr):
+    deadline = time.time() + CONNECT_RETRY_TIMEOUT
+    while True:
+        try:
+            return xcm.connect(addr)
+        except xcm.error as e:
+            if time.time() < deadline and \
+               (e.errno == errno.ECONNREFUSED or e.errno == errno.EAGAIN):
+                time.sleep(0.01)
+            else:
+                raise
+
+
 def wire_up(relay):
     server = xcm.server(relay.client_addr)
     assert server is not None
 
     server.set_attr("xcm.blocking", False)
 
-    relay_conn = xcm.connect(relay.server_addr)
+    relay_conn = connect_retry(relay.server_addr)
 
     server_conn = None
 
@@ -209,19 +218,12 @@ def ping(conn):
 
 def test_echo(relay):
     server = xtest.echo_server(relay.client_addr)
-    time.sleep(0.5)
 
     try:
         relay_conns = []
         while len(relay_conns) < 100:
-            try:
-                relay_conn = xcm.connect(relay.server_addr)
-                relay_conns.append(relay_conn)
-            except xcm.error as e:
-                if e.errno == errno.EAGAIN:
-                    time.sleep(0.1)
-                else:
-                    raise
+            relay_conn = connect_retry(relay.server_addr)
+            relay_conns.append(relay_conn)
 
         if config.has_valgrind():
             iter = 5
