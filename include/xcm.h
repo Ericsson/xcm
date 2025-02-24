@@ -149,7 +149,7 @@ extern "C" {
  * in the API, so subsequent changes to message size limits did not
  * impact the API/ABI.
  *
- * As of XCM 1.11.2, the maximum message size varies across different
+ * As of XCM v1.11.1, the maximum message size varies across different
  * transports.
  *
  * Applications using stack-allocated message buffers may want to
