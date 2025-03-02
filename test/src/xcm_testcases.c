@@ -123,12 +123,12 @@ static char *gen_tls_or_btls_addr(void)
 
 #endif
 
+static int wmem_max = -1;
+
 static int expected_max_msg_size_tp(const char *transport)
 {
     if (strcmp(transport, "ux") == 0 || strcmp(transport, "uxf") == 0) {
-	int wmem_max;
-
-	if (tu_read_sysctl_int("net.core.wmem_max", &wmem_max) < 0)
+	if (wmem_max < 0)
 	    return -1;
 
 	/* see the UX transport of what all this means */
@@ -796,12 +796,26 @@ static int gen_default_certs(void)
 #define REQUIRE_NOT_IN_VALGRIND (1U << 1)
 #define REQUIRE_PUBLIC_DNS (1U << 2)
 
+static int retrieve_wmem_max(void)
+{
+    if (wmem_max >= 0)
+	return 0;
+
+    if (tu_read_sysctl_int("net.core.wmem_max", &wmem_max) < 0)
+	return -1;
+    else
+	return 0;
+}
+
 static int setup_xcm(unsigned setup_flags)
 {
     static bool first = true;
 
     if (first) {
 	srandom((unsigned int)time(NULL));
+
+	retrieve_wmem_max();
+
 	first = false;
     }
 
