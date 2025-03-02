@@ -2140,6 +2140,7 @@ TESTCASE_SERIALIZED_TIMEOUT_F(xcm, backpressure_with_slow_server, 80.0,
 
 TESTCASE(xcm, full_listen_queue_doesnt_block_connect)
 {
+    int skipped = 0;
     int i;
     for (i=0; i<test_all_addrs_len; i++) {
 	const char *test_addr = test_all_addrs[i];
@@ -2165,7 +2166,11 @@ TESTCASE(xcm, full_listen_queue_doesnt_block_connect)
 
 	    if (conn_socket == NULL) {
 		CHK(errno == ECONNREFUSED || errno == EAGAIN ||
-		    errno == ETIMEDOUT);
+		    errno == ETIMEDOUT || errno == EMFILE);
+
+		if (errno == EMFILE)
+		    skipped++;
+
 		break;
 	    }
 
@@ -2202,7 +2207,7 @@ TESTCASE(xcm, full_listen_queue_doesnt_block_connect)
 	    CHKNOERR(xcm_close(conn_sockets[j]));
     }
 
-    return UTEST_SUCCESS;
+    return skipped > 0 ? UTEST_NOT_RUN : UTEST_SUCCESS;
 }
 
 
