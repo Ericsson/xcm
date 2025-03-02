@@ -133,8 +133,8 @@ def wire_up(relay):
 
 
 def get_max_msg_size(conn_a, conn_b):
-    a_max = conn_a.get_attr("xcm.max_msg_size"),
-    b_max = conn_b.get_attr("xcm.max_msg_size"),
+    a_max = conn_a.get_attr("xcm.max_msg_size")
+    b_max = conn_b.get_attr("xcm.max_msg_size")
 
     return min(a_max, b_max)
 
