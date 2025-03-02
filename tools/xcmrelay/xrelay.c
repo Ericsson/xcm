@@ -12,6 +12,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <xcm_attr.h>
+
+static int get_required_capacity(struct xcm_socket *src_conn,
+				 struct xcm_socket *dst_conn)
+{
+    int64_t src_max_msg;
+    int src_rc = xcm_attr_get_int64(src_conn, "xcm.max_msg_size", &src_max_msg);
+
+    int64_t dst_max_msg;
+    int dst_rc = xcm_attr_get_int64(dst_conn, "xcm.max_msg_size", &dst_max_msg);
+
+    int max_msg;
+
+    if (src_rc == sizeof(int64_t) && dst_rc == sizeof(int64_t))
+	max_msg = UT_MIN(src_max_msg, dst_max_msg);
+    else
+	max_msg = 65535;
+
+    return max_msg;
+}
 
 static void xfwd_init(struct xfwd *relay, struct xcm_socket *src_conn,
 		      struct xcm_socket *dst_conn, int *src_condition,
@@ -27,14 +47,19 @@ static void xfwd_init(struct xfwd *relay, struct xcm_socket *src_conn,
 	.src_condition = src_condition,
 	.dst_condition = dst_condition
     };
+
+    relay->data_capacity = get_required_capacity(src_conn, dst_conn);
+    relay->data = ut_malloc(relay->data_capacity);
 }
 
 static void xfwd_stop(struct xfwd *relay);
 
 static void xfwd_deinit(struct xfwd *relay)
 {
-    if (relay != NULL)
+    if (relay != NULL) {
 	xfwd_stop(relay);
+	ut_free(relay->data);
+    }
 }
 
 static void set_condition(struct xcm_socket *conn, int condition)
@@ -104,7 +129,7 @@ static void xfwd_send(struct xfwd *relay)
 
 static void xfwd_receive(struct xfwd *relay)
 {
-    int rc = xcm_receive(relay->src_conn, relay->data, sizeof(relay->data));
+    int rc = xcm_receive(relay->src_conn, relay->data, relay->data_capacity);
 
     if (rc < 0) {
 	if (errno != EAGAIN)

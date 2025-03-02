@@ -33,7 +33,8 @@ struct xfwd
     struct event src_event;
     struct event dst_event;
 
-    char data[65535];
+    char *data;
+    int data_capacity;
     int data_len;
 
     bool running;

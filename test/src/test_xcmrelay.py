@@ -132,10 +132,19 @@ def wire_up(relay):
     return (server, relay_conn, server_conn)
 
 
+def get_max_msg_size(conn_a, conn_b):
+    a_max = conn_a.get_attr("xcm.max_msg_size"),
+    b_max = conn_b.get_attr("xcm.max_msg_size"),
+
+    return min(a_max, b_max)
+
+
 def test_basic(relay):
     server, relay_conn, server_conn = wire_up(relay)
 
-    out_msg = os.urandom(random.randint(1, 65535))
+    max_msg_size = get_max_msg_size(relay_conn, server_conn)
+
+    out_msg = os.urandom(random.randint(1, max_msg_size))
 
     relay_conn.set_attr("xcm.blocking", True)
     relay_conn.send(out_msg)
@@ -165,9 +174,11 @@ def test_backpressure(relay):
 
     out_msgs = []
 
+    max_msg_size = get_max_msg_size(relay_conn, server_conn)
+
     while True:
         try:
-            out_msg = os.urandom(random.randint(1, 65535))
+            out_msg = os.urandom(random.randint(1, max_msg_size))
             out_conn.send(out_msg)
             out_msgs.append(out_msg)
         except xcm.error as e:
@@ -207,7 +218,9 @@ def test_backpressure(relay):
 
 def ping(conn):
     for _ in range(random.randint(1, 10)):
-        out_msg = os.urandom(random.randint(1, 65535))
+        max_msg_size = conn.get_attr("xcm.max_msg_size")
+
+        out_msg = os.urandom(random.randint(1, max_msg_size))
 
         conn.send(out_msg)
 
@@ -275,7 +288,9 @@ def test_stdin_attrs():
 
     server, relay_conn, server_conn = wire_up(relay)
 
-    out_msg = os.urandom(random.randint(1, 65535))
+    max_msg_size = get_max_msg_size(relay_conn, server_conn)
+
+    out_msg = os.urandom(random.randint(1, max_msg_size))
 
     relay_conn.set_attr("xcm.blocking", True)
     relay_conn.send(out_msg)
