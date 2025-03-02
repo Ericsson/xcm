@@ -950,7 +950,7 @@ TESTCASE(xcm, basic)
 	if (is_utls(test_addr))
 	    /* to make sure both the 'slave' UX and TLS server sockets
 	       are created before we start connecting */
-	    tu_msleep(300);
+	    tu_msleep(is_in_valgrind() ? 1000 : 300);
 
 	struct xcm_socket *client_conn = tu_connect_retry(test_addr, 0);
 
