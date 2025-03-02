@@ -1422,11 +1422,11 @@ TESTCASE_SERIALIZED_F(xcm, dns_algorithm_smoke_test,
 }
 
 static const char *dns_local_ips[] = {
-    "127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4", "[::1]"
+    "127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4", "127.0.0.5", "[::1]"
 };
 static size_t dns_local_ips_len = UT_ARRAY_LEN(dns_local_ips);
 
-#define DNS_LOCAL_IPV6_IDX 4
+#define DNS_LOCAL_IPV6_IDX 5
 #define DNS_LOCAL_IPV6_ADDR_COUNT 1
 
 /*
@@ -1688,7 +1688,7 @@ static void uninstall_tcp_filter(sa_family_t ip_version, int tcp_port)
     manage_tcp_filter(ip_version, tcp_port, false);
 }
 
-struct connector
+struct outtimer
 {
     pthread_t thread;
 
@@ -1703,53 +1703,53 @@ struct connector
     double min_timeout;
     double max_timeout;
 
-    bool failed;
+    bool as_expected;
 
-    LIST_ENTRY(connector) entry;
+    LIST_ENTRY(outtimer) entry;
 };
 
-LIST_HEAD(connector_list, connector);
+LIST_HEAD(outtimer_list, outtimer);
 
-static void *connector_thread(void *arg)
+static void *outtimer_thread(void *arg)
 {
-    struct connector *connector = arg;
+    struct outtimer *outtimer = arg;
 
     char addr[512];
-    snprintf(addr, sizeof(addr), "%s:%s:%d", connector->proto,
-	     connector->ip, connector->port);
+    snprintf(addr, sizeof(addr), "%s:%s:%d", outtimer->proto,
+	     outtimer->ip, outtimer->port);
 
     struct xcm_attr_map *attrs = xcm_attr_map_create();
     xcm_attr_map_add_str(attrs, "xcm.service", "any");
 
-    if (connector->timeout >= 0)
+    if (outtimer->timeout >= 0)
 	xcm_attr_map_add_double(attrs, "tcp.connect_timeout",
-				connector->timeout);
-    if (connector->dns_algorithm != NULL)
-	xcm_attr_map_add_str(attrs, "dns.algorithm", connector->dns_algorithm);
+				outtimer->timeout);
+    if (outtimer->dns_algorithm != NULL)
+	xcm_attr_map_add_str(attrs, "dns.algorithm", outtimer->dns_algorithm);
 
     double start = ut_ftime();
 
     struct xcm_socket *conn;
 
-    if (connector->blocking) {
+    if (outtimer->blocking) {
 	conn = xcm_connect_a(addr, attrs);
 
 	if (conn != NULL)
-	    goto fail;
+	    goto unexpected;
 	if (errno != ETIMEDOUT)
-	    goto fail;
+	    goto unexpected;
     } else {
 	xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
 
 	conn = xcm_connect_a(addr, attrs);
 
 	if (conn == NULL)
-	    goto fail;
+	    goto unexpected;
 
-	if (connector->timeout >= 0 && 
+	if (outtimer->timeout >= 0 && 
 	    tu_assure_double_attr(conn, "tcp.connect_timeout",
-				  cmp_type_equal, connector->timeout) < 0)
-	    goto fail;
+				  cmp_type_equal, outtimer->timeout) < 0)
+	    goto unexpected;
 
 	int rc;
 	do {
@@ -1758,34 +1758,35 @@ static void *connector_thread(void *arg)
 	} while (rc < 0 && errno == EAGAIN);
 
 	if (rc != -1 || errno != ETIMEDOUT)
-	    goto fail;
+	    goto unexpected;
     }
 
     double latency = ut_ftime() - start;
 
-    if (latency < connector->min_timeout || latency > connector->max_timeout)
-	goto fail;
+    if (latency < outtimer->min_timeout || latency > outtimer->max_timeout)
+	goto unexpected;
 
     if (xcm_close(conn) < 0)
-	goto fail;
+	goto unexpected;
 
+    outtimer->as_expected = true;
     return NULL;
 
-fail:
-    connector->failed = true;
+unexpected:
+    outtimer->as_expected = false;
     return NULL;
 }
 
-static int spawn_connector(const char *proto, const char *ip,
-			   uint16_t port, bool blocking,
-			   const char *dns_algorithm,
-			   double timeout, double min_timeout,
-			   double max_timeout,
-			   struct connector_list *connectors)
+static int spawn_outtimer(const char *proto, const char *ip,
+			  uint16_t port, bool blocking,
+			  const char *dns_algorithm,
+			  double timeout, double min_timeout,
+			  double max_timeout,
+			  struct outtimer_list *outtimers)
 {
-    struct connector *connector = ut_malloc(sizeof(struct connector));
+    struct outtimer *outtimer = ut_malloc(sizeof(struct outtimer));
 
-    *connector = (struct connector) {
+    *outtimer = (struct outtimer) {
 	.proto = proto,
 	.ip = ip,
 	.port = port,
@@ -1796,37 +1797,40 @@ static int spawn_connector(const char *proto, const char *ip,
 	.max_timeout = max_timeout
     };
 
-    if (pthread_create(&connector->thread, NULL, connector_thread,
-		       connector) != 0) {
-	ut_free(connector);
+    if (pthread_create(&outtimer->thread, NULL, outtimer_thread,
+		       outtimer) != 0) {
+	ut_free(outtimer);
 	return -1;
     }
 
-    LIST_INSERT_HEAD(connectors, connector, entry);
+    LIST_INSERT_HEAD(outtimers, outtimer, entry);
 
     return 0;
 }
 
-static int spawn_ip_family_connectors(const char *proto, uint16_t port,
-				      bool blocking, double timeout,
-				      double min_timeout, double max_timeout,
-				      struct connector_list *connectors)
+static int spawn_ip_family_outtimers(const char *proto, uint16_t port,
+				     bool blocking, double tcp_timeout,
+				     double min_tcp_timeout,
+				     double max_tcp_timeout,
+				     struct outtimer_list *outtimers)
 {
-    if (spawn_connector(proto, "127.0.0.1", port, blocking, NULL, timeout,
-			min_timeout, max_timeout, connectors) < 0)
+    if (spawn_outtimer(proto, "127.0.0.1", port, blocking, NULL, tcp_timeout,
+		       min_tcp_timeout, max_tcp_timeout, outtimers) < 0)
 	return -1;
 
-    if (spawn_connector(proto, "[::1]", port, blocking, NULL, timeout,
-			min_timeout, max_timeout, connectors) < 0)
+    if (spawn_outtimer(proto, "[::1]", port, blocking, NULL, tcp_timeout,
+		       min_tcp_timeout, max_tcp_timeout, outtimers) < 0)
 	return -1;
 
-    if (spawn_connector(proto, "local.friendlyfire.se", port, blocking, NULL,
-			timeout, min_timeout, max_timeout, connectors) < 0)
+    if (spawn_outtimer(proto, "local.friendlyfire.se", port, blocking, NULL,
+		       tcp_timeout, min_tcp_timeout, max_tcp_timeout,
+		       outtimers) < 0)
 	return -1;
 
-    if (spawn_connector(proto, "local.friendlyfire.se", port, blocking,
-			"sequential", timeout, dns_local_ips_len * min_timeout,
-			dns_local_ips_len * max_timeout, connectors) < 0)
+    if (spawn_outtimer(proto, "local.friendlyfire.se", port, blocking,
+		       "sequential", tcp_timeout,
+		       dns_local_ips_len * min_tcp_timeout,
+		       dns_local_ips_len * max_tcp_timeout, outtimers) < 0)
 	return -1;
 
     /* The longest list of a particular family (IPv4 or IPv6)
@@ -1835,25 +1839,29 @@ static int spawn_ip_family_connectors(const char *proto, uint16_t port,
        longest list is IPv4. */
     int happy_ips_len = dns_local_ips_len - DNS_LOCAL_IPV6_ADDR_COUNT;
 
-    if (spawn_connector(proto, "local.friendlyfire.se", port, blocking,
-			"happy_eyeballs", timeout, happy_ips_len * min_timeout,
-			happy_ips_len * max_timeout, connectors) < 0)
+    printf("happy ips %d\n", happy_ips_len);
+    if (spawn_outtimer(proto, "local.friendlyfire.se", port, blocking,
+		       "happy_eyeballs", tcp_timeout,
+		       happy_ips_len * min_tcp_timeout,
+		       happy_ips_len * max_tcp_timeout, outtimers) < 0)
 	return -1;
 
     return 0;
 }
 
-static int spawn_mode_connectors(const char *proto, uint16_t port,
-				 double timeout, double min_timeout,
-				 double max_timeout,
-				 struct connector_list *connectors)
+static int spawn_mode_outtimers(const char *proto, uint16_t port,
+				 double tcp_timeout, double min_tcp_timeout,
+				 double max_tcp_timeout,
+				 struct outtimer_list *outtimers)
 {
-    if (spawn_ip_family_connectors(proto, port, true, timeout, min_timeout,
-				   max_timeout, connectors) < 0)
+    if (spawn_ip_family_outtimers(proto, port, true, tcp_timeout,
+				  min_tcp_timeout, max_tcp_timeout,
+				  outtimers) < 0)
 	return -1;
 
-    if (spawn_ip_family_connectors(proto, port, false, timeout, min_timeout,
-				   max_timeout, connectors) < 0)
+    if (spawn_ip_family_outtimers(proto, port, false, tcp_timeout,
+				  min_tcp_timeout, max_tcp_timeout,
+				  outtimers) < 0)
 	return -1;
 
     return 0;
@@ -1863,9 +1871,9 @@ TESTCASE_F(xcm, tcp_connect_timeout, REQUIRE_ROOT|REQUIRE_PUBLIC_DNS)
 {
     uint16_t port = gen_tcp_port();
 
-    struct connector_list connectors;
+    struct outtimer_list outtimers;
 
-    LIST_INIT(&connectors);
+    LIST_INIT(&outtimers);
 
     install_tcp_filter(AF_INET, port);
     install_tcp_filter(AF_INET6, port);
@@ -1874,23 +1882,23 @@ TESTCASE_F(xcm, tcp_connect_timeout, REQUIRE_ROOT|REQUIRE_PUBLIC_DNS)
     for (i = 0; i < tcp_based_protos_len; i++) {
 	const char *proto = tcp_based_protos[i];
 
-	CHKNOERR(spawn_mode_connectors(proto, port, -1, 2.5, 3.5, &connectors));
+	CHKNOERR(spawn_mode_outtimers(proto, port, -1, 2.5, 3.5, &outtimers));
 
-	CHKNOERR(spawn_mode_connectors(proto, port, 0.5, 0.25, 0.75,
-				       &connectors));
+	CHKNOERR(spawn_mode_outtimers(proto, port, 0.5, 0.25, 0.75,
+				      &outtimers));
     }
 
-    struct connector *connector;
-    LIST_FOREACH(connector, &connectors, entry)
-	CHK(pthread_join(connector->thread, NULL) == 0);
+    struct outtimer *outtimer;
+    LIST_FOREACH(outtimer, &outtimers, entry)
+	CHK(pthread_join(outtimer->thread, NULL) == 0);
 
     uninstall_tcp_filter(AF_INET, port);
     uninstall_tcp_filter(AF_INET6, port);
 
-    while ((connector = LIST_FIRST(&connectors)) != NULL) {
-	CHK(!connector->failed);
-	LIST_REMOVE(connector, entry);
-	ut_free(connector);
+    while ((outtimer = LIST_FIRST(&outtimers)) != NULL) {
+	CHK(outtimer->as_expected);
+	LIST_REMOVE(outtimer, entry);
+	ut_free(outtimer);
     }
 
     return UTEST_SUCCESS;
