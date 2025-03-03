@@ -1,0 +1,105 @@
+@startuml nb_connect_and_send.png
+client -> libxcm: xcm_connect("tls:192.168.1.42:4711", XCM_NONBLOCK);
+libxcm -> client: conn_socket
+client -> libxcm: xcm_send(conn_socket, "hello world", 11);
+libxcm -> client: -1, errno=EAGAIN
+client -> libxcm: xcm_fd(conn_socket);
+libxcm -> client: 42
+client -> libxcm: xcm_await(conn_socket, XCM_SO_SENDABLE);
+libxcm -> client: 0
+client -> libc: select(43, [42, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_send(conn_socket, "hello world", 11);
+libxcm -> client: -1, errno=EAGAIN
+client -> libc: select(43, [42, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_send(conn_socket, "hello world", 11);
+libxcm -> client: 0
+@enduml
+@startuml nb_connect_explicit.png
+client -> libxcm: xcm_connect("tls:192.168.1.42:4711", XCM_NONBLOCK);
+libxcm -> client: conn_socket
+client -> libxcm: xcm_fd(conn_socket);
+libxcm -> client: 99
+client -> libxcm: xcm_await(conn_socket, 0);
+libxcm -> client: 0
+client -> libc: select(116, [99, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_finish(conn_socket);
+libxcm -> client: -1, errno=EAGAIN
+client -> libc: select(116, [99, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_finish(conn_socket);
+libxcm -> client: -1, errno=EAGAIN
+client -> libc: select(116, [99, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_finish(conn_socket);
+libxcm -> client: 0
+@enduml
+@startuml nb_immediate_connection_refused.png
+client -> libxcm: xcm_connect("utls:192.168.1.17:17", XCM_NONBLOCK);
+libxcm -> client: NULL, errno=ECONNREFUSED
+@enduml
+@startuml nb_delayed_connection_refused.png
+client -> libxcm: xcm_connect("utls:192.168.1.17:17", XCM_NONBLOCK);
+libxcm -> client: conn_socket
+client -> libxcm: xcm_fd(conn_socket);
+libxcm -> client: 100
+client -> libxcm: xcm_await(conn_socket, XCM_SO_SENDABLE);
+libxcm -> client: 0
+client -> libc: select(101, [100, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_send(conn_socket, "Greetings from the North", 25);
+libxcm -> client: -1, errno=ECONNREFUSED
+client -> libxcm: xcm_close(conn_socket);
+libxcm -> client: 0
+@enduml
+@startuml nb_flush_buffers_before_close.png
+client -> libxcm: xcm_send(conn_socket, msg, 100);
+libxcm -> client: 0
+client -> libxcm: xcm_finish(conn_socket);
+libxcm -> client: -1, errno=EAGAIN
+client -> libxcm: xcm_fd(conn_socket);
+libxcm -> client: 12
+client -> libxcm: xcm_await(conn_socket, 0);
+libxcm -> client: 0
+client -> libc: select(13, [12, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_finish(conn_socket);
+libxcm -> client : 0
+client -> libxcm: xcm_close(conn_socket);
+libxcm -> client : 0
+@enduml
+@startuml server_accept.png
+client -> libxcm: xcm_server("tcp:*:17");
+libxcm -> client: server_socket
+client -> libxcm: xcm_set_blocking(server_socket, false);
+libxcm -> client: 0
+client -> libxcm: xcm_fd(server_socket);
+libxcm -> client: 4
+client -> libxcm: xcm_await(server_socket, XCM_SO_ACCEPTABLE);
+libxcm -> client: 0
+client -> libc: select(5, [4, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> libxcm: xcm_accept(server_socket);
+libxcm -> client: conn_socket
+client -> libxcm: xcm_fd(conn_socket);
+libxcm -> client: 5
+client -> libxcm: xcm_await(conn_socket, XCM_SO_RECEIVABLE);
+libxcm -> client: 0
+client -> libc: select(6, [4, 5, ...], [...], [...], NULL);
+|||
+libc -> client: 1
+client -> client: map_active_fd_to_xcm_socket()
+client -> libxcm: xcm_receive(conn_socket, buf, 1024);
+libxcm -> client: 100
+client -> client: handle_request(buf, 100);
+@enduml
