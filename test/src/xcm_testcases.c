@@ -7725,7 +7725,7 @@ static int run_lossy(const char *proto)
     int tcp_port = 26645;
     snprintf(addr, sizeof(addr), "%s:127.0.0.1:%d", proto, tcp_port);
 
-    const int num_pings = 250;
+    const int num_pings = 1000;
 
     pid_t server_pid = pingpong_run_forking_server(addr, num_pings, 0, 1);
     CHKNOERR(server_pid);
