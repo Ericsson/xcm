@@ -1839,7 +1839,6 @@ static int spawn_ip_family_outtimers(const char *proto, uint16_t port,
        longest list is IPv4. */
     int happy_ips_len = dns_local_ips_len - DNS_LOCAL_IPV6_ADDR_COUNT;
 
-    printf("happy ips %d\n", happy_ips_len);
     if (spawn_outtimer(proto, "local.friendlyfire.se", port, blocking,
 		       "happy_eyeballs", tcp_timeout,
 		       happy_ips_len * min_tcp_timeout,
