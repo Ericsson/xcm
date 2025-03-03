@@ -13,6 +13,10 @@ TESTSUITE(addr, NULL, NULL)
 
 TESTCASE(addr, supported)
 {
+    CHK(xcm_addr_is_supported("tcp:1.2.3.4:55"));
+    CHK(xcm_addr_is_supported("ux:foo"));
+    CHK(xcm_addr_is_supported("uxf:/tmp/asdf"));
+
     bool tls_supported =
 #ifdef XCM_TLS
 	true;
