@@ -283,10 +283,6 @@ static void init_ssl(void)
 {
     ctx_store_init();
 
-    (void)SSL_library_init();
-
-    SSL_load_error_strings();
-
     reg_ssl_bio();
 }
 
