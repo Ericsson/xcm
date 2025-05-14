@@ -92,6 +92,9 @@ libxcm_la_SOURCES += \
 	libxcm/tp/tls/xcm_tp_tls.c \
 	libxcm/tp/tls/xcm_tp_utls.c
 libxcm_la_CPPFLAGS += -I$(srcdir)/libxcm/tp/tls
+# Assure no calls are made to OpenSSL APIs deprecated in the oldest
+# supported version (1.1.0).
+libxcm_la_CPPFLAGS += -DOPENSSL_NO_DEPRECATED -DOPENSSL_API_COMPAT=0x10100000L
 endif
 
 if SCTP
