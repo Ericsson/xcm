@@ -1,0 +1,24 @@
+var searchData=
+[
+  ['xcm_5fbtls_5fproto_0',['XCM_BTLS_PROTO',['../xcm__addr_8h.html#a8ec656233c3e8ca1807e469ba3d89546',1,'xcm_addr.h']]],
+  ['xcm_5ffd_5fexception_1',['XCM_FD_EXCEPTION',['../xcm__compat_8h.html#a6f7eb63ad93365ea33cda4d5bbafc8d9',1,'xcm_compat.h']]],
+  ['xcm_5ffd_5freadable_2',['XCM_FD_READABLE',['../xcm__compat_8h.html#a8b41267a9d7f1c267b1ef1ff446a5d06',1,'xcm_compat.h']]],
+  ['xcm_5ffd_5fwritable_3',['XCM_FD_WRITABLE',['../xcm__compat_8h.html#abb5f23cfc23562bae00923bdb06e7e23',1,'xcm_compat.h']]],
+  ['xcm_5fnonblock_4',['XCM_NONBLOCK',['../xcm_8h.html#a5741d65a6840a49421f076e1abc69a1c',1,'xcm.h']]],
+  ['xcm_5fsctp_5fproto_5',['XCM_SCTP_PROTO',['../xcm__addr_8h.html#a0c2db1c0954bec6eba898df48966896d',1,'xcm_addr.h']]],
+  ['xcm_5fso_5facceptable_6',['XCM_SO_ACCEPTABLE',['../xcm_8h.html#a6835d2d195427b0748c9c2fd782596f2',1,'xcm.h']]],
+  ['xcm_5fso_5freceivable_7',['XCM_SO_RECEIVABLE',['../xcm_8h.html#aa3429d5eebf90c5572549d77a3d08f2f',1,'xcm.h']]],
+  ['xcm_5fso_5fsendable_8',['XCM_SO_SENDABLE',['../xcm_8h.html#a864b4817dbcca717b5b9778d2c6deac3',1,'xcm.h']]],
+  ['xcm_5ftcp_5fproto_9',['XCM_TCP_PROTO',['../xcm__addr_8h.html#ad38b7a07ea6542f6f0dc79807dd38172',1,'xcm_addr.h']]],
+  ['xcm_5ftls_5fproto_10',['XCM_TLS_PROTO',['../xcm__addr_8h.html#a83f539f60c601c7f8e13f895516f61b8',1,'xcm_addr.h']]],
+  ['xcm_5futls_5fproto_11',['XCM_UTLS_PROTO',['../xcm__addr_8h.html#a22be66584e9c7e6cf9c94168d836ed09',1,'xcm_addr.h']]],
+  ['xcm_5fux_5fproto_12',['XCM_UX_PROTO',['../xcm__addr_8h.html#a9fa7914cb7c2f4e468e6da8532a2514f',1,'xcm_addr.h']]],
+  ['xcm_5fuxf_5fproto_13',['XCM_UXF_PROTO',['../xcm__addr_8h.html#a1f87107758918b1f65c6e46e79493257',1,'xcm_addr.h']]],
+  ['xcm_5fversion_14',['XCM_VERSION',['../xcm__version_8h.html#aadb0a0ca7a39657f8b1002fffa72190a',1,'xcm_version.h']]],
+  ['xcm_5fversion_5fapi_15',['XCM_VERSION_API',['../xcm__version_8h.html#a9dd4982f6b09ae68d5358e3aa3826a48',1,'xcm_version.h']]],
+  ['xcm_5fversion_5fapi_5fmajor_16',['XCM_VERSION_API_MAJOR',['../xcm__version_8h.html#a256bdc3c1c2d715c7a22c1e7e36779b6',1,'xcm_version.h']]],
+  ['xcm_5fversion_5fapi_5fminor_17',['XCM_VERSION_API_MINOR',['../xcm__version_8h.html#ae89d6ebc954db2113486bba8986effd4',1,'xcm_version.h']]],
+  ['xcm_5fversion_5fmajor_18',['XCM_VERSION_MAJOR',['../xcm__version_8h.html#a3b511d743cca4eab2aa3536aa798a9de',1,'xcm_version.h']]],
+  ['xcm_5fversion_5fminor_19',['XCM_VERSION_MINOR',['../xcm__version_8h.html#af2ef9879741fa10065fa849e4a3cd7ec',1,'xcm_version.h']]],
+  ['xcm_5fversion_5fpatch_20',['XCM_VERSION_PATCH',['../xcm__version_8h.html#abc2e99728d72a02693cda73a263c337a',1,'xcm_version.h']]]
+];
