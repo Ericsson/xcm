@@ -1746,6 +1746,43 @@ static int get_peer_names_attr(struct xcm_socket *s, void *context,
 	return get_valid_peer_names_attr(s, value, capacity);
 }
 
+static int get_tls_version_attr(struct xcm_socket *s, void *context,
+				void *value, size_t capacity)
+{
+    struct btls_socket *bts = TOBTLS(s);
+    SSL *ssl = bts->conn.ssl;
+
+    if (ssl == NULL)
+	goto noent;
+
+    int version_num = SSL_version(ssl);
+    const char *version;
+
+    switch (version_num) {
+    case TLS1_2_VERSION:
+	version = "1.2";
+	break;
+    case TLS1_3_VERSION:
+	version = "1.3";
+	break;
+    default:
+	goto noent;
+    }
+
+    if (capacity <= strlen(version)) {
+	errno = EOVERFLOW;
+	return -1;
+    }
+
+    strcpy(value, version);
+
+    return strlen(version) + 1;
+
+noent:
+    errno = ENOENT;
+    return -1;
+}
+
 static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
 				   void *value, size_t capacity)
 {
@@ -1960,6 +1997,8 @@ static void populate_conn_san(struct xcm_socket *s, struct attr_tree *tree,
 static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
 {
     populate_common(s, tree);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_VERSION, s, xcm_attr_type_str,
+		     get_tls_version_attr);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID, s,
 		     xcm_attr_type_bin, get_peer_subject_key_id);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN, s,

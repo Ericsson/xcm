@@ -67,6 +67,7 @@
 #define XCM_ATTR_TLS_AUTH "tls.auth"
 #define XCM_ATTR_TLS_12_ENABLED "tls.12.enabled"
 #define XCM_ATTR_TLS_13_ENABLED "tls.13.enabled"
+#define XCM_ATTR_TLS_VERSION "tls.version"
 #define XCM_ATTR_TLS_CHECK_CRL "tls.check_crl"
 #define XCM_ATTR_TLS_CHECK_TIME "tls.check_time"
 #define XCM_ATTR_TLS_VERIFY_PEER_NAME "tls.verify_peer_name"

@@ -3652,6 +3652,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
 
     CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.version", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.12.enabled", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.13.enabled", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_crl", true), EACCES);
@@ -5116,6 +5117,79 @@ TESTCASE(xcm, tls_common_and_no_common_version)
     xcm_attr_map_destroy(attrs);
     xcm_attr_map_destroy(attrs_no_12);
     xcm_attr_map_destroy(attrs_no_13);
+
+    return UTEST_SUCCESS;
+}
+
+static int run_tls_version_test(bool tls_13)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_socket *server_sock = xcm_server(tls_addr);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(xcm_set_blocking(server_sock, false));
+
+    struct xcm_attr_map *connect_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(connect_attrs, "xcm.blocking", false);
+
+    if (!tls_13)
+	xcm_attr_map_add_bool(connect_attrs, "tls.13.enabled", false);
+    else if (tu_randbool())
+	xcm_attr_map_add_bool(connect_attrs, "tls.12.enabled", false);
+
+    struct xcm_socket *connect_sock = NULL;
+    struct xcm_socket *accepted_sock = NULL;
+
+    for (;;) {
+	int connect_rc = connect_sock != NULL ?
+	    xcm_finish(connect_sock) : -1;
+	int accepted_rc = accepted_sock != NULL ?
+	    xcm_finish(accepted_sock) : -1;
+
+	if (connect_rc == 0 && accepted_rc == 0)
+	    break;
+
+	if (connect_sock == NULL) {
+	    connect_sock = tu_connect_a(tls_addr, connect_attrs);
+	    if (connect_sock == NULL)
+		CHK(errno == EAGAIN && errno == ECONNREFUSED);
+	}
+
+	if (accepted_sock == NULL) {
+	    accepted_sock = xcm_accept(server_sock);
+	    if (accepted_sock == NULL)
+		CHKERRNOEQ(EAGAIN);
+	}
+    }
+
+    const char *expected_version = tls_13 ? "1.3" : "1.2";
+
+    if (tu_assure_str_attr(connect_sock, "tls.version", expected_version) < 0)
+	return UTEST_FAILED;
+
+    if (tu_assure_str_attr(accepted_sock, "tls.version", expected_version) < 0)
+	return UTEST_FAILED;
+
+    CHKNOERR(xcm_close(connect_sock));
+    CHKNOERR(xcm_close(accepted_sock));
+    CHKNOERR(xcm_close(server_sock));
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+
+}
+
+TESTCASE(xcm, tls_version)
+{
+    int rc;
+
+    if ((rc = run_tls_version_test(true)) != UTEST_SUCCESS)
+	return rc;
+
+    if ((rc = run_tls_version_test(false)) != UTEST_SUCCESS)
+	return rc;
 
     return UTEST_SUCCESS;
 }
