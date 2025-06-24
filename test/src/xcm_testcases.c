@@ -363,6 +363,14 @@ static int check_tls_attrs(struct xcm_socket *s, const char *ns,
 	return -1;
 
     if (check_bool_attr(s, parent_attrs, attrs,
+			"tls.12.enabled", true) < 0)
+	return -1;
+
+    if (check_bool_attr(s, parent_attrs, attrs,
+			"tls.13.enabled", true) < 0)
+	return -1;
+
+    if (check_bool_attr(s, parent_attrs, attrs,
 			"tls.verify_peer_name", false) < 0)
 	return -1;
 
@@ -3644,6 +3652,8 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_str(conn, "tls.tc_file", "cert.pem"), EACCES);
 
     CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.12.enabled", false), EACCES);
+    CHKERRNO(xcm_attr_set_bool(conn, "tls.13.enabled", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_crl", true), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
@@ -5059,6 +5069,53 @@ TESTCASE(xcm, tls_auth_disabled_no_longer_requires_tc)
 
     ut_free(tls_addr);
     xcm_attr_map_destroy(attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_13_disabled)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, "tls.13.enabled", false);
+
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs, attrs, true));
+
+    ut_free(tls_addr);
+    xcm_attr_map_destroy(attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_common_and_no_common_version)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *attrs_no_12 = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs_no_12, "tls.12.enabled", false);
+
+    struct xcm_attr_map *attrs_no_13 = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs_no_13, "tls.13.enabled", false);
+
+    /* overlap */
+    CHKNOERR(establish_xtls(tls_addr, attrs_no_13, attrs, attrs_no_13, true));
+    CHKNOERR(establish_xtls(tls_addr, attrs_no_12, attrs, attrs_no_12, true));
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs_no_13, attrs_no_13, true));
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs_no_12, attrs_no_12, true));
+
+    /* no overlap */
+    CHKNOERR(establish_xtls(tls_addr, attrs_no_12, attrs, attrs_no_13, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs_no_13, attrs, attrs_no_12, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs_no_12, attrs_no_13, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, attrs_no_13, attrs_no_12, false));
+
+    ut_free(tls_addr);
+    xcm_attr_map_destroy(attrs);
+    xcm_attr_map_destroy(attrs_no_12);
+    xcm_attr_map_destroy(attrs_no_13);
 
     return UTEST_SUCCESS;
 }

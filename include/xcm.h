@@ -1142,8 +1142,10 @@ extern "C" {
  *
  * @subsubsection tls_version TLS Protocol Version and Features
  *
- * The TLS transport only employs TLS 1.2 and, if the XCM library is
- * built with OpenSSL 1.1.1 or later, TLS 1.3 as well.
+ * The TLS transport supports TLS 1.2 and 1.3, only. By default, both
+ * 1.2 and 1.3 are enabled. The @c tls.12.enabled and @c
+ * tls.13.enabled socket attributes (see @ref tls_attr) may be used to
+ * disabled a protocol version.
  *
  * TLS 1.2 renegotiation is disabled, if the XCM library is built with
  * OpenSSL 1.1.1c or later.
@@ -1420,6 +1422,8 @@ extern "C" {
  * tls.crl                  | All         | Binary      | RW   | The certificate verification list (CRL) bundle to be used. Writable only at socket creation. May only be set if CRL checking is enabled.
  * tls.client               | All         | Boolean     | RW   | Controls whether to act as a TLS-level client or a server. Writable only at socket creation.
  * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. Writable only at socket creation. Default value is true.
+ * tls.12.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.2 may be used. Writable only at socket creation. Default value is true.
+ * tls.13.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.3 may be used. Writable only at socket creation. Default value is true.
  * tls.check_crl            | All         | Boolean     | RW   | Controls whether or not to perform CRL checking. Writable only at socket creation. Default value is false.
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.

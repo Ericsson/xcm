@@ -36,6 +36,15 @@
     log_debug_sock(s, "CRL checking enabled although TLS authentication " \
 		   "is disabled.")
 
+#define LOG_TLS_VERSIONS_ENABLED(s, tls_12_enabled, tls_13_enabled)	\
+    log_debug_sock(s, "TLS v1.2 is %s and v1.3 is %s.",			\
+		   (tls_12_enabled) ? "enabled" : "disabled",		\
+		   (tls_13_enabled) ? "enabled" : "disabled")
+
+#define LOG_TLS_NO_VERSION_ENABLED(s)					\
+    log_debug_sock(s, "All supported TLS protocol versions have been "	\
+		   "disabled.")
+
 #define LOG_TLS_CRL_SET_BUT_NO_CRL_CHECK(s, crl)		\
     log_debug_sock(s, "CRL is configured to \"%s\" even "	\
 		   "though CRL checking is disabled.",		\

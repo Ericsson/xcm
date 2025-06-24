@@ -71,6 +71,8 @@ struct btls_socket
     char laddr[XCM_ADDR_MAX+1];
 
     bool tls_auth;
+    bool tls_12_enabled;
+    bool tls_13_enabled;
     bool check_crl;
     bool tls_client;
     bool check_time;
@@ -311,6 +313,10 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
 
     bts->tls_auth = parent_bts->tls_auth;
 
+    bts->tls_12_enabled = parent_bts->tls_12_enabled;
+
+    bts->tls_13_enabled = parent_bts->tls_13_enabled;
+
     bts->check_crl = parent_bts->check_crl;
 
     bts->tls_client = parent_bts->tls_client;
@@ -343,6 +349,8 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     struct btls_socket *bts = TOBTLS(s);
 
     bts->tls_auth = true;
+    bts->tls_12_enabled = true;
+    bts->tls_13_enabled = true;
     bts->check_time = true;
 
     item_init(&bts->cert);
@@ -705,6 +713,26 @@ static int verify_cb(int ok, X509_STORE_CTX *ctx) {
     return ok;
 }
 
+static int set_versions(SSL *ssl, bool tls_12_enabled, bool tls_13_enabled,
+			 void *log_ref)
+{
+    LOG_TLS_VERSIONS_ENABLED(log_ref, tls_12_enabled, tls_13_enabled);
+
+    if (!tls_12_enabled && !tls_13_enabled) {
+	LOG_TLS_NO_VERSION_ENABLED(log_ref);
+	errno = EINVAL;
+	return -1;
+    }
+
+    if (!tls_12_enabled)
+	SSL_set_options(ssl, SSL_OP_NO_TLSv1_2);
+
+    if (!tls_13_enabled)
+	SSL_set_options(ssl, SSL_OP_NO_TLSv1_3);
+
+    return 0;
+}
+
 static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
 		       bool check_crl, bool check_time)
 {
@@ -718,18 +746,18 @@ static void set_verify(SSL *ssl, bool tls_client, bool tls_auth,
     } else
 	mode = SSL_VERIFY_NONE;
 
-    unsigned long additional_flags = 0;
+    unsigned long extra_flags = 0;
     if (check_crl)
-	additional_flags |= (X509_V_FLAG_CRL_CHECK|X509_V_FLAG_CRL_CHECK_ALL);
+	extra_flags |= (X509_V_FLAG_CRL_CHECK|X509_V_FLAG_CRL_CHECK_ALL);
 
     if (!check_time)
-	additional_flags |= X509_V_FLAG_NO_CHECK_TIME;
+	extra_flags |= X509_V_FLAG_NO_CHECK_TIME;
 
-    if (additional_flags != 0) {
+    if (extra_flags != 0) {
 	X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
 	unsigned long flags = X509_VERIFY_PARAM_get_flags(param);
 
-	flags |= additional_flags;
+	flags |= extra_flags;
 
 	X509_VERIFY_PARAM_set_flags(param, flags);
     }
@@ -793,6 +821,10 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+
+    if (set_versions(bts->conn.ssl, bts->tls_12_enabled,
+		     bts->tls_13_enabled, s) < 0)
+	goto err_close;
 
     set_verify(bts->conn.ssl, bts->tls_client, bts->tls_auth,
 	       bts->check_crl, bts->check_time);
@@ -975,6 +1007,10 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     ut_assert(conn_bts->check_crl == item_is_set(&conn_bts->crl));
     if (!conn_bts->check_crl)
 	LOG_TLS_CRL_CHECK_DISABLED(conn_s);
+
+    if (set_versions(conn_bts->conn.ssl, conn_bts->tls_12_enabled,
+		     conn_bts->tls_13_enabled, conn_s) < 0)
+	goto err_close;
 
     set_verify(conn_bts->conn.ssl, conn_bts->tls_client, conn_bts->tls_auth,
 	       conn_bts->check_crl, conn_bts->check_time);
@@ -1333,6 +1369,30 @@ static int get_auth_attr(struct xcm_socket *s, void *context,
 			 void *value, size_t capacity)
 {
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_auth, value, capacity);
+}
+
+static int set_tls_12_enabled_attr(struct xcm_socket *s, void *context,
+				  const void *value, size_t len)
+{
+    return set_early_bool_attr(s, &(TOBTLS(s)->tls_12_enabled), value, len);
+}
+
+static int get_tls_12_enabled_attr(struct xcm_socket *s, void *context,
+				  void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOBTLS(s)->tls_12_enabled, value, capacity);
+}
+
+static int set_tls_13_enabled_attr(struct xcm_socket *s, void *context,
+				  const void *value, size_t len)
+{
+    return set_early_bool_attr(s, &(TOBTLS(s)->tls_13_enabled), value, len);
+}
+
+static int get_tls_13_enabled_attr(struct xcm_socket *s, void *context,
+				  void *value, size_t capacity)
+{
+    return xcm_tp_get_bool_attr(TOBTLS(s)->tls_13_enabled, value, capacity);
 }
 
 static int set_check_crl_attr(struct xcm_socket *s, void *context,
@@ -1830,6 +1890,10 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 		     set_client_attr, get_client_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_AUTH, s, xcm_attr_type_bool,
 		     set_auth_attr, get_auth_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_12_ENABLED, s, xcm_attr_type_bool,
+		     set_tls_12_enabled_attr, get_tls_12_enabled_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_13_ENABLED, s, xcm_attr_type_bool,
+		     set_tls_13_enabled_attr, get_tls_13_enabled_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_CRL, s, xcm_attr_type_bool,
 		     set_check_crl_attr, get_check_crl_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_TIME, s, xcm_attr_type_bool,
