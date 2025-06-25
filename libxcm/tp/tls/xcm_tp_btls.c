@@ -1918,6 +1918,29 @@ noent:
     return -1;
 }
 
+static int get_tls_cipher_attr(struct xcm_socket *s, void *context,
+			       void *value, size_t capacity)
+{
+    struct btls_socket *bts = TOBTLS(s);
+    SSL *ssl = bts->conn.ssl;
+
+    if (ssl == NULL)
+	goto noent;
+
+    const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl);
+
+    if (cipher == NULL)
+	goto noent;
+
+    const char *cipher_name = SSL_CIPHER_standard_name(cipher);
+
+    return xcm_tp_get_str_attr(cipher_name, value, capacity);
+
+noent:
+    errno = ENOENT;
+    return -1;
+}
+
 static int get_peer_subject_key_id(struct xcm_socket *s, void *context,
 				   void *value, size_t capacity)
 {
@@ -2138,6 +2161,8 @@ static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
     populate_common(s, tree);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_VERSION, s, xcm_attr_type_str,
 		     get_tls_version_attr);
+    ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_CIPHER, s, xcm_attr_type_str,
+		     get_tls_cipher_attr);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_SUBJECT_KEY_ID, s,
 		     xcm_attr_type_bin, get_peer_subject_key_id);
     ATTR_TREE_ADD_RO(tree, XCM_ATTR_TLS_PEER_CERT_SUBJECT_CN, s,

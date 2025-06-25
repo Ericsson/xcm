@@ -3653,6 +3653,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
 
     CHKERRNO(xcm_attr_set_bool(conn, "tls.auth", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.version", false), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.cipher", "foo"), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.12.enabled", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.13.enabled", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_crl", true), EACCES);
@@ -5289,6 +5290,63 @@ TESTCASE(xcm, tls_version)
 	return rc;
 
     return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_cipher)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_socket *server_sock = xcm_server(tls_addr);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(xcm_set_blocking(server_sock, false));
+
+    const char *cipher = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384";
+
+    struct xcm_attr_map *connect_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(connect_attrs, "xcm.blocking", false);
+    xcm_attr_map_add_bool(connect_attrs, "tls.13.enabled", false);
+    xcm_attr_map_add_str(connect_attrs, "tls.12.ciphers", cipher);
+
+    struct xcm_socket *connect_sock = NULL;
+    struct xcm_socket *accepted_sock = NULL;
+
+    for (;;) {
+	int connect_rc = connect_sock != NULL ?
+	    xcm_finish(connect_sock) : -1;
+	int accepted_rc = accepted_sock != NULL ?
+	    xcm_finish(accepted_sock) : -1;
+
+	if (connect_rc == 0 && accepted_rc == 0)
+	    break;
+
+	if (connect_sock == NULL) {
+	    connect_sock = tu_connect_a(tls_addr, connect_attrs);
+	    if (connect_sock == NULL)
+		CHK(errno == EAGAIN && errno == ECONNREFUSED);
+	}
+
+	if (accepted_sock == NULL) {
+	    accepted_sock = xcm_accept(server_sock);
+	    if (accepted_sock == NULL)
+		CHKERRNOEQ(EAGAIN);
+	}
+    }
+
+    if (tu_assure_str_attr(connect_sock, "tls.cipher", cipher) < 0)
+	return UTEST_FAILED;
+
+    if (tu_assure_str_attr(accepted_sock, "tls.cipher", cipher) < 0)
+	return UTEST_FAILED;
+
+    CHKNOERR(xcm_close(connect_sock));
+    CHKNOERR(xcm_close(accepted_sock));
+    CHKNOERR(xcm_close(server_sock));
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+
 }
 
 TESTCASE(xcm, tls_sub_ca)

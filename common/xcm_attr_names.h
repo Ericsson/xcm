@@ -70,6 +70,7 @@
 #define XCM_ATTR_TLS_12_CIPHERS "tls.12.ciphers"
 #define XCM_ATTR_TLS_13_CIPHERS "tls.13.ciphers"
 #define XCM_ATTR_TLS_VERSION "tls.version"
+#define XCM_ATTR_TLS_CIPHER "tls.cipher"
 #define XCM_ATTR_TLS_CHECK_CRL "tls.check_crl"
 #define XCM_ATTR_TLS_CHECK_TIME "tls.check_time"
 #define XCM_ATTR_TLS_VERIFY_PEER_NAME "tls.verify_peer_name"
