@@ -90,12 +90,12 @@ AS_IF([test "x$enable_tls" != "xno"], [
 	AC_MSG_CHECKING([OpenSSL version])
 	AC_PREPROC_IFELSE([AC_LANG_PROGRAM([#include <openssl/opensslv.h>],
 	                                   [
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < 0x10101000L
 #error OpenSSL version is not recent enough
 #endif
                                            ])],
                           [AC_MSG_RESULT(yes)],
-                          [AC_MSG_FAILURE([OpenSSL 1.1.x or later is required])])
+                          [AC_MSG_FAILURE([OpenSSL 1.1.1 or later is required])])
 	AC_DEFINE([XCM_TLS], [1], [XCM TLS and UTLS Transports.])
 	AC_SUBST(XCM_TLS, 1)
 ])

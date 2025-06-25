@@ -18,13 +18,6 @@
 #include <sys/types.h>
 #include <time.h>
 
-/* OpenSSL 1.1.0 lacks TLS 1.3 support */
-#ifdef SSL_OP_NO_TLSv1_3
-#define HAS_TLS_1_3
-#else
-#define SSL_OP_NO_TLSv1_3 0
-#endif
-
 /* Disabling TLS 1.2 renegotiation requires OpenSSL 1.1.1c or later */
 #ifndef SSL_OP_NO_RENEGOTIATION
 #define SSL_OP_NO_RENEGOTIATION 0
@@ -32,9 +25,7 @@
 
 #define TLS_1_2_CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305"
 
-#ifdef HAS_TLS_1_3
 #define TLS_1_3_CIPHER_SUITES "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"
-#endif
 
 #define TLS_OPT_SET					\
     (SSL_OP_NO_SSLv2|					\
@@ -449,11 +440,9 @@ static SSL_CTX *load_ssl_ctx(const char *cert_data, const char *key_data,
     int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_1_2_CIPHER_LIST);
     ut_assert(rc == 1);
 
-#ifdef HAS_TLS_1_3
     LOG_TLS_1_3_CIPHERS(log_ref, TLS_1_3_CIPHER_SUITES);
     rc = SSL_CTX_set_ciphersuites(ssl_ctx, TLS_1_3_CIPHER_SUITES);
     ut_assert(rc == 1);
-#endif
 
     SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_OFF);
 
