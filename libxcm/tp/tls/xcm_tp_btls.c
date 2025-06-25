@@ -42,6 +42,10 @@
 
 #define TLS_CERT_ENV "XCM_TLS_CERT"
 
+#define TLS_12_CIPHERS "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+
+#define TLS_13_CIPHERS "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"
+
 #define HOSTNAME_VALIDATION_FLAGS \
     (X509_CHECK_FLAG_NO_WILDCARDS|X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT)
 
@@ -83,6 +87,9 @@ struct btls_socket
     bool valid_peer_names_set;
     bool tc_set;
     bool crl_set;
+
+    char *tls_12_ciphers;
+    char *tls_13_ciphers;
 
     struct slist *valid_peer_names;
 
@@ -314,8 +321,10 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
     bts->tls_auth = parent_bts->tls_auth;
 
     bts->tls_12_enabled = parent_bts->tls_12_enabled;
-
     bts->tls_13_enabled = parent_bts->tls_13_enabled;
+
+    bts->tls_12_ciphers = ut_strdup(parent_bts->tls_12_ciphers);
+    bts->tls_13_ciphers = ut_strdup(parent_bts->tls_13_ciphers);
 
     bts->check_crl = parent_bts->check_crl;
 
@@ -351,6 +360,8 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     bts->tls_auth = true;
     bts->tls_12_enabled = true;
     bts->tls_13_enabled = true;
+    bts->tls_12_ciphers = ut_strdup(TLS_12_CIPHERS);
+    bts->tls_13_ciphers = ut_strdup(TLS_13_CIPHERS);
     bts->check_time = true;
 
     item_init(&bts->cert);
@@ -407,6 +418,9 @@ static void deinit(struct xcm_socket *s, bool owner)
 
     if (s->type == xcm_socket_type_conn)
 	conn_deinit(s, owner);
+
+    ut_free(bts->tls_12_ciphers);
+    ut_free(bts->tls_13_ciphers);
 
     item_deinit(&bts->cert);
     item_deinit(&bts->key);
@@ -714,7 +728,7 @@ static int verify_cb(int ok, X509_STORE_CTX *ctx) {
 }
 
 static int set_versions(SSL *ssl, bool tls_12_enabled, bool tls_13_enabled,
-			 void *log_ref)
+			void *log_ref)
 {
     LOG_TLS_VERSIONS_ENABLED(log_ref, tls_12_enabled, tls_13_enabled);
 
@@ -729,6 +743,106 @@ static int set_versions(SSL *ssl, bool tls_12_enabled, bool tls_13_enabled,
 
     if (!tls_13_enabled)
 	SSL_set_options(ssl, SSL_OP_NO_TLSv1_3);
+
+    return 0;
+}
+
+static const char *iana_to_openssl_name(SSL *ssl, const char *iana_name,
+					size_t iana_name_len)
+{
+    STACK_OF(SSL_CIPHER) *ciphers = SSL_get_ciphers(ssl);
+    if (ciphers == NULL)
+	return NULL;
+
+    int num_ciphers = sk_SSL_CIPHER_num(ciphers);
+
+    int i;
+    for (i = 0; i < num_ciphers; i++) {
+        const SSL_CIPHER *cipher = sk_SSL_CIPHER_value(ciphers, i);
+        const char *cipher_iana_name = SSL_CIPHER_standard_name(cipher);
+
+	if (cipher_iana_name != NULL &&
+	    strncmp(cipher_iana_name, iana_name, iana_name_len) == 0)
+            return SSL_CIPHER_get_name(cipher);
+    }
+
+    return NULL;
+}
+
+static int iana_to_openssl_names(SSL *ssl, const char *iana_names,
+				 char *openssl_names, size_t capacity,
+				 void *log_ref)
+{
+
+    openssl_names[0] = '\0';
+
+    for (;;) {
+	char *sep = strchr(iana_names, ':');
+	size_t iana_name_len;
+
+	if (sep == NULL)
+	    iana_name_len = strlen(iana_names);
+	else
+	    iana_name_len = sep - iana_names;
+
+	const char *openssl_name =
+	    iana_to_openssl_name(ssl, iana_names, iana_name_len);
+
+	if (openssl_name == NULL) {
+	    LOG_TLS_UNKNOWN_CIPHER(log_ref, iana_names, iana_name_len);
+	    return -1;
+	}
+
+	if (strlen(openssl_names) > 0)
+	    ut_aprintf(openssl_names, capacity, ":%s", openssl_name);
+	else
+	    ut_aprintf(openssl_names, capacity, "%s", openssl_name);
+
+	if (sep == NULL)
+	    break;
+
+	iana_names = sep + 1;
+    }
+
+    /* not enough room in buffer */
+    if (strlen(openssl_names) + 1 == capacity)
+	return -1;
+
+    return 0;
+}
+
+static int set_ciphers(SSL *ssl, const char *tls_12_ciphers,
+		       const char *tls_13_ciphers, void *log_ref)
+{
+    LOG_TLS_1_2_CIPHERS(log_ref, tls_12_ciphers);
+
+    char openssl_tls_12_ciphers[1024];
+    if (iana_to_openssl_names(ssl, tls_12_ciphers, openssl_tls_12_ciphers,
+			      sizeof(openssl_tls_12_ciphers), log_ref) < 0)
+	return -1;
+
+    int rc = SSL_set_cipher_list(ssl, openssl_tls_12_ciphers);
+    ut_assert(rc == 1);
+
+    /* OpenSSL use IANA names for TLS 1.3 cipher suites */
+    LOG_TLS_1_3_CIPHERS(log_ref, tls_13_ciphers);
+    rc = SSL_set_ciphersuites(ssl, tls_13_ciphers);
+    ut_assert(rc == 1);
+
+    return 0;
+}
+
+static int set_versions_and_ciphers(SSL *ssl, bool tls_12_enabled,
+				    const char *tls_12_ciphers,
+				    bool tls_13_enabled,
+				    const char *tls_13_ciphers,
+				    void *log_ref)
+{
+    if (set_versions(ssl, tls_12_enabled, tls_13_enabled, log_ref) < 0)
+	return -1;
+
+    if (set_ciphers(ssl, tls_12_ciphers, tls_13_ciphers, log_ref) < 0)
+	return -1;
 
     return 0;
 }
@@ -822,8 +936,9 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
     SSL_set_mode(bts->conn.ssl, SSL_MODE_ENABLE_PARTIAL_WRITE|
 		 SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-    if (set_versions(bts->conn.ssl, bts->tls_12_enabled,
-		     bts->tls_13_enabled, s) < 0)
+    if (set_versions_and_ciphers(bts->conn.ssl, bts->tls_12_enabled,
+				 bts->tls_12_ciphers, bts->tls_13_enabled,
+				 bts->tls_13_ciphers, s) < 0)
 	goto err_close;
 
     set_verify(bts->conn.ssl, bts->tls_client, bts->tls_auth,
@@ -1008,8 +1123,11 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (!conn_bts->check_crl)
 	LOG_TLS_CRL_CHECK_DISABLED(conn_s);
 
-    if (set_versions(conn_bts->conn.ssl, conn_bts->tls_12_enabled,
-		     conn_bts->tls_13_enabled, conn_s) < 0)
+    if (set_versions_and_ciphers(conn_bts->conn.ssl, conn_bts->tls_12_enabled,
+				 conn_bts->tls_12_ciphers,
+				 conn_bts->tls_13_enabled,
+				 conn_bts->tls_13_ciphers,
+				 conn_s) < 0)
 	goto err_close;
 
     set_verify(conn_bts->conn.ssl, conn_bts->tls_client, conn_bts->tls_auth,
@@ -1321,8 +1439,7 @@ static int64_t btls_get_cnt(struct xcm_socket *conn_s, enum xcm_tp_cnt cnt)
     return bts->conn.cnts[cnt];
 }
 
-static int set_client_attr(struct xcm_socket *s, void *context,
-			   const void *value, size_t len)
+static int check_early_set(struct xcm_socket *s)
 {
     struct btls_socket *bts = TOBTLS(s);
 
@@ -1331,6 +1448,17 @@ static int set_client_attr(struct xcm_socket *s, void *context,
 	errno = EACCES;
 	return -1;
     }
+
+    return 0;
+}
+
+static int set_client_attr(struct xcm_socket *s, void *context,
+			   const void *value, size_t len)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if (check_early_set(s) < 0)
+	return -1;
 
     xcm_tp_set_bool_attr(value, len, &(bts->tls_client));
 
@@ -1346,15 +1474,21 @@ static int get_client_attr(struct xcm_socket *s, void *context,
 static int set_early_bool_attr(struct xcm_socket *s, bool *attr,
 			       const void *value, size_t len)
 {
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (s->type == xcm_socket_type_conn &&
-	bts->conn.state != conn_state_initialized) {
-	errno = EACCES;
+    if (check_early_set(s) < 0)
 	return -1;
-    }
 
     xcm_tp_set_bool_attr(value, len, attr);
+
+    return 0;
+}
+
+static int set_early_str_attr(struct xcm_socket *s, char **attr,
+			      const void *value, size_t len)
+{
+    if (check_early_set(s) < 0)
+	return -1;
+
+    xcm_tp_set_str_attr(value, len, attr);
 
     return 0;
 }
@@ -1395,6 +1529,30 @@ static int get_tls_13_enabled_attr(struct xcm_socket *s, void *context,
     return xcm_tp_get_bool_attr(TOBTLS(s)->tls_13_enabled, value, capacity);
 }
 
+static int set_tls_12_ciphers_attr(struct xcm_socket *s, void *context,
+				   const void *value, size_t len)
+{
+    return set_early_str_attr(s, &(TOBTLS(s)->tls_12_ciphers), value, len);
+}
+
+static int get_tls_12_ciphers_attr(struct xcm_socket *s, void *context,
+				  void *value, size_t capacity)
+{
+    return xcm_tp_get_str_attr(TOBTLS(s)->tls_12_ciphers, value, capacity);
+}
+
+static int set_tls_13_ciphers_attr(struct xcm_socket *s, void *context,
+				   const void *value, size_t len)
+{
+    return set_early_str_attr(s, &(TOBTLS(s)->tls_13_ciphers), value, len);
+}
+
+static int get_tls_13_ciphers_attr(struct xcm_socket *s, void *context,
+				  void *value, size_t capacity)
+{
+    return xcm_tp_get_str_attr(TOBTLS(s)->tls_13_ciphers, value, capacity);
+}
+
 static int set_check_crl_attr(struct xcm_socket *s, void *context,
 			      const void *value, size_t len)
 {
@@ -1422,13 +1580,8 @@ static int get_check_time_attr(struct xcm_socket *s, void *context,
 static int set_file_attr(struct xcm_socket *s, const void *filename,
 			 size_t len, struct item *target, bool *mark)
 {
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (s->type == xcm_socket_type_conn &&
-	    bts->conn.state != conn_state_initialized) {
-	    errno = EACCES;
-	    return -1;
-	}
+    if (check_early_set(s) < 0)
+	return -1;
 
     item_deinit(target);
 
@@ -1514,13 +1667,8 @@ static bool has_nul(const char *s, size_t len)
 static int set_value_attr(struct xcm_socket *s, const void *value, size_t len,
 			  struct item *target, bool sensitive, bool *mark)
 {
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (s->type == xcm_socket_type_conn &&
-	    bts->conn.state != conn_state_initialized) {
-	    errno = EACCES;
-	    return -1;
-	}
+    if (check_early_set(s) < 0)
+	return -1;
 
     /* Even though the certificate, key, and trust chain socket
        attributes are of the binary type, the values are printable
@@ -1607,17 +1755,7 @@ static int get_crl_attr(struct xcm_socket *s, void *context,
 static int set_verify_peer_name_attr(struct xcm_socket *s, void *context,
 				     const void *value, size_t len)
 {
-    struct btls_socket *bts = TOBTLS(s);
-
-    if (s->type == xcm_socket_type_conn &&
-	bts->conn.state != conn_state_initialized) {
-	errno = EACCES;
-	return -1;
-    }
-
-    xcm_tp_set_bool_attr(value, len, &(bts->verify_peer_name));
-
-    return 0;
+    return set_early_bool_attr(s, &(TOBTLS(s)->verify_peer_name), value, len);
 }
 
 static int get_verify_peer_name_attr(struct xcm_socket *s, void *context,
@@ -1633,11 +1771,8 @@ static int set_peer_names_attr(struct xcm_socket *s, void *context,
 {
     struct btls_socket *bts = TOBTLS(s);
 
-    if (s->type == xcm_socket_type_conn &&
-	bts->conn.state != conn_state_initialized) {
-	errno = EACCES;
+    if (check_early_set(s) < 0)
 	return -1;
-    }
 
     if (bts->valid_peer_names != NULL) {
 	slist_destroy(bts->valid_peer_names);
@@ -1931,6 +2066,10 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 		     set_tls_12_enabled_attr, get_tls_12_enabled_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_13_ENABLED, s, xcm_attr_type_bool,
 		     set_tls_13_enabled_attr, get_tls_13_enabled_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_12_CIPHERS, s, xcm_attr_type_str,
+		     set_tls_12_ciphers_attr, get_tls_12_ciphers_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_13_CIPHERS, s, xcm_attr_type_str,
+		     set_tls_13_ciphers_attr, get_tls_13_ciphers_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_CRL, s, xcm_attr_type_bool,
 		     set_check_crl_attr, get_check_crl_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_TIME, s, xcm_attr_type_bool,

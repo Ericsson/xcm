@@ -23,10 +23,6 @@
 #define SSL_OP_NO_RENEGOTIATION 0
 #endif
 
-#define TLS_1_2_CIPHER_LIST "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305"
-
-#define TLS_1_3_CIPHER_SUITES "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"
-
 #define TLS_OPT_SET					\
     (SSL_OP_NO_SSLv2|					\
      SSL_OP_NO_SSLv3|					\
@@ -435,14 +431,6 @@ static SSL_CTX *load_ssl_ctx(const char *cert_data, const char *key_data,
 
     SSL_CTX_set_options(ssl_ctx, TLS_OPT_SET);
     SSL_CTX_clear_options(ssl_ctx, TLS_OPT_CLEAR);
-
-    LOG_TLS_1_2_CIPHERS(log_ref, TLS_1_2_CIPHER_LIST);
-    int rc = SSL_CTX_set_cipher_list(ssl_ctx, TLS_1_2_CIPHER_LIST);
-    ut_assert(rc == 1);
-
-    LOG_TLS_1_3_CIPHERS(log_ref, TLS_1_3_CIPHER_SUITES);
-    rc = SSL_CTX_set_ciphersuites(ssl_ctx, TLS_1_3_CIPHER_SUITES);
-    ut_assert(rc == 1);
 
     SSL_CTX_set_session_cache_mode(ssl_ctx, SSL_SESS_CACHE_OFF);
 

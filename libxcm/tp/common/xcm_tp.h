@@ -167,6 +167,7 @@ void xcm_tp_register(const char *proto_name, const struct xcm_tp_ops *ops);
 struct xcm_tp_proto *xcm_tp_proto_by_name(const char *proto_name);
 struct xcm_tp_proto *xcm_tp_proto_by_addr(const char *addr);
 
+void xcm_tp_set_str_attr(const char *buf, size_t len, char **value);
 int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity);
 void xcm_tp_set_bool_attr(const void *buf, size_t len, bool *value);
 int xcm_tp_get_bool_attr(bool value, void *buf, size_t capacity);

@@ -433,7 +433,7 @@ int tu_assure_str_attr(struct xcm_socket *s, const char *attr_name,
 {
     enum xcm_attr_type type = 4711;
 
-    char actual_value[256] = { 0 };
+    char actual_value[4096] = { 0 };
 
     int rc;
     if (tu_randbool())

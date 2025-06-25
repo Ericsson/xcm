@@ -295,6 +295,13 @@ void xcm_tp_socket_attr_populate(struct xcm_socket *s,
 	XCM_TP_CALL(attr_populate, s, attr_tree);
 }
 
+void xcm_tp_set_str_attr(const char *buf, size_t len, char **value)
+{
+    ut_free(*value);
+
+    *value = ut_strdup(buf);
+}
+
 int xcm_tp_get_str_attr(const char *value, void *buf, size_t capacity)
 {
     size_t len = strlen(value);

@@ -5121,6 +5121,103 @@ TESTCASE(xcm, tls_common_and_no_common_version)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, tls_1_2_common_and_no_common_cipher)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *a_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(a_attrs, "tls.13.enabled", false);
+    xcm_attr_map_add_str(a_attrs, "tls.12.ciphers",
+			 "TLS_RSA_WITH_AES_128_CBC_SHA");
+
+    struct xcm_attr_map *b_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(b_attrs, "tls.13.enabled", false);
+    xcm_attr_map_add_str(b_attrs, "tls.12.ciphers",
+			 "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384");
+
+    /* overlap */
+    CHKNOERR(establish_xtls(tls_addr, attrs, a_attrs, a_attrs, true));
+    CHKNOERR(establish_xtls(tls_addr, a_attrs, attrs, a_attrs, true));
+    CHKNOERR(establish_xtls(tls_addr, b_attrs, attrs, b_attrs, true));
+
+    /* no overlap */
+    CHKNOERR(establish_xtls(tls_addr, b_attrs, attrs, a_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, a_attrs, attrs, b_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, b_attrs, a_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, a_attrs, b_attrs, false));
+
+    ut_free(tls_addr);
+    xcm_attr_map_destroy(attrs);
+    xcm_attr_map_destroy(b_attrs);
+    xcm_attr_map_destroy(a_attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_1_3_common_and_no_common_cipher)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *a_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(a_attrs, "tls.12.enabled", false);
+    xcm_attr_map_add_str(a_attrs, "tls.13.ciphers",
+			 "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256");
+
+    struct xcm_attr_map *b_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(b_attrs, "tls.12.enabled", false);
+    xcm_attr_map_add_str(b_attrs, "tls.13.ciphers", "TLS_AES_128_GCM_SHA256");
+
+    /* overlap */
+    CHKNOERR(establish_xtls(tls_addr, a_attrs, attrs, a_attrs, true));
+    CHKNOERR(establish_xtls(tls_addr, attrs, a_attrs, a_attrs, true));
+
+    /* no overlap */
+    CHKNOERR(establish_xtls(tls_addr, b_attrs, attrs, a_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, a_attrs, attrs, b_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, b_attrs, a_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, a_attrs, b_attrs, false));
+
+    ut_free(tls_addr);
+    xcm_attr_map_destroy(attrs);
+    xcm_attr_map_destroy(b_attrs);
+    xcm_attr_map_destroy(a_attrs);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_default_ciphers)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_socket *server_socket = xcm_server(tls_addr);
+
+    CHKNOERR(tu_assure_str_attr(server_socket, "tls.12.ciphers",
+				"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:"
+				"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:"
+				"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:"
+				"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:"
+				"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:"
+				"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:"
+				"TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:"
+				"TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:"
+				"TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256"));
+
+    CHKNOERR(tu_assure_str_attr(server_socket, "tls.13.ciphers",
+				"TLS_AES_256_GCM_SHA384:"
+				"TLS_CHACHA20_POLY1305_SHA256:"
+				"TLS_AES_128_GCM_SHA256"));
+
+    CHKNOERR(xcm_close(server_socket));
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
 static int run_tls_version_test(bool tls_13)
 {
     char *tls_addr = gen_tls_addr();

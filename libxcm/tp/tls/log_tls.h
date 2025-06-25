@@ -45,6 +45,14 @@
     log_debug_sock(s, "All supported TLS protocol versions have been "	\
 		   "disabled.")
 
+#define LOG_TLS_UNKNOWN_CIPHER(s, name, name_len)			\
+    do {								\
+	char buf[name_len + 1];						\
+	strncpy(buf, name, name_len);					\
+	buf[name_len] = '\0';						\
+	log_debug_sock(s, "Unknown cipher suite \"%s\".", buf);		\
+    } while (0);
+
 #define LOG_TLS_CRL_SET_BUT_NO_CRL_CHECK(s, crl)		\
     log_debug_sock(s, "CRL is configured to \"%s\" even "	\
 		   "though CRL checking is disabled.",		\

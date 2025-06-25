@@ -1154,19 +1154,43 @@ extern "C" {
  * caching, and thus does not allow for TLS session reuse across TCP
  * connections.
  *
- * @subsubsection tls_ciphers Ciphers
+ * @subsubsection tls_ciphers Cipher Suites
  *
- * The TLS 1.2 cipher list is (in order of preference, using OpenSSL
- * naming): ECDHE-ECDSA-AES128-GCM-SHA256,
- * ECDHE-ECDSA-AES256-GCM-SHA384, ECDHE-ECDSA-CHACHA20-POLY1305,
- * ECDHE-RSA-AES128-GCM-SHA256, ECDHE-RSA-AES256-GCM-SHA384,
- * ECDHE-RSA-CHACHA20-POLY1305, DHE-RSA-AES128-GCM-SHA256,
- * DHE-RSA-AES256-GCM-SHA384, and DHE-RSA-CHACHA20-POLY1305.
+ * XCM TLS server and connection sockets have two lists of accepted
+ * cipher suites; one for TLS 1.2 and another for TLS 1.3. The lists
+ * are ordered, with the most-preferred cipher suite first.
  *
- * The TLS 1.3 cipher suites used are: TLS_AES_256_GCM_SHA384,
- * TLS_CHACHA20_POLY1305_SHA256 and TLS_AES_128_GCM_SHA256.
+ * The default lists may be overridden by using the @c tls.12.ciphers
+ * and @c tls.13.ciphers socket attributes (see @ref tls_attr) at the
+ * time of socket creation.
  *
- * The TLS cipher lists are neither build- nor run-time configurable.
+ * Which cipher suites may be configured depends on which OpenSSL
+ * version the XCM library is linked against.
+ *
+ * IANA names (and not OpenSSL names, nor IANA hex codes) are used in
+ * the cipher suite-related XCM socket attributes.
+ *
+ * @par Default Ciphers
+ *
+ * Default TLS 1.2 cipher suites:
+ * - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+ * - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+ * - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+ * - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+ * - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+ * - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+ * - TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+ * - TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+ * - TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+ *
+ * Default TLS 1.3 cipher suites:
+ * - TLS_AES_256_GCM_SHA384
+ * - TLS_CHACHA20_POLY1305_SHA256
+ * - TLS_AES_128_GCM_SHA256
+ *
+ * Default cipher suites may change between XCM versions, as
+ * deprecated or weak cipher suites are removed and new ciphers are
+ * added.
  *
  * @subsubsection tls_certificates Certificate and Key Handling
  *
@@ -1424,6 +1448,8 @@ extern "C" {
  * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. Writable only at socket creation. Default value is true.
  * tls.12.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.2 may be used. Writable only at socket creation. Default value is true.
  * tls.13.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.3 may be used. Writable only at socket creation. Default value is true.
+ * tls.12.ciphers           | All         | String      | RW   | TLS v1.2 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
+ * tls.13.ciphers           | All         | String      | RW   | TLS v1.3 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
  * tls.check_crl            | All         | Boolean     | RW   | Controls whether or not to perform CRL checking. Writable only at socket creation. Default value is false.
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.
