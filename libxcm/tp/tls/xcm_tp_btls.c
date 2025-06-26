@@ -818,8 +818,10 @@ static int set_ciphers(SSL *ssl, const char *tls_12_ciphers,
 
     char openssl_tls_12_ciphers[1024];
     if (iana_to_openssl_names(ssl, tls_12_ciphers, openssl_tls_12_ciphers,
-			      sizeof(openssl_tls_12_ciphers), log_ref) < 0)
+			      sizeof(openssl_tls_12_ciphers), log_ref) < 0) {
+	errno = EINVAL;
 	return -1;
+    }
 
     int rc = SSL_set_cipher_list(ssl, openssl_tls_12_ciphers);
     ut_assert(rc == 1);
