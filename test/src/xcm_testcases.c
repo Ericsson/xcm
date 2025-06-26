@@ -5300,6 +5300,8 @@ static int run_tls_version_test(bool tls_13)
     if (tu_assure_str_attr(accepted_sock, "tls.version", expected_version) < 0)
 	return UTEST_FAILED;
 
+    xcm_attr_map_destroy(connect_attrs);
+
     CHKNOERR(xcm_close(connect_sock));
     CHKNOERR(xcm_close(accepted_sock));
     CHKNOERR(xcm_close(server_sock));
