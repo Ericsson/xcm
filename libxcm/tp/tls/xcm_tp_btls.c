@@ -325,7 +325,9 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
     bts->tls_12_enabled = parent_bts->tls_12_enabled;
     bts->tls_13_enabled = parent_bts->tls_13_enabled;
 
+    ut_free(bts->tls_12_ciphers);
     bts->tls_12_ciphers = ut_strdup(parent_bts->tls_12_ciphers);
+    ut_free(bts->tls_13_ciphers);
     bts->tls_13_ciphers = ut_strdup(parent_bts->tls_13_ciphers);
 
     bts->tls_groups = ut_strdup_non_null(parent_bts->tls_groups);
@@ -378,7 +380,7 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 			     false, false);
 
     if (bts->btcp_socket == NULL)
-	return -1;
+	goto err_free_ciphers;
 
     struct xcm_socket *btcp_parent = NULL;
 
@@ -386,7 +388,7 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
 	btcp_parent = TOBTLS(parent)->btcp_socket;
 
     if (xcm_tp_socket_init(bts->btcp_socket, btcp_parent) < 0)
-	return -1;
+	goto err_free_tcp_socket;
 
     if (s->type == xcm_socket_type_conn) {
 	bts->tls_client = true;
@@ -402,6 +404,14 @@ static int btls_init(struct xcm_socket *s, struct xcm_socket *parent)
     LOG_INIT(s);
 
     return 0;
+
+err_free_tcp_socket:
+    xcm_tp_socket_destroy(bts->btcp_socket);
+err_free_ciphers:
+    ut_free(bts->tls_12_ciphers);
+    ut_free(bts->tls_13_ciphers);
+
+    return -1;
 }
 
 static void conn_deinit(struct xcm_socket *s, bool owner)

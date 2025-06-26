@@ -192,7 +192,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
     assure_library_version_logged();
 
     const struct xcm_tp_proto *proto = xcm_tp_proto_by_addr(remote_addr);
-    if (!proto)
+    if (proto == NULL)
 	return NULL;
 
     struct xcm_socket *s =

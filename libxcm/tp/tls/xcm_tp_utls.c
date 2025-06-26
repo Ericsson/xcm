@@ -160,6 +160,7 @@ static int utls_init(struct xcm_socket *s, struct xcm_socket *parent)
 
     if (us->ux_socket == NULL || us->tls_socket == NULL) {
 	xcm_tp_socket_destroy(us->ux_socket);
+	xcm_tp_socket_destroy(us->tls_socket);
 	return -1;
     }
 
