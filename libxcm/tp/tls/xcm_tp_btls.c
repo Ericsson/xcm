@@ -91,6 +91,8 @@ struct btls_socket
     char *tls_12_ciphers;
     char *tls_13_ciphers;
 
+    char *tls_groups;
+
     struct slist *valid_peer_names;
 
     struct item cert;
@@ -326,6 +328,8 @@ static void inherit_tls_conf(struct xcm_socket *s, struct xcm_socket *parent_s)
     bts->tls_12_ciphers = ut_strdup(parent_bts->tls_12_ciphers);
     bts->tls_13_ciphers = ut_strdup(parent_bts->tls_13_ciphers);
 
+    bts->tls_groups = ut_strdup_non_null(parent_bts->tls_groups);
+
     bts->check_crl = parent_bts->check_crl;
 
     bts->tls_client = parent_bts->tls_client;
@@ -421,6 +425,8 @@ static void deinit(struct xcm_socket *s, bool owner)
 
     ut_free(bts->tls_12_ciphers);
     ut_free(bts->tls_13_ciphers);
+
+    ut_free(bts->tls_groups);
 
     item_deinit(&bts->cert);
     item_deinit(&bts->key);
@@ -812,7 +818,8 @@ static int iana_to_openssl_names(SSL *ssl, const char *iana_names,
 }
 
 static int set_ciphers(SSL *ssl, const char *tls_12_ciphers,
-		       const char *tls_13_ciphers, void *log_ref)
+		       const char *tls_13_ciphers, const char *tls_groups,
+		       void *log_ref)
 {
     LOG_TLS_1_2_CIPHERS(log_ref, tls_12_ciphers);
 
@@ -831,6 +838,16 @@ static int set_ciphers(SSL *ssl, const char *tls_12_ciphers,
     rc = SSL_set_ciphersuites(ssl, tls_13_ciphers);
     ut_assert(rc == 1);
 
+    if (tls_groups != NULL) {
+	LOG_TLS_GROUPS(log_ref, tls_groups);
+
+	if (!SSL_set1_groups_list(ssl, tls_groups)) {
+	    LOG_TLS_INVALID_GROUPS(log_ref, tls_groups);
+	    errno = EINVAL;
+	    return -1;
+	}
+    }
+
     return 0;
 }
 
@@ -838,12 +855,14 @@ static int set_versions_and_ciphers(SSL *ssl, bool tls_12_enabled,
 				    const char *tls_12_ciphers,
 				    bool tls_13_enabled,
 				    const char *tls_13_ciphers,
+				    const char *tls_groups,
 				    void *log_ref)
 {
     if (set_versions(ssl, tls_12_enabled, tls_13_enabled, log_ref) < 0)
 	return -1;
 
-    if (set_ciphers(ssl, tls_12_ciphers, tls_13_ciphers, log_ref) < 0)
+    if (set_ciphers(ssl, tls_12_ciphers, tls_13_ciphers, tls_groups,
+		    log_ref) < 0)
 	return -1;
 
     return 0;
@@ -940,7 +959,7 @@ static int btls_connect(struct xcm_socket *s, const char *remote_addr)
 
     if (set_versions_and_ciphers(bts->conn.ssl, bts->tls_12_enabled,
 				 bts->tls_12_ciphers, bts->tls_13_enabled,
-				 bts->tls_13_ciphers, s) < 0)
+				 bts->tls_13_ciphers, bts->tls_groups, s) < 0)
 	goto err_close;
 
     set_verify(bts->conn.ssl, bts->tls_client, bts->tls_auth,
@@ -1129,6 +1148,7 @@ static int btls_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
 				 conn_bts->tls_12_ciphers,
 				 conn_bts->tls_13_enabled,
 				 conn_bts->tls_13_ciphers,
+				 conn_bts->tls_groups,
 				 conn_s) < 0)
 	goto err_close;
 
@@ -1553,6 +1573,12 @@ static int get_tls_13_ciphers_attr(struct xcm_socket *s, void *context,
 				  void *value, size_t capacity)
 {
     return xcm_tp_get_str_attr(TOBTLS(s)->tls_13_ciphers, value, capacity);
+}
+
+static int set_tls_groups_attr(struct xcm_socket *s, void *context,
+			       const void *value, size_t len)
+{
+    return set_early_str_attr(s, &(TOBTLS(s)->tls_groups), value, len);
 }
 
 static int set_check_crl_attr(struct xcm_socket *s, void *context,
@@ -2095,6 +2121,8 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 		     set_tls_12_ciphers_attr, get_tls_12_ciphers_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_13_CIPHERS, s, xcm_attr_type_str,
 		     set_tls_13_ciphers_attr, get_tls_13_ciphers_attr);
+    ATTR_TREE_ADD_WO(tree, XCM_ATTR_TLS_GROUPS, s, xcm_attr_type_str,
+		     set_tls_groups_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_CRL, s, xcm_attr_type_bool,
 		     set_check_crl_attr, get_check_crl_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TLS_CHECK_TIME, s, xcm_attr_type_bool,

@@ -3656,6 +3656,7 @@ static int check_setting_now_ro_tls_attrs(struct xcm_socket *conn)
     CHKERRNO(xcm_attr_set_str(conn, "tls.cipher", "foo"), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.12.enabled", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.13.enabled", false), EACCES);
+    CHKERRNO(xcm_attr_set_str(conn, "tls.groups", "foo"), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_crl", true), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.client", false), EACCES);
     CHKERRNO(xcm_attr_set_bool(conn, "tls.check_time", false), EACCES);
@@ -5215,6 +5216,36 @@ TESTCASE(xcm, tls_default_ciphers)
     CHKNOERR(xcm_close(server_socket));
 
     ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, tls_common_and_no_common_curve)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *a_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(a_attrs, "tls.groups", "P-256");
+
+    struct xcm_attr_map *b_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(b_attrs, "tls.groups", "X448");
+
+    /* overlap */
+    CHKNOERR(establish_xtls(tls_addr, a_attrs, attrs, a_attrs, true));
+    CHKNOERR(establish_xtls(tls_addr, attrs, b_attrs, b_attrs, true));
+
+    /* no overlap */
+    CHKNOERR(establish_xtls(tls_addr, b_attrs, attrs, a_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, a_attrs, attrs, b_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, b_attrs, a_attrs, false));
+    CHKNOERR(establish_xtls(tls_addr, attrs, a_attrs, b_attrs, false));
+
+    ut_free(tls_addr);
+    xcm_attr_map_destroy(attrs);
+    xcm_attr_map_destroy(b_attrs);
+    xcm_attr_map_destroy(a_attrs);
 
     return UTEST_SUCCESS;
 }

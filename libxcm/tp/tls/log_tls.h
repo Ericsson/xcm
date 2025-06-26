@@ -98,6 +98,14 @@
 #define LOG_TLS_1_3_CIPHERS(s, ciphers)		\
     LOG_TLS_CIPHERS(s, 1, 3, ciphers)
 
+#define LOG_TLS_GROUPS(s, groups)				\
+    log_debug_sock(s, "Setting named groups (elliptic curves) " \
+		   "to \"%s\".", groups)
+
+#define LOG_TLS_INVALID_GROUPS(s, groups)				\
+    log_debug_sock(s, "Failed to configure groups (elliptic curves) "	\
+		   "\"%s\".", groups)
+
 #define LOG_TLS_CREDENTIALS(s, cert, key, tc, crl)			\
     do {								\
 	char buf[1024];							\

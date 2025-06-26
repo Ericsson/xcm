@@ -1192,6 +1192,13 @@ extern "C" {
  * deprecated or weak cipher suites are removed and new ciphers are
  * added.
  *
+ * @subsubsection tls_groups Groups
+ *
+ * The default named groups (also called elliptic curves) of the
+ * underlying SSL library may be overriden using the write-only @c
+ * tls.groups socket attribute (see @ref tls_attr) at the time of
+ * socket creation.
+ *
  * @subsubsection tls_certificates Certificate and Key Handling
  *
  * By default, the TLS transport reads the leaf certificate and the
@@ -1450,6 +1457,7 @@ extern "C" {
  * tls.13.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.3 may be used. Writable only at socket creation. Default value is true.
  * tls.12.ciphers           | All         | String      | RW   | TLS v1.2 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
  * tls.13.ciphers           | All         | String      | RW   | TLS v1.3 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
+ * tls.groups               | All         | String      | WO   | Named groups (elliptic curves). Writable only at socket creation.
  * tls.check_crl            | All         | Boolean     | RW   | Controls whether or not to perform CRL checking. Writable only at socket creation. Default value is false.
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.

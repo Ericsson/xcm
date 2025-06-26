@@ -83,6 +83,11 @@ char *ut_strndup(const char *str, size_t n)
     return copy;
 }
 
+char *ut_strdup_non_null(const char *str)
+{
+    return str != NULL ? ut_strdup(str) : NULL;
+}
+
 void *ut_memdup(const void *ptr, size_t size)
 {
     void *copy = ut_malloc(size);

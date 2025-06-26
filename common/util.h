@@ -29,6 +29,7 @@ void *ut_realloc(void *ptr, size_t size);
 void *ut_calloc(size_t size);
 char *ut_strdup(const char *str);
 char *ut_strndup(const char *str, size_t n);
+char *ut_strdup_non_null(const char *str);
 void *ut_memdup(const void *ptr, size_t size);
 void ut_free(void *ptr);
 void ut_mem_exhausted(void) __attribute__ ((__noreturn__));
