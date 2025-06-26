@@ -1455,9 +1455,9 @@ extern "C" {
  * tls.auth                 | All         | Boolean     | RW   | Controls whether or not to authenticate the remote peer. Writable only at socket creation. Default value is true.
  * tls.12.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.2 may be used. Writable only at socket creation. Default value is true.
  * tls.13.enabled           | All         | Boolean     | RW   | Controls whether or not TLS v1.3 may be used. Writable only at socket creation. Default value is true.
- * tls.12.ciphers           | All         | String      | RW   | TLS v1.2 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
- * tls.13.ciphers           | All         | String      | RW   | TLS v1.3 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
- * tls.groups               | All         | String      | WO   | Named groups (elliptic curves). Writable only at socket creation.
+ * tls.12.ciphers           | All         | String      | RW   | Colon-separated list of TLS v1.2 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
+ * tls.13.ciphers           | All         | String      | RW   | Colon-separated list of TLS v1.3 cipher suites. Writable only at socket creation. See @ref tls_ciphers for more information.
+ * tls.groups               | All         | String      | WO   | Colon-separated list of named groups (elliptic curves). Writable only at socket creation.
  * tls.check_crl            | All         | Boolean     | RW   | Controls whether or not to perform CRL checking. Writable only at socket creation. Default value is false.
  * tls.check_time           | All         | Boolean     | RW   | Controls if the X.509 certificate validity period is honored. Writable only at socket creation. Default is true.
  * tls.verify_peer_name     | All         | Boolean     | RW   | Controls if subject name verification should be performed. Writable only at socket creation. Default value is false.
