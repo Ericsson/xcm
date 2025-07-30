@@ -5376,6 +5376,8 @@ TESTCASE(xcm, tls_cipher)
     CHKNOERR(xcm_close(accepted_sock));
     CHKNOERR(xcm_close(server_sock));
 
+    xcm_attr_map_destroy(connect_attrs);
+
     ut_free(tls_addr);
 
     return UTEST_SUCCESS;
