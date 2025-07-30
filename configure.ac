@@ -9,7 +9,7 @@ m4_define([xcm_version],[xcm_major_version.xcm_minor_version.xcm_patch_version])
 # release, even before version 1.0.0.
 m4_define([xcm_abi_major_version], [m4_eval(xcm_major_version - 1)])
 # step xcm_minor_version if this is increased
-m4_define([xcm_abi_minor_version], 26)
+m4_define([xcm_abi_minor_version], 27)
 m4_define([xcm_abi_version],[xcm_abi_major_version.xcm_abi_minor_version])
 
 AC_INIT(xcm, [xcm_version], [mattias.ronnblom@ericsson.com])
