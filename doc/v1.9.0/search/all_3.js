@@ -1,0 +1,26 @@
+var searchData=
+[
+  ['certificate_20and_20key_20format_0',['Certificate and Key Format',['../index.html#credentials_format',1,'']]],
+  ['certificate_20and_20key_20handling_1',['Certificate and Key Handling',['../index.html#tls_certificates',1,'']]],
+  ['certificate_20file_20updates_2',['Runtime Certificate File Updates',['../index.html#cert_update',1,'']]],
+  ['certificate_20validity_20period_20checks_3',['Certificate Validity Period Checks',['../index.html#validity_checks',1,'']]],
+  ['certificates_4',['certificates',['../index.html#default_certs',1,'Default Namespace Certificates'],['../index.html#per_ns_certs',1,'Per-network Namespace Certificates']]],
+  ['certification_20revocation_20list_20checks_5',['Certification Revocation List Checks',['../index.html#crl_checks',1,'']]],
+  ['checks_6',['checks',['../index.html#validity_checks',1,'Certificate Validity Period Checks'],['../index.html#crl_checks',1,'Certification Revocation List Checks']]],
+  ['ciphers_7',['Ciphers',['../index.html#tls_ciphers',1,'']]],
+  ['close_8',['Buffer Flush Before Close',['../index.html#nb_flush_buffers_before_close',1,'']]],
+  ['command_20line_20control_20program_9',['Command-line Control Program',['../index.html#ctl_shell',1,'']]],
+  ['configuration_10',['Role Configuration',['../index.html#tls_role',1,'']]],
+  ['connect_20and_20send_20message_11',['Connect and Send Message',['../index.html#nb_connect_and_send',1,'']]],
+  ['connect_20with_20explicit_20finish_12',['Connect with Explicit Finish',['../index.html#nb_connect_explicit',1,'']]],
+  ['connection_20establishment_13',['connection establishment',['../index.html#dns_algorithm_attr',1,'DNS Resolution and TCP Connection Establishment'],['../index.html#non_blocking_connect',1,'Non-blocking Connection Establishment']]],
+  ['connection_20oriented_20messaging_14',['Extensible Connection-oriented Messaging',['../index.html',1,'']]],
+  ['connection_20refused_15',['connection refused',['../index.html#nb_delayed_connection_refused',1,'Delayed Connection Refused'],['../index.html#nb_immediate_connection_refused',1,'Immediate Connection Refused']]],
+  ['control_16',['Flow Control',['../index.html#flow_control',1,'']]],
+  ['control_20api_17',['Control API',['../index.html#ctl_api',1,'']]],
+  ['control_20interface_18',['Control Interface',['../index.html#ctl',1,'']]],
+  ['control_20interface_20error_20handling_19',['Control Interface Error Handling',['../index.html#ctl_errors',1,'']]],
+  ['control_20program_20',['Command-line Control Program',['../index.html#ctl_shell',1,'']]],
+  ['control_20unix_20socket_20directory_21',['Control UNIX Socket Directory',['../index.html#ctl_dir',1,'']]],
+  ['counter_20attributes_22',['counter attributes',['../index.html#common_cnt_attr',1,'Byte Counter Attributes'],['../index.html#cnt_attr',1,'Generic Counter Attributes'],['../index.html#messaging_cnt_attr',1,'Message Counter Attributes']]]
+];
