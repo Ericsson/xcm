@@ -1499,9 +1499,10 @@ extern "C" {
  *
  * @subsubsection utls_attr UTLS Socket Attributes
  *
- * UTLS sockets accept all the @ref tls_attr, as well as the @ref
- * xcm_attr. In case a UTLS connection is being established as a UX
- * connection socket, all TLS attributes are ignored.
+ * UTLS sockets accept all the @ref tls_attr, @ref tcp_attr, and @ref
+ * dns_attr, as well as the @ref xcm_attr. In case a UTLS socket
+ * results in a UX connection socket, all TLS, TCP, and DNS attributes
+ * are ignored.
  *
  * @subsubsection utls_limitations UTLS Limitations
  *
