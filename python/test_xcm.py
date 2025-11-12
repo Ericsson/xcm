@@ -5,6 +5,7 @@ import config
 import errno
 import gc
 import pytest
+import random
 import time
 import xcm
 import xtest
@@ -115,7 +116,12 @@ def test_echo(server):
         deadline = time.time() + 1
         while time.time() < deadline:
             try:
-                ret_msg += conn.receive()
+                if random.getrandbits(1):
+                    max_msg_size = \
+                        random.randint(len(orig_msg), xcm.MAX_MSG)
+                    ret_msg += conn.receive(max_msg_size)
+                else:
+                    ret_msg += conn.receive()
             except BlockingIOError:
                 time.sleep(0.1)
         conn.set_blocking(True)

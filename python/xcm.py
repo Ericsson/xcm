@@ -5,6 +5,7 @@
 # xcm.py - A Python API to Extensible Connection-oriented Messaging (XCM).
 #
 
+import ctypes
 import os
 import socket
 
@@ -137,6 +138,30 @@ SO_SENDABLE = (1 << 1)
 SO_ACCEPTABLE = (1 << 2)
 
 NONBLOCK = (1 << 0)
+
+libc = ctypes.CDLL(None, use_errno=True)
+
+malloc_c = libc.malloc
+malloc_c.argtypes = [ctypes.c_size_t]
+malloc_c.restype = ctypes.c_void_p
+
+free_c = libc.free
+free_c.argtypes = [ctypes.c_void_p]
+free_c.restype = None
+
+
+def malloc(size):
+    ptr = malloc_c(size)
+
+    if not ptr:
+        raise MemoryError(f"unable to allocate {size} bytes")
+
+    return ctypes.c_void_p(ptr)
+
+
+def free(ptr):
+    if ptr:
+        free_c(ptr)
 
 
 def _attr_to_py(attr_type, attr_value, attr_len):
@@ -287,6 +312,7 @@ error = socket.error
 class ConnectionSocket(Socket):
     def __init__(self, xcm_socket):
         Socket.__init__(self, xcm_socket)
+        self.max_msg_size = None
 
     def send(self, msg):
         rc = xcm_send_c(self.xcm_socket, msg, len(msg))
@@ -294,12 +320,29 @@ class ConnectionSocket(Socket):
             _raise_io_err()
         return rc
 
-    def receive(self):
-        buf = create_string_buffer(MAX_MSG)
-        rc = xcm_receive_c(self.xcm_socket, byref(buf), MAX_MSG)
-        if rc < 0:
-            _raise_io_err()
-        return bytes(buf.raw[:rc])
+    def _get_max_msg_size(self):
+        if self.max_msg_size is None:
+            if self.get_attr("xcm.service") == "messaging":
+                self.max_msg_size = self.get_attr("xcm.max_msg_size")
+            else:
+                # arbitrary, since streaming has no concept of messages
+                self.max_msg_size = 8192
+
+    def receive(self, max_msg_size=None):
+        if max_msg_size is None:
+            self._get_max_msg_size()
+            max_msg_size = self.max_msg_size
+
+        ptr = malloc(max_msg_size)
+
+        try:
+            rc = xcm_receive_c(self.xcm_socket, ptr.value, max_msg_size)
+            if rc < 0:
+                _raise_io_err()
+
+            return ctypes.string_at(ptr, rc)
+        finally:
+            free(ptr)
 
 
 class ServerSocket(Socket):
