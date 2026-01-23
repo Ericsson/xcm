@@ -2184,6 +2184,8 @@ struct server_info
 {
     const char *ns;
     const char *addr;
+    struct xcm_attr_map *attrs;
+    double conn_duration;
     bool success;
 };
 
@@ -2199,7 +2201,10 @@ static void *accepting_server_thread(void *arg)
 	close(old_fd);
     }
 
-    struct xcm_socket *server_sock = xcm_server_a(info->addr, NULL);
+    if (info->attrs != NULL)
+	xcm_attr_map_add_bool(info->attrs, "xcm.blocking", true);
+
+    struct xcm_socket *server_sock = xcm_server_a(info->addr, info->attrs);
     if (server_sock == NULL)
 	goto err;
 
@@ -2210,7 +2215,22 @@ static void *accepting_server_thread(void *arg)
     if (conn == NULL)
 	goto err;
 
-    tu_msleep(200);
+    if (xcm_set_blocking(conn, false) < 0)
+	goto err;
+    if (xcm_set_blocking(server_sock, false) < 0)
+	goto err;
+
+    double conn_deadline = ut_ftime() + info->conn_duration;
+
+    while (ut_ftime() < conn_deadline) {
+	xcm_finish(server_sock);
+
+	char buf[16];
+	int rc = xcm_receive(conn, buf, sizeof(buf));
+
+	if (rc == 0 || (rc < 0 && errno != EAGAIN))
+	    break;
+    }
 
     if (xcm_close(conn) < 0 || xcm_close(server_sock) < 0)
 	goto err;
@@ -2343,7 +2363,8 @@ static int run_ops_on_closed_connections(bool blocking)
     for (i = 0; i < test_m_addrs_len; i++) {
 	struct server_info info = {
 	    .ns = NULL,
-	    .addr = test_m_addrs[i]
+	    .addr = test_m_addrs[i],
+	    .conn_duration = 200e-3
 	};
 
 	pthread_t server_thread;
@@ -4114,7 +4135,8 @@ TESTCASE(xcm, utls_tls_fallback)
 
     struct server_info info = {
 	.ns = NULL,
-	.addr = tls_addr
+	.addr = tls_addr,
+	.conn_duration = 200e-3
     };
     pthread_t server_thread;
     CHK(pthread_create(&server_thread, NULL, accepting_server_thread, &info)
@@ -6132,7 +6154,8 @@ TESTCASE_SERIALIZED_F(xcm, tls_per_namespace_cert_thread,
 
     struct server_info info = {
 	.ns = TEST_NS0,
-	.addr = tls_addr
+	.addr = tls_addr,
+	.conn_duration = 200e-3
     };
 
     pthread_t server_thread;
@@ -7220,7 +7243,8 @@ static int run_long_name_test(const char *proto)
 
     struct server_info info = {
 	.ns = NULL,
-	.addr = long_name
+	.addr = long_name,
+	.conn_duration = 200e-3
     };
 
     pthread_t server_thread;
@@ -7567,10 +7591,8 @@ static int test_attr_get(struct xcmc_session *s)
     value[0] = '\0';
     enum xcm_attr_type type;
     if (xcmc_attr_get(s, "xcm.transport", &type, value,
-		      sizeof(value)) < 0) {
-	perror("xcmc_attr_get");
+		      sizeof(value)) < 0)
 	return -1;
-    }
     if (type != xcm_attr_type_str)
 	return -1;
     if (strlen(value) == 0)
@@ -7588,10 +7610,8 @@ static void count_cb(const char *attr_name, enum xcm_attr_type type,
 static int test_attr_get_all(struct xcmc_session *s)
 {
     int count = 0;
-    if (xcmc_attr_get_all(s, count_cb, &count) < 0) {
-	perror("attr_get_all");
+    if (xcmc_attr_get_all(s, count_cb, &count) < 0)
 	return -1;
-    }
     if (count == 0)
 	return -1;
     return 0;
@@ -7604,10 +7624,8 @@ static int test_ctl_access(struct ctl_ary *d)
 	errno = 0;
 	struct xcmc_session *s =
 	    xcmc_open(d->creator_pids[i], d->sock_refs[i]);
-	if (s == NULL) {
-	    perror("xcmc_open");
+	if (s == NULL)
 	    return -1;
-	}
 
 	if (is_in_valgrind())
 	    tu_msleep(250);
@@ -7617,10 +7635,8 @@ static int test_ctl_access(struct ctl_ary *d)
 	if (d->creator_pids[i] != getpid() &&
 	    (test_attr_get(s) < 0 || test_attr_get_all(s) < 0))
 	    return -1;
-	if (xcmc_close(s) < 0) {
-	    perror("xcmc_close");
+	if (xcmc_close(s) < 0)
 	    return -1;
-	}
     }
     return 0;
 }
@@ -7791,6 +7807,100 @@ TESTCASE(xcm, ctl_concurrent_clients_active_socket)
 {
     return ctl_concurrent_clients(true);
 }
+
+#ifdef XCM_TLS
+/*
+ * TLS attributes are the only large-enough to triggered attribute value
+ * trunaction.
+ */
+
+struct ctl_visit_sock_data
+{
+    pid_t target_pid;
+    unsigned int successes;
+};
+
+static void ctl_visit_sock(pid_t creator_pid, int64_t sock_ref,
+			   void *cb_data)
+{
+    struct ctl_visit_sock_data *data = cb_data;
+
+    if (data->target_pid == creator_pid) {
+	struct xcmc_session *session = xcmc_open(creator_pid, sock_ref);
+
+	if (session != NULL) {
+	    if (test_attr_get_all(session) == 0)
+		data->successes++;
+
+	    xcmc_close(session);
+	}
+    }
+}
+
+static int ctl_visit_pid_socks(pid_t pid)
+{
+    struct ctl_visit_sock_data data = {
+	.target_pid = pid,
+    };
+
+    if (xcmc_list(ctl_visit_sock, &data) < 0)
+	return UTEST_FAILED;
+
+    /* server socket and two connection socket should have responded */
+    CHKINTEQ(data.successes, 2);
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE(xcm, ctl_large_attr)
+{
+    char *tls_addr = gen_tls_addr();
+
+    char *cert;
+    CHKNOERR(load_default_cred("cert.pem", &cert));
+
+    char *key;
+    CHKNOERR(load_default_cred("key.pem", &key));
+
+    char *tc;
+    CHKNOERR(load_default_cred("tc.pem", &tc));
+
+    CHK(cert != NULL && key != NULL && tc != NULL);
+
+    struct xcm_attr_map *server_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bin(server_attrs, "tls.cert", cert, strlen(cert));
+    xcm_attr_map_add_bin(server_attrs, "tls.key", key, strlen(key));
+    xcm_attr_map_add_bin(server_attrs, "tls.tc", tc, strlen(tc));
+
+    struct server_info info = {
+	.ns = NULL,
+	.addr = tls_addr,
+	.attrs = server_attrs,
+	.conn_duration = 10
+    };
+    pthread_t server_thread;
+    CHK(pthread_create(&server_thread, NULL, accepting_server_thread, &info)
+	== 0);
+
+    struct xcm_socket *client_conn = tu_connect_retry(tls_addr, 0);
+    CHK(client_conn != NULL);
+
+    CHKNOERR(ctl_visit_pid_socks(getpid()));
+
+    CHKNOERR(xcm_close(client_conn));
+
+    CHK(pthread_join(server_thread, NULL) == 0);
+
+    xcm_attr_map_destroy(server_attrs);
+    ut_free(cert);
+    ut_free(key);
+    ut_free(tc);
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+#endif
 
 TESTCASE(xcm, version)
 {
