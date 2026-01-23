@@ -50,6 +50,10 @@
     log_debug_sock(s, "Control client attempting to retrieve attribute " \
 		   "\"%s\".", name)
 
+#define LOG_CLIENT_ATTR_TRUNC(s, name, orig_size, trunc_size)		\
+    log_debug_sock(s, "Truncated attributes \"%s\" from %zd to %zd bytes.", \
+		   name, orig_size, trunc_size)
+
 #define LOG_CLIENT_GET_ALL_ATTR(s, name)				\
     log_debug_sock(s, "Control client attempting retrieve all attributes.")
 

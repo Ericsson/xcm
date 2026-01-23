@@ -167,7 +167,7 @@ int xcmc_attr_get_all(struct xcmc_session *session, xcmc_attr_cb cb,
     if (recv(session->fd, &res, sizeof(res), 0) != sizeof(res))
 	return -1;
 
-    if (res.type != ctl_proto_type_get_attr_cfm) {
+    if (res.type != ctl_proto_type_get_all_attr_cfm) {
 	errno = EPROTO;
 	return -1;
     }

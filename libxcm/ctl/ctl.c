@@ -8,6 +8,7 @@
 #include "common_ctl.h"
 #include "ctl_proto.h"
 #include "log_ctl.h"
+#include "log_ctl.h"
 #include "util.h"
 #include "xcm.h"
 #include "xcm_attr.h"
@@ -198,24 +199,44 @@ static void process_get_attr(struct xcm_socket *socket,
     }
 }
 
+struct add_attr_data
+{
+    struct ctl_proto_get_all_attr_cfm *cfm;
+    struct xcm_socket *s;
+};
+
 static void add_attr(const char *attr_name, enum xcm_attr_type type,
 		     void *value, size_t len, void *data)
 {
     if (is_sensitive(attr_name))
 	return;
 
-    struct ctl_proto_get_all_attr_cfm *cfm = data;
+    struct add_attr_data *add_attr_data = data;
+    struct ctl_proto_get_all_attr_cfm *cfm = add_attr_data->cfm;
+    struct xcm_socket *s = add_attr_data->s;
     struct ctl_proto_attr *attr = &cfm->attrs[cfm->attrs_len];
 
     cfm->attrs_len++;
     ut_assert(cfm->attrs_len < CTL_PROTO_MAX_ATTRS);
 
+    ut_assert(strlen(attr_name) < XCM_ATTR_NAME_MAX);
     strcpy(attr->name, attr_name);
     attr->value_type = type;
 
-    ut_assert(attr->value_len < sizeof(attr->any_value));
-    memcpy(attr->any_value, value, len);
-    attr->value_len = len;
+    size_t max_len = sizeof(attr->any_value);
+    bool truncate = len > max_len;
+
+    if (truncate) {
+	LOG_CLIENT_ATTR_TRUNC(s, attr_name, len, max_len);
+	attr->value_len = max_len;
+    } else
+	attr->value_len = len;
+
+    memcpy(attr->any_value, value, attr->value_len);
+
+    /* NUL-terminate truncated strings to make interface less error-prone */
+    if (truncate && type == xcm_attr_type_str)
+	attr->str_value[attr->value_len - 1] = '\0';
 }
 
 static void process_get_all_attr(struct xcm_socket *socket,
@@ -227,7 +248,14 @@ static void process_get_all_attr(struct xcm_socket *socket,
 
     cfm->attrs_len = 0;
 
-    xcm_attr_get_all(socket, add_attr, cfm);
+    struct add_attr_data add_attr_data = {
+	.cfm = cfm,
+	.s = socket
+    };
+
+    xcm_attr_get_all(socket, add_attr, &add_attr_data);
+
+    response->type = ctl_proto_type_get_all_attr_cfm;
 }
 
 static int client_send(struct client *client, struct ctl *ctl)
