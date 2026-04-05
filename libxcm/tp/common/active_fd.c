@@ -44,7 +44,7 @@ static struct active_fd *fd_retrieve(void)
 
 static struct active_fd *fd_create(void)
 {
-    int fd = eventfd(1, EFD_NONBLOCK);
+    int fd = eventfd(1, EFD_NONBLOCK | EFD_CLOEXEC);
     if (fd < 0) {
 	LOG_ACTIVE_FD_FAILED(errno);
 	return NULL;

@@ -201,7 +201,7 @@ static int create_socket(struct xcm_socket *s)
 {
     struct ux_socket *us = TOUX(s);
 
-    if ((us->fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0)) < 0) {
+    if ((us->fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
 	goto err;
     }

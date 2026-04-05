@@ -51,7 +51,7 @@ static void mtimer_destroy(struct mtimer *mtimer)
 
 struct timer_mgr *timer_mgr_create(struct xpoll *xpoll, void *log_ref)
 {
-    int timer_fd = timerfd_create(TIMER_MGR_CLOCKID, TFD_NONBLOCK);
+    int timer_fd = timerfd_create(TIMER_MGR_CLOCKID, TFD_NONBLOCK | TFD_CLOEXEC);
 
     if (timer_fd < 0) {
 	LOG_TIMER_MGR_TIMER_FD_CREATION_FAILED(log_ref, errno);

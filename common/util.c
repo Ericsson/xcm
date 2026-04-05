@@ -324,7 +324,7 @@ out_close:
 int ut_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
 	      unsigned int flags)
 {
-    int rc = accept4(sockfd, addr, addrlen, flags);
+    int rc = accept4(sockfd, addr, addrlen, flags | SOCK_CLOEXEC);
 
     /* In BSD Sockets, EAGAIN and EWOULDBLOCK is used interchangeable, much
      * to the user's inconvenience. XCM accept always use EAGAIN.

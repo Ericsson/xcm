@@ -74,7 +74,7 @@ struct xcmc_session *xcmc_open(pid_t creator_pid, int64_t sock_ref)
 
     int fd;
     
-    if ((fd = socket(AF_UNIX, SOCK_SEQPACKET, 0)) < 0)
+    if ((fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0)) < 0)
 	goto err;
 
     if (set_tmo(fd, XCMC_TMO_US) < 0)

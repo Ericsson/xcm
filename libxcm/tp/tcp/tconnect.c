@@ -7,7 +7,8 @@
 
 static int create_socket(sa_family_t family)
 {
-    return socket(family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+    return socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+		  IPPROTO_TCP);
 }
 
 enum track_state

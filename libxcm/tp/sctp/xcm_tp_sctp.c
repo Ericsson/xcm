@@ -235,7 +235,8 @@ static void deinit(struct xcm_socket *s, bool owner)
 
 static int create_socket(struct xcm_socket *s, int *fd, sa_family_t family)
 {
-    *fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_SCTP);
+    *fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+		 IPPROTO_SCTP);
 
     if (*fd < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);

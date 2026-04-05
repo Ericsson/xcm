@@ -11,6 +11,7 @@
 #include "xcm_addr.h"
 #include "xpoll.h"
 
+#include <fcntl.h>
 #include <netdb.h>
 #include <signal.h>
 #include <netinet/in.h>
@@ -155,7 +156,7 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
     query->xpoll = xpoll;
     query->ips_len = 0;
 
-    if (pipe(query->pipefds) < 0)
+    if (pipe2(query->pipefds, O_CLOEXEC) < 0)
 	goto err_free;
 
     query->pipe_reg_id =

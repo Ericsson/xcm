@@ -36,7 +36,7 @@ struct xpoll
 
 struct xpoll *xpoll_create(void *log_ref)
 {
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
     if (epoll_fd < 0) {
 	LOG_XPOLL_EPOLL_CREATE_FAILED(log_ref, errno);

@@ -70,7 +70,7 @@ static int create_ux(struct xcm_socket *s)
     unlink(addr.sun_path);
 
     int server_fd;
-    if ((server_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0)) < 0)
+    if ((server_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)) < 0)
 	goto err;
 
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0)

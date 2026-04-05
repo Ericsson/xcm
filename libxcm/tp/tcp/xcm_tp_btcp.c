@@ -496,7 +496,8 @@ static int btcp_server(struct xcm_socket *s, const char *local_addr)
 	goto err;
 
     bts->fd =
-	socket(host.ip.family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+	socket(host.ip.family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+	       IPPROTO_TCP);
 
     if (bts->fd < 0) {
 	LOG_SOCKET_CREATION_FAILED(errno);
