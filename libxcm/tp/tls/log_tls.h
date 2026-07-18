@@ -106,6 +106,14 @@
     log_debug_sock(s, "Failed to configure groups (elliptic curves) "	\
 		   "\"%s\".", groups)
 
+#define LOG_TLS_INVALID_1_2_CIPHERS(s, ciphers)				\
+    log_debug_sock(s, "Failed to configure TLS 1.2 cipher list "	\
+		   "\"%s\".", ciphers)
+
+#define LOG_TLS_INVALID_1_3_CIPHERS(s, ciphers)				\
+    log_debug_sock(s, "Failed to configure TLS 1.3 cipher suites "	\
+		   "\"%s\".", ciphers)
+
 #define LOG_TLS_CREDENTIALS(s, cert, key, tc, crl)			\
     do {								\
 	char buf[1024];							\

@@ -841,12 +841,20 @@ static int set_ciphers(SSL *ssl, const char *tls_12_ciphers,
     }
 
     int rc = SSL_set_cipher_list(ssl, openssl_tls_12_ciphers);
-    ut_assert(rc == 1);
+    if (rc != 1) {
+	LOG_TLS_INVALID_1_2_CIPHERS(log_ref, tls_12_ciphers);
+	errno = EINVAL;
+	return -1;
+    }
 
     /* OpenSSL use IANA names for TLS 1.3 cipher suites */
     LOG_TLS_1_3_CIPHERS(log_ref, tls_13_ciphers);
     rc = SSL_set_ciphersuites(ssl, tls_13_ciphers);
-    ut_assert(rc == 1);
+    if (rc != 1) {
+	LOG_TLS_INVALID_1_3_CIPHERS(log_ref, tls_13_ciphers);
+	errno = EINVAL;
+	return -1;
+    }
 
     if (tls_groups != NULL) {
 	LOG_TLS_GROUPS(log_ref, tls_groups);

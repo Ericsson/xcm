@@ -5213,6 +5213,33 @@ TESTCASE(xcm, tls_1_3_common_and_no_common_cipher)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, reject_invalid_ciphers)
+{
+    char *tls_addr = gen_tls_addr();
+
+    const char *invalid_cipher = "TLS_THIS_IS_NOT_A_REAL_CIPHER_SHA256";
+
+    struct xcm_attr_map *bad_12_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(bad_12_attrs, "tls.13.enabled", false);
+    xcm_attr_map_add_str(bad_12_attrs, "tls.12.ciphers", invalid_cipher);
+
+    CHKNOERR(establish_xtls(tls_addr, bad_12_attrs, bad_12_attrs,
+			    bad_12_attrs, false));
+
+    struct xcm_attr_map *bad_13_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(bad_13_attrs, "tls.12.enabled", false);
+    xcm_attr_map_add_str(bad_13_attrs, "tls.13.ciphers", invalid_cipher);
+
+    CHKNOERR(establish_xtls(tls_addr, bad_13_attrs, bad_13_attrs,
+			    bad_13_attrs, false));
+
+    xcm_attr_map_destroy(bad_12_attrs);
+    xcm_attr_map_destroy(bad_13_attrs);
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(xcm, tls_default_ciphers)
 {
     char *tls_addr = gen_tls_addr();
