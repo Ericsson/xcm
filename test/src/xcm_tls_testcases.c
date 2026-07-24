@@ -2892,6 +2892,29 @@ TESTCASE(xcm_tls, tls_invalid_credential_values)
 #endif
 
 #ifdef XCM_TLS
+TESTCASE(xcm_tls, tls_zero_sized_credential)
+{
+    char *tls_addr = gen_tls_addr();
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+
+    /* a zero-sized TLS credential is a binary attribute of length 0 */
+    xcm_attr_map_add_bin(attrs, "tls.cert", NULL, 0);
+
+    /* The zero-sized binary attribute is accepted by the attribute
+       layer; the TLS transport then rejects the empty credential when
+       it fails to load it into the OpenSSL context. */
+    CHKNULLERRNO(xcm_server_a(tls_addr, attrs), EPROTO);
+
+    xcm_attr_map_destroy(attrs);
+
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+#endif
+
+#ifdef XCM_TLS
 TESTCASE(xcm_tls, garbled_tls_input)
 {
     char *tls_addr = gen_tls_addr();

@@ -45,7 +45,7 @@ static struct attr *attr_create(const char *name, enum xcm_attr_type type,
     *attr = (struct attr) {
 	.name = ut_strdup(name),
 	.type = type,
-	.value = ut_memdup(value, value_len),
+	.value = value_len > 0 ? ut_memdup(value, value_len) : NULL,
 	.value_len = value_len
     };
 
@@ -133,7 +133,8 @@ void xcm_attr_map_add(struct xcm_attr_map *attr_map, const char *attr_name,
 		      enum xcm_attr_type attr_type, const void *attr_value,
 		      size_t attr_value_len)
 {
-    ut_assert(attr_name && attr_value);
+    ut_assert(attr_name != NULL);
+    ut_assert(attr_value != NULL || attr_value_len == 0);
 
     xcm_attr_map_del(attr_map, attr_name);
 

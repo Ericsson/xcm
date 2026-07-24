@@ -230,6 +230,28 @@ TESTCASE(attr_map, access_bin)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(attr_map, access_zero_sized_bin)
+{
+    struct xcm_attr_map *attr_map = xcm_attr_map_create();
+
+    xcm_attr_map_add_bin(attr_map, "bin.empty", NULL, 0);
+
+    CHK(xcm_attr_map_exists(attr_map, "bin.empty"));
+
+    CHKINTEQ(xcm_attr_map_size(attr_map), 1);
+
+    enum xcm_attr_type type;
+    size_t value_len = 4711;
+    xcm_attr_map_get(attr_map, "bin.empty", &type, &value_len);
+
+    CHK(type == xcm_attr_type_bin);
+    CHKINTEQ(value_len, 0);
+
+    xcm_attr_map_destroy(attr_map);
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(attr_map, equal)
 {
     struct xcm_attr_map *set_a = xcm_attr_map_create();

@@ -250,9 +250,14 @@ const char *xcm_attr_map_get_str(const struct xcm_attr_map *attr_map,
  * The value pointer returned is valid as long as the key is not
  * removed, its value is changed, or the map is destroyed.
  *
+ * A zero-sized binary value is represented by a NULL pointer, and is
+ * thus indistinguishable from a non-existent (or non-binary)
+ * attribute by the return value alone. Use xcm_attr_map_exists() to
+ * check for existence.
+ *
  * @param[in] attr_map The attribute map instance.
  * @param[in] attr_name The name of the attribute to be retrieved.
- * @return A pointer to the attribute's value, or NULL if the attribute does not exist or is of a non-binary type.
+ * @return A pointer to the attribute's value, or NULL if the attribute does not exist, is of a non-binary type, or is of zero size.
  */
 const char *xcm_attr_map_get_bin(const struct xcm_attr_map *attr_map,
 				 const char *attr_name);
