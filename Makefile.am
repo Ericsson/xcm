@@ -186,7 +186,13 @@ XCMTEST_TESTCASE_SOURCES = \
 	test/src/attr_path_testcases.c \
 	test/src/attr_tree_testcases.c \
 	test/src/slist_testcases.c \
-	test/src/xcm_testcases.c
+	test/src/xcm_testcases_common.c \
+	test/src/xcm_testcases.c \
+	test/src/xcm_dns_testcases.c \
+	test/src/xcm_net_testcases.c \
+	test/src/xcm_tls_testcases.c \
+	test/src/xcm_ux_testcases.c \
+	test/src/xcm_ctl_testcases.c
 
 xcmtest_SOURCES = \
 	$(XCMTEST_TESTCASE_SOURCES) \
