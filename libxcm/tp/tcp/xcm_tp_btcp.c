@@ -5,6 +5,7 @@
 
 #include "common_tp.h"
 #include "dns_attr.h"
+#include "ip_attr.h"
 #include "log_tp.h"
 #include "tconnect.h"
 #include "tcp_attr.h"
@@ -47,6 +48,8 @@ struct btcp_socket
 
     /* IPv6 scope id */
     int64_t scope;
+
+    struct ip_device ip_device;
 
     union {
 	struct {
@@ -208,6 +211,11 @@ static int btcp_init(struct xcm_socket *s, struct xcm_socket *parent)
 	bts->scope = TOBTCP(parent)->scope;
     else
 	bts->scope = -1;
+
+    if (parent != NULL)
+	bts->ip_device = TOBTCP(parent)->ip_device;
+    else
+	ip_device_init(&bts->ip_device);
 
     if (s->type == xcm_socket_type_conn) {
 	bts->conn.state = conn_state_initialized;
@@ -445,7 +453,7 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
     conf_tcp_connect_timeout(s);
 
     bts->conn.tconnect =
-	tconnect_create(bts->conn.dns_algorithm, s->xpoll, s);
+	tconnect_create(bts->conn.dns_algorithm, &bts->ip_device, s->xpoll, s);
 
     if (bts->conn.tconnect == NULL)
 	goto err;
@@ -503,6 +511,9 @@ static int btcp_server(struct xcm_socket *s, const char *local_addr)
 	LOG_SOCKET_CREATION_FAILED(errno);
 	goto err;
     }
+
+    if (ip_device_effectuate(&bts->ip_device, bts->fd) < 0)
+	goto err;
 
     if (tcp_effectuate_dscp(bts->fd) < 0)
 	goto err;
@@ -585,6 +596,12 @@ static int btcp_accept(struct xcm_socket *conn_s, struct xcm_socket *server_s)
     if (conn_bts->conn.tcp_connect_timeout >= 0) {
 	errno = EACCES;
 	LOG_CONNECT_TIMEOUT_ON_ACCEPT(conn_s);
+	goto err_deinit;
+    }
+
+    if (!ip_device_equal(&conn_bts->ip_device, &server_bts->ip_device)) {
+	errno = EACCES;
+	LOG_IP_DEVICE_ON_ACCEPT(conn_s);
 	goto err_deinit;
     }
 
@@ -1095,10 +1112,40 @@ static int get_scope_attr(struct xcm_socket *s, void *context, void *value,
     }
 }
 
+static int set_ip_device_attr(struct xcm_socket *s, void *context,
+			      const void *value, size_t len)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    if ((s->type == xcm_socket_type_conn &&
+	 bts->conn.state != conn_state_initialized) ||
+	(s->type == xcm_socket_type_server && bts->server.created)) {
+	errno = EACCES;
+	return -1;
+    }
+
+    return ip_device_set(&bts->ip_device, value);
+}
+
+static int get_ip_device_attr(struct xcm_socket *s, void *context, void *value,
+			      size_t capacity)
+{
+    const char *name = ip_device_get(&TOBTCP(s)->ip_device);
+
+    if (name == NULL) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return xcm_tp_get_str_attr(name, value, capacity);
+}
+
 static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 {
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_IPV6_SCOPE, s, xcm_attr_type_int64,
 		     set_scope_attr, get_scope_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_IP_DEVICE, s, xcm_attr_type_str,
+		     set_ip_device_attr, get_ip_device_attr);
 }
 
 static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)

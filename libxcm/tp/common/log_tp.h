@@ -89,6 +89,10 @@
     log_debug_sock(s, "Attempt to change scope id from %"PRId64" to %"	\
 		   PRId64" on accept.", orig_scope, new_scope)
 
+#define LOG_BIND_TO_DEVICE_FAILED(device, reason_errno)			\
+    log_debug("Error binding socket to network device \"%s\"; errno %d " \
+	      "(%s).", device, reason_errno, strerror(reason_errno))
+
 #define LOG_SERVER_REUSEADDR_FAILED(reason_errno)		      \
     log_debug("Error setting SO_REUSEADDR on underlying TCP socket: " \
 	      "errno %d (%s).", reason_errno, strerror(reason_errno))
@@ -113,6 +117,9 @@
 
 #define LOG_CONNECT_TIMEOUT_ON_ACCEPT(s)				\
     log_debug_sock(s, "Attempt to set TCP connect timeout in accept call.")
+
+#define LOG_IP_DEVICE_ON_ACCEPT(s)					\
+    log_debug_sock(s, "Attempt to change IP network device in accept call.")
 
 #define LOG_CLIENT_BOUND_TO_WRONG_PROTO(s)				\
     log_debug_sock(s, "Local address is of a different IP protocol "	\

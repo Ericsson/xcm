@@ -33,6 +33,8 @@
 #define TEST_NS1 "testns1"
 #define TEST_NS0_IP "10.42.42.1"
 #define TEST_NS1_IP "10.42.42.2"
+#define TEST_VRF_NAME "xcmvrf0"
+#define TEST_VRF_TABLE (4242)
 #define REQUIRE_ROOT (1U << 0)
 #define REQUIRE_NOT_IN_VALGRIND (1U << 1)
 #define REQUIRE_PUBLIC_DNS (1U << 2)
@@ -252,6 +254,10 @@ struct xcm_attr_map *create_cert_attrs_dir(const char *base_dir, const char *rel
 int run_ipv6_link_local(const char *proto);
 int run_disallow_link_local_on_ipv4(const char *proto);
 int run_disallow_bind_on_accept(const char *client_proto, const char *server_proto);
+bool ip_device_binding_permitted(void);
+int run_ip_device_attr(const char *proto);
+int run_ip_device_attr_conn(const char *proto);
+int run_ip_device_vrf(const char *proto);
 void map_utls_to_ux(const char *utls_addr, char *ux_addr, size_t capacity);
 int handshake_files(const char *server_cert, const char *server_key, const char *server_tc, const char *client_cert, const char *client_key, const char *client_tc, bool success_expected);
 int handshake_attrs(const char *server_cert_dir, struct xcm_attr_map *extra_server_attrs, const char *client_cert_dir, struct xcm_attr_map *extra_client_attrs, bool success_expected);

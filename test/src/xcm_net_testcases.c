@@ -177,8 +177,49 @@ TESTCASE_F(xcm_net, ipv6_link_local, REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
     return UTEST_SUCCESS;
 }
 
-TESTCASE_F(xcm_net, disallow_link_local_on_ipv4, REQUIRE_ROOT)
+TESTCASE(xcm_net, ip_device_attr)
 {
+    size_t i;
+    for (i = 0; i < tcp_based_protos_len; i++) {
+	const char *proto = tcp_based_protos[i];
+
+	int rc = run_ip_device_attr(proto);
+	if (rc != UTEST_SUCCESS)
+	    return rc;
+
+	/* UTLS connections to a local server are served by the UX
+	   transport, which has no IP-level attributes */
+	if (strcmp(proto, "utls") == 0)
+	    continue;
+
+	rc = run_ip_device_attr_conn(proto);
+	if (rc != UTEST_SUCCESS)
+	    return rc;
+    }
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE_F(xcm_net, ip_device_vrf, REQUIRE_ROOT|REQUIRE_NOT_IN_VALGRIND)
+{
+    int rc;
+
+    if ((rc = run_ip_device_vrf("btcp")) != UTEST_SUCCESS)
+	return rc;
+    if ((rc = run_ip_device_vrf("tcp")) != UTEST_SUCCESS)
+	return rc;
+
+#ifdef XCM_TLS
+    if ((rc = run_ip_device_vrf("btls")) != UTEST_SUCCESS)
+	return rc;
+    if ((rc = run_ip_device_vrf("tls")) != UTEST_SUCCESS)
+	return rc;
+#endif
+
+    return UTEST_SUCCESS;
+}
+
+TESTCASE_F(xcm_net, disallow_link_local_on_ipv4, REQUIRE_ROOT){
     int rc;
 
     if ((rc = run_disallow_link_local_on_ipv4("tcp")) < 0)

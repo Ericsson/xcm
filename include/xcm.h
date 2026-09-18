@@ -273,6 +273,24 @@ extern "C" {
  * to refer to a particular network, and another host on the same
  * network may use a different.
  *
+ * @subsubsection net_device Network Device Selection
+ *
+ * By default, the kernel selects which network device an IP transport
+ * socket uses, based on the routing tables of the network namespace
+ * the socket resides in.
+ *
+ * An application may override this behavior by binding the socket to a
+ * particular network device, by means of the "ip.device" socket
+ * attribute. XCM effectuates such a binding by setting the
+ * SO_BINDTODEVICE socket option on the underlying BSD sockets. See the
+ * socket(7) manual page for a description of this option. On Linux
+ * kernels older than 5.7, its use requires the CAP_NET_RAW capability.
+ *
+ * Binding a socket to a Virtual Routing and Forwarding (VRF) device is
+ * the means to confine a socket to a particular VRF.
+ *
+ * The SCTP transport does not support network device selection.
+ *
  * @section dpd Dead Peer Detection
  *
  * XCM transports attempt to detect a number of conditions which can
@@ -1119,6 +1137,7 @@ extern "C" {
  * tcp.keepalive_interval | Connection | Integer | RW   | The time (in s) between keepalive probes. The default value is 1 s.
  * tcp.keepalive_count | Connection | Integer    | RW   | The number of keepalive probes sent before the connection is dropped. The default value is 3.
  * ipv6.scope         | All         | Integer    | RW   | The IPv6 scope id used. Only available on IPv6 sockets. Writable only at socket creation. If left unset, it will take on the value of 0 (the global scope). Any other value denotes the network interface index to be used, for IPv6 link local addresses. See the if_nametoindex(3) manual page for how to map interface names to indices.
+ * ip.device          | All         | String     | RW   | The name of the Linux network device (e.g., a VRF device) to which the socket is bound. Writable only at socket creation. If left unset, or set to the empty string, the socket is not bound to any particular device, and thus the default routing context of the network namespace is used. A connection socket created by xcm_accept_a() inherits the value of its server socket, and may not be assigned a different device. The binding is realized by means of the SO_BINDTODEVICE socket option. See @ref net_device for more information.
  *
  * @warning @c tcp.segs_in and @c tcp.segs_out are only present when
  * running XCM on Linux kernel 4.2 or later.

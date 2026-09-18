@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -33,11 +34,13 @@
 #endif
 
 #include "iowrap.h"
+#include "ip_attr.h"
 #include "pingpong.h"
 #include "testutil.h"
 #include "tnet.h"
 #include "utest.h"
 #include "util.h"
+#include "xcm_attr_names.h"
 
 #include "xcm_testcases_common.h"
 
@@ -2501,8 +2504,12 @@ static int establish_ns(const char *server_ns, const char *server_addr,
 
     struct xcm_socket *server_sock = tu_server_a(server_addr, server_attrs);
 
-    if (server_sock == NULL)
+    if (server_sock == NULL) {
+	if (old_ns >= 0 && tu_leave_ns(old_ns) < 0)
+	    return -1;
+
 	return success_expected ? -1 : 0;
+    }
 
     struct xcm_socket *connect_sock = NULL;
     struct xcm_socket *accepted_sock = NULL;
@@ -2797,6 +2804,68 @@ int run_ipv6_link_local(const char *proto)
 }
 
 
+int run_ip_device_vrf(const char *proto)
+{
+    struct tnet *net = tnet_create();
+    CHK(net != NULL);
+
+    struct tnet_ns *server_ns = tnet_add_ns(net, NULL);
+    struct tnet_ns *client_ns = tnet_add_ns(net, NULL);
+    CHK(server_ns != NULL && client_ns != NULL);
+
+    CHKNOERR(tnet_ns_link_w_ip(server_ns, TEST_NS0_IP,
+			       client_ns, TEST_NS1_IP));
+
+    CHKNOERR(tnet_ns_add_vrf(server_ns, TEST_VRF_NAME, TEST_VRF_TABLE));
+    CHKNOERR(tnet_ns_add_vrf(client_ns, TEST_VRF_NAME, TEST_VRF_TABLE));
+
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:%s:%d", proto, TEST_NS0_IP,
+	     gen_tcp_port());
+
+    struct xcm_attr_map *server_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(server_attrs, XCM_ATTR_IP_DEVICE, TEST_VRF_NAME);
+
+    struct xcm_attr_map *accept_attrs = xcm_attr_map_create();
+
+    struct xcm_attr_map *connect_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(connect_attrs, XCM_ATTR_IP_DEVICE, TEST_VRF_NAME);
+
+    struct xcm_attr_map *no_device_attrs = xcm_attr_map_create();
+
+#ifdef XCM_TLS
+    if (strcmp(proto, "tls") == 0 || strcmp(proto, "btls") == 0) {
+	struct xcm_attr_map *cert_attrs =
+	    create_cert_attrs_dir(get_cert_base(), "default");
+
+	xcm_attr_map_add_all(server_attrs, cert_attrs);
+	xcm_attr_map_add_all(connect_attrs, cert_attrs);
+	xcm_attr_map_add_all(no_device_attrs, cert_attrs);
+
+	xcm_attr_map_destroy(cert_attrs);
+    }
+#endif
+
+    CHKNOERR(establish_ns(tnet_ns_name(server_ns), addr, server_attrs,
+			  accept_attrs, tnet_ns_name(client_ns), addr,
+			  connect_attrs, true));
+
+    /* the VRF-confined server is not reachable from the default
+       routing context */
+    CHKNOERR(establish_ns(tnet_ns_name(server_ns), addr, server_attrs,
+			  accept_attrs, tnet_ns_name(client_ns), addr,
+			  no_device_attrs, false));
+
+    xcm_attr_map_destroy(server_attrs);
+    xcm_attr_map_destroy(accept_attrs);
+    xcm_attr_map_destroy(connect_attrs);
+    xcm_attr_map_destroy(no_device_attrs);
+
+    tnet_destroy(net);
+
+    return UTEST_SUCCESS;
+}
+
 int run_disallow_link_local_on_ipv4(const char *proto)
 {
     struct xcm_attr_map *attrs = xcm_attr_map_create();
@@ -2863,6 +2932,196 @@ int run_disallow_bind_on_accept(const char *client_proto,
 
     xcm_close(conn_sock);
     CHKNOERR(xcm_close(server_sock));
+
+    return UTEST_SUCCESS;
+}
+
+/* Linux 5.7 and later allows SO_BINDTODEVICE also for processes
+   without the CAP_NET_RAW capability */
+bool ip_device_binding_permitted(void)
+{
+    return ip_device_check("lo") == 0;
+}
+
+static int establish_w_attrs(const char *addr,
+			     const struct xcm_attr_map *server_attrs,
+			     const struct xcm_attr_map *accept_attrs,
+			     const struct xcm_attr_map *connect_attrs,
+			     struct xcm_socket **server_sock,
+			     struct xcm_socket **accepted_sock,
+			     struct xcm_socket **conn_sock)
+{
+    *server_sock = tu_server_a(addr, server_attrs);
+    if (*server_sock == NULL)
+	return -1;
+
+    if (xcm_set_blocking(*server_sock, false) < 0)
+	return -1;
+
+    const char *actual_addr = xcm_local_addr(*server_sock);
+    if (actual_addr == NULL)
+	return -1;
+
+    char connect_addr[512];
+    strcpy(connect_addr, actual_addr);
+
+    *conn_sock = tu_connect_a(connect_addr, connect_attrs);
+    if (*conn_sock == NULL)
+	return -1;
+
+    *accepted_sock = NULL;
+
+    int i;
+    for (i = 0; i < SUCCESSFUL_CONNECT_RETRIES; i++) {
+	xcm_finish(*server_sock);
+	xcm_finish(*conn_sock);
+
+	*accepted_sock = xcm_accept_a(*server_sock, accept_attrs);
+
+	if (*accepted_sock != NULL)
+	    break;
+
+	if (errno != EAGAIN)
+	    return -1;
+
+	tu_msleep(1);
+    }
+
+    if (*accepted_sock == NULL)
+	return -1;
+
+    if (wait_until_finished(*conn_sock, SUCCESSFUL_CONNECT_RETRIES) < 0)
+	return -1;
+
+    return 0;
+}
+
+int run_ip_device_attr(const char *proto)
+{
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:127.0.0.1:0", proto);
+
+    struct xcm_attr_map *nb_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(nb_attrs, XCM_ATTR_XCM_BLOCKING, false);
+
+    struct xcm_socket *server_sock = tu_server_a(addr, nb_attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(tu_assure_non_existent_attr(server_sock, XCM_ATTR_IP_DEVICE));
+    CHKERRNO(xcm_attr_set_str(server_sock, XCM_ATTR_IP_DEVICE, "lo"), EACCES);
+
+    char server_addr[512];
+    strcpy(server_addr, xcm_local_addr(server_sock));
+
+    CHKNOERR(xcm_close(server_sock));
+
+    /* an empty device name is equivalent to no device at all */
+    struct xcm_attr_map *empty_attrs = xcm_attr_map_clone(nb_attrs);
+    xcm_attr_map_add_str(empty_attrs, XCM_ATTR_IP_DEVICE, "");
+
+    server_sock = tu_server_a(addr, empty_attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(tu_assure_non_existent_attr(server_sock, XCM_ATTR_IP_DEVICE));
+
+    CHKNOERR(xcm_close(server_sock));
+    xcm_attr_map_destroy(empty_attrs);
+
+    char too_long_name[IFNAMSIZ + 1];
+    memset(too_long_name, 'x', sizeof(too_long_name) - 1);
+    too_long_name[sizeof(too_long_name) - 1] = '\0';
+
+    struct xcm_attr_map *attrs = xcm_attr_map_clone(nb_attrs);
+    xcm_attr_map_add_str(attrs, XCM_ATTR_IP_DEVICE, too_long_name);
+
+    CHK(tu_server_a(addr, attrs) == NULL);
+    CHKERRNOEQ(EINVAL);
+    CHK(tu_connect_a(server_addr, attrs) == NULL);
+    CHKERRNOEQ(EINVAL);
+
+    if (ip_device_binding_permitted()) {
+	xcm_attr_map_add_str(attrs, XCM_ATTR_IP_DEVICE, "xcmnonexistent0");
+
+	CHK(tu_server_a(addr, attrs) == NULL);
+	CHKERRNOEQ(ENODEV);
+	CHK(tu_connect_a(server_addr, attrs) == NULL);
+	CHKERRNOEQ(ENODEV);
+
+	xcm_attr_map_add_str(attrs, XCM_ATTR_IP_DEVICE, "lo");
+
+	server_sock = tu_server_a(addr, attrs);
+	CHK(server_sock != NULL);
+
+	CHKNOERR(tu_assure_str_attr(server_sock, XCM_ATTR_IP_DEVICE, "lo"));
+
+	CHKNOERR(xcm_close(server_sock));
+    }
+
+    xcm_attr_map_destroy(attrs);
+    xcm_attr_map_destroy(nb_attrs);
+
+    return UTEST_SUCCESS;
+}
+
+int run_ip_device_attr_conn(const char *proto)
+{
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:127.0.0.1:0", proto);
+
+    struct xcm_attr_map *nb_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(nb_attrs, XCM_ATTR_XCM_BLOCKING, false);
+
+    struct xcm_socket *server_sock = tu_server_a(addr, nb_attrs);
+    CHK(server_sock != NULL);
+
+    char server_addr[512];
+    strcpy(server_addr, xcm_local_addr(server_sock));
+
+    struct xcm_socket *conn_sock = tu_connect_a(server_addr, nb_attrs);
+    CHK(conn_sock != NULL);
+
+    CHKERRNO(xcm_attr_set_str(conn_sock, XCM_ATTR_IP_DEVICE, "lo"), EACCES);
+
+    /* an accepted connection socket inherits the server socket's
+       network device, and thus a different device may not be
+       requested */
+    struct xcm_attr_map *accept_attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(accept_attrs, XCM_ATTR_IP_DEVICE, "lo");
+
+    struct xcm_socket *accepted_sock;
+    do {
+	xcm_finish(server_sock);
+	xcm_finish(conn_sock);
+
+	accepted_sock = xcm_accept_a(server_sock, accept_attrs);
+    } while (accepted_sock == NULL && errno == EAGAIN);
+
+    CHK(accepted_sock == NULL);
+    CHKERRNOEQ(EACCES);
+
+    xcm_attr_map_destroy(accept_attrs);
+    CHKNOERR(xcm_close(conn_sock));
+    CHKNOERR(xcm_close(server_sock));
+
+    if (ip_device_binding_permitted()) {
+	struct xcm_attr_map *attrs = xcm_attr_map_clone(nb_attrs);
+	xcm_attr_map_add_str(attrs, XCM_ATTR_IP_DEVICE, "lo");
+
+	CHKNOERR(establish_w_attrs(addr, attrs, attrs, attrs, &server_sock,
+				   &accepted_sock, &conn_sock));
+
+	CHKNOERR(tu_assure_str_attr(server_sock, XCM_ATTR_IP_DEVICE, "lo"));
+	CHKNOERR(tu_assure_str_attr(accepted_sock, XCM_ATTR_IP_DEVICE, "lo"));
+	CHKNOERR(tu_assure_str_attr(conn_sock, XCM_ATTR_IP_DEVICE, "lo"));
+
+	CHKNOERR(xcm_close(conn_sock));
+	CHKNOERR(xcm_close(accepted_sock));
+	CHKNOERR(xcm_close(server_sock));
+
+	xcm_attr_map_destroy(attrs);
+    }
+
+    xcm_attr_map_destroy(nb_attrs);
 
     return UTEST_SUCCESS;
 }
@@ -4181,8 +4440,10 @@ int shared_tc_basic(void)
 
 	CHKNOERR(tu_assure_str_attr(client_conn, "xcm.local_addr", laddr));
 
-	if (is_tcp_based(laddr))
+	if (is_tcp_based(laddr)) {
 	    CHKNOERR(tu_assure_str_attr(client_conn, "dns.algorithm", "single"));
+	    CHKNOERR(tu_assure_non_existent_attr(client_conn, "ip.device"));
+	}
 
 	if (is_utls(test_addr)) {
 	    char actual_proto[64];

@@ -24,4 +24,6 @@ int tnet_ns_link(struct tnet_ns *ns_a, struct tnet_ns *ns_b);
 int tnet_ns_link_w_ip(struct tnet_ns *ns_a, const char *ns_a_ip,
 		      struct tnet_ns *ns_b, const char *ns_b_ip);
 
+int tnet_ns_add_vrf(struct tnet_ns *ns, const char *vrf_name, int table);
+
 #endif

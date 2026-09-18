@@ -3,6 +3,7 @@
 
 #include <xcm_addr.h>
 
+#include "ip_attr.h"
 #include "tcp_attr.h"
 #include "timer_mgr.h"
 #include "xpoll.h"
@@ -24,6 +25,7 @@ enum tconnect_algorithm {
  * always known (i.e., DNS resolution has not yet finished).
  */
 struct tconnect *tconnect_create(enum tconnect_algorithm algorithm,
+				 const struct ip_device *ip_device,
 				 struct xpoll *xpoll, void *log_ref);
 
 int tconnect_connect(struct tconnect *tconnect,

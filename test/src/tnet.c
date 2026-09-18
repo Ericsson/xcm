@@ -185,6 +185,22 @@ int tnet_ns_link_w_ip(struct tnet_ns *ns_a, const char *ns_a_ip,
     return 0;
 }
 
+int tnet_ns_add_vrf(struct tnet_ns *ns, const char *vrf_name, int table)
+{
+    if (tu_executef_es("ip -n %s link add %s type vrf table %d", ns->name,
+		       vrf_name, table) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s link set %s up", ns->name, vrf_name) != 0)
+	return -1;
+
+    if (tu_executef_es("ip -n %s link set veth0 master %s", ns->name,
+		       vrf_name) != 0)
+	return -1;
+
+    return 0;
+}
+
 const char *tnet_ns_veth_ll_addr(struct tnet_ns *ns)
 {
     if (ns->ll_addr == NULL) {

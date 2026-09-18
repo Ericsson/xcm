@@ -60,6 +60,7 @@ libxcm_la_SOURCES = \
 	libxcm/tp/common/active_fd.c \
 	libxcm/tp/common/common_tp.c \
 	libxcm/tp/common/dns_attr.c \
+	libxcm/tp/common/ip_attr.c \
 	libxcm/tp/common/log_tp.c \
 	libxcm/tp/common/xcm_tp.c \
 	libxcm/tp/dns/xcm_dns.c \
@@ -185,6 +186,7 @@ XCMTEST_TESTCASE_SOURCES = \
 	test/src/attr_map_testcases.c \
 	test/src/attr_path_testcases.c \
 	test/src/attr_tree_testcases.c \
+	test/src/ip_attr_testcases.c \
 	test/src/slist_testcases.c \
 	test/src/xcm_testcases_common.c \
 	test/src/xcm_testcases.c \
@@ -202,6 +204,7 @@ xcmtest_SOURCES = \
 	libxcm/core/attr_path.c \
 	libxcm/core/attr_tree.c \
 	libxcm/core/log_attr_tree.c \
+	libxcm/tp/common/ip_attr.c \
 	common/slist.c \
 	common/util.c \
 	test/src/iowrap.c \

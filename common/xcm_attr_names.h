@@ -83,6 +83,10 @@
 #define XCM_ATTR_TLS_PEER_CERT_SAN_DIRS "tls.peer.cert.san.dirs"
 #define XCM_ATTR_TLS_PEER_CERT_SAN_DIR_CN "cn"
 
+/* IP-level attributes */
+
+#define XCM_ATTR_IP_DEVICE "ip.device"
+
 /* IPv6-level attributes */
 
 #define XCM_ATTR_IPV6_SCOPE "ipv6.scope"

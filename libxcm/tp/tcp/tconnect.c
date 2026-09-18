@@ -5,10 +5,20 @@
 
 #define HAPPY_EYEBALLS_INITIAL_IPV4_DELAY (200e-3)
 
-static int create_socket(sa_family_t family)
+static int create_socket(sa_family_t family, const struct ip_device *ip_device)
 {
-    return socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
-		  IPPROTO_TCP);
+    int fd = socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+		    IPPROTO_TCP);
+
+    if (fd < 0)
+	return -1;
+
+    if (ip_device_effectuate(ip_device, fd) < 0) {
+	ut_close(fd);
+	return -1;
+    }
+
+    return fd;
 }
 
 enum track_state
@@ -376,25 +386,30 @@ struct tconnect
 };
 
 struct tconnect *tconnect_create(enum tconnect_algorithm algorithm,
+				 const struct ip_device *ip_device,
 				 struct xpoll *xpoll, void *log_ref)
 {
     struct tconnect *tconnect = ut_malloc(sizeof(struct tconnect));
 
     *tconnect = (struct tconnect) {
 	.algorithm = algorithm,
-	.fd4 = create_socket(AF_INET),
-	.fd6 = create_socket(AF_INET6),
+	.fd4 = create_socket(AF_INET, ip_device),
+	.fd6 = create_socket(AF_INET6, ip_device),
 	.xpoll = xpoll,
 	.timer_mgr = timer_mgr_create(xpoll, log_ref),
 	.log_ref = log_ref
     };
 
     if (tconnect->fd4 < 0 || tconnect->fd6 < 0 || tconnect->timer_mgr == NULL) {
+	UT_SAVE_ERRNO;
+
 	ut_close_if_valid(tconnect->fd4);
 	ut_close_if_valid(tconnect->fd6);
 	timer_mgr_destroy(tconnect->timer_mgr, true);
 
 	ut_free(tconnect);
+
+	UT_RESTORE_ERRNO_DC;
 
 	return NULL;
     }
