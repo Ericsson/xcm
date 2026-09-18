@@ -645,7 +645,7 @@ int tu_assure_non_existent_attr(struct xcm_socket *s, const char *attr_name)
     enum xcm_attr_type type;
     char buf[8*1024];
 
-    int rc = xcm_attr_get(s, "dns.timeout", &type, buf, sizeof(buf));
+    int rc = xcm_attr_get(s, attr_name, &type, buf, sizeof(buf));
 
     if (rc >= 0)
 	return -1;
