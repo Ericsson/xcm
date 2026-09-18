@@ -23,7 +23,6 @@
 
 #define DEFAULT_OVERALL_TIMEOUT 10
 #define PER_QUERY_TIMEOUT 1  /* seconds */
-#define SYNC_DNS_TIMEOUT 10
 
 enum query_state {
     query_state_in_progress,
@@ -346,8 +345,8 @@ void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
     }
 }
 
-int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
-			 void *log_ref)
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, double timeout,
+			 const char *device, void *log_ref)
 {
     if (host->type == xcm_addr_type_ip)
 	return 0;
@@ -360,7 +359,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
 	goto out;
 
     struct xcm_dns_query *query =
-	xcm_dns_resolve(host->name, xpoll, SYNC_DNS_TIMEOUT, device, log_ref);
+	xcm_dns_resolve(host->name, xpoll, timeout, device, log_ref);
 
     if (query == NULL)
 	goto out_destroy_xpoll;

@@ -325,8 +325,6 @@ static int check_dns_attrs(struct xcm_socket *server_sock,
 	expected_timeout = *timeout;
 #endif
 
-    if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
-	return -1;
     if (tu_assure_non_existent_attr(accepted_sock, "dns.timeout") < 0)
 	return -1;
     if (tu_assure_non_existent_attr(accepted_sock, "dns.algorithm") < 0)
@@ -338,10 +336,15 @@ static int check_dns_attrs(struct xcm_socket *server_sock,
 	return -1;
 
 #ifdef XCM_CARES
+    if (tu_assure_double_attr(server_sock, "dns.timeout", cmp_type_equal,
+			      DEFAULT_DNS_TIMEOUT) < 0)
+	return -1;
     if (tu_assure_double_attr(connect_sock, "dns.timeout", cmp_type_equal,
 			      expected_timeout) < 0)
 	return -1;
 #else
+    if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
+	return -1;
     if (tu_assure_non_existent_attr(connect_sock, "dns.timeout") < 0)
 	return -1;
 #endif
@@ -482,7 +485,17 @@ pid_t simple_server(const char *ns, const char *addr,
     if (tu_assure_str_attr(server_sock, "xcm.type", "server") < 0)
 	goto err;
 
-    if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
+#ifdef XCM_CARES
+    bool dns_timeout_exists = is_tcp_based(addr);
+#else
+    bool dns_timeout_exists = false;
+#endif
+
+    if (dns_timeout_exists) {
+	if (tu_assure_double_attr(server_sock, "dns.timeout", cmp_type_equal,
+				  DEFAULT_DNS_TIMEOUT) < 0)
+	    goto err;
+    } else if (tu_assure_non_existent_attr(server_sock, "dns.timeout") < 0)
 	goto err;
 
     if (tu_assure_non_existent_attr(server_sock, "dns.algorithm") < 0)
@@ -1039,7 +1052,8 @@ int run_server_dns_non_existent(const char *proto)
     return UTEST_SUCCESS;
 }
 
-int run_dns_test(const char *proto){
+int run_dns_test(const char *proto)
+{
     int rc;
 
     /* these test also makes sure that the syntax validation is not
@@ -3108,7 +3122,6 @@ int run_dns_device_routing(const char *proto)
 
     if (dns_device_candidates(proto, &usable_device, &unusable_device) < 0)
 	return UTEST_NOT_RUN;
-
     /* DNS queries are confined to the device configured, and thus fail
        when the name servers are not reachable over that device */
     CHKINTEQ(dns_device_connect_errno(proto, NULL, unusable_device), ENOENT);
@@ -3124,6 +3137,47 @@ int run_dns_device_routing(const char *proto)
     /* the DNS and IP transport layers may use different devices */
     CHK(dns_device_connect_errno(proto, unusable_device, usable_device) !=
 	ENOENT);
+
+    ut_free(usable_device);
+    ut_free(unusable_device);
+
+    return UTEST_SUCCESS;
+}
+
+/* Verify that a server socket's DNS resolution honors "dns.timeout",
+   by having it resolve a name over a device from which the name
+   servers are unreachable. */
+int run_server_dns_timeout(const char *proto)
+{
+    if (!ip_device_binding_permitted())
+	return UTEST_NOT_RUN;
+
+    char *usable_device;
+    char *unusable_device;
+
+    if (dns_device_candidates(proto, &usable_device, &unusable_device) < 0)
+	return UTEST_NOT_RUN;
+
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:%s:%d", proto, DNS_DEVICE_TEST_NAME,
+	     gen_tcp_port());
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, XCM_ATTR_DNS_DEVICE, unusable_device);
+    xcm_attr_map_add_double(attrs, XCM_ATTR_DNS_TIMEOUT,
+			    SERVER_DNS_TIMEOUT_TEST_TIMEOUT);
+
+    double start = ut_ftime();
+
+    CHK(tu_server_a(addr, attrs) == NULL);
+    CHKERRNOEQ(ENOENT);
+
+    double latency = ut_ftime() - start;
+
+    CHK(latency >= SERVER_DNS_TIMEOUT_TEST_TIMEOUT);
+    CHK(latency < SERVER_DNS_TIMEOUT_TEST_MAX_LATENCY);
+
+    xcm_attr_map_destroy(attrs);
 
     ut_free(usable_device);
     ut_free(unusable_device);

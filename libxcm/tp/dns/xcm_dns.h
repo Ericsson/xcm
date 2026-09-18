@@ -29,8 +29,8 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 
 void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner);
 
-int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
-			 void *log_ref);
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, double timeout,
+			 const char *device, void *log_ref);
 
 bool xcm_dns_is_valid_name(const char *name);
 

@@ -68,6 +68,18 @@ TESTCASE_TIMEOUT_F(xcm_dns, dns_device_routing, 60.0, REQUIRE_PUBLIC_DNS)
 }
 #endif
 
+#ifdef XCM_CARES
+TESTCASE_TIMEOUT_F(xcm_dns, server_dns_timeout, 60.0, REQUIRE_PUBLIC_DNS)
+{
+    int rc;
+
+    if ((rc = run_server_dns_timeout("tcp")) != UTEST_SUCCESS)
+	return rc;
+
+    return run_server_dns_timeout("btcp");
+}
+#endif
+
 TESTCASE_TIMEOUT(xcm_dns, server_dns_non_existent, 30.0)
 {
     int rc;

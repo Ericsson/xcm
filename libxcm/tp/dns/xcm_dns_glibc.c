@@ -277,8 +277,8 @@ void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
     }
 }
 
-int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
-			 void *log_ref)
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, double timeout,
+			 const char *device, void *log_ref)
 {
     char domain_name[strlen(host->name)+1];
     strcpy(domain_name, host->name);

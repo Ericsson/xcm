@@ -38,6 +38,8 @@
 #define DNS_DEVICE_TEST_NAME "example.com"
 #define DNS_DEVICE_TEST_DNS_TIMEOUT (1.0)
 #define DNS_DEVICE_TEST_TCP_TIMEOUT (0.5)
+#define SERVER_DNS_TIMEOUT_TEST_TIMEOUT (2.0)
+#define SERVER_DNS_TIMEOUT_TEST_MAX_LATENCY (5.0)
 #define REQUIRE_ROOT (1U << 0)
 #define REQUIRE_NOT_IN_VALGRIND (1U << 1)
 #define REQUIRE_PUBLIC_DNS (1U << 2)
@@ -265,6 +267,7 @@ int run_ip_device_vrf(const char *proto);
 int run_dns_device_attr(const char *proto);
 #ifdef XCM_CARES
 int run_dns_device_routing(const char *proto);
+int run_server_dns_timeout(const char *proto);
 #endif
 void map_utls_to_ux(const char *utls_addr, char *ux_addr, size_t capacity);
 int handshake_files(const char *server_cert, const char *server_key, const char *server_tc, const char *client_cert, const char *client_key, const char *client_tc, bool success_expected);

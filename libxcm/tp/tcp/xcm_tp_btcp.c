@@ -315,7 +315,8 @@ static void begin_connect(struct xcm_socket *s,
 	    goto err;
 	}
 
-	if (xcm_dns_resolve_sync(&local_host, dns_device(s), s) < 0)
+	if (xcm_dns_resolve_sync(&local_host, bts->dns_opts.timeout,
+				 dns_device(s), s) < 0)
 	    goto err;
 
 	local_ip = &local_ip_data;
@@ -513,7 +514,8 @@ static int btcp_server(struct xcm_socket *s, const char *local_addr)
 
     struct btcp_socket *bts = TOBTCP(s);
 
-    if (xcm_dns_resolve_sync(&host, dns_device(s), s) < 0)
+    if (xcm_dns_resolve_sync(&host, bts->dns_opts.timeout,
+			     dns_device(s), s) < 0)
 	goto err;
 
     bts->fd =
@@ -971,7 +973,9 @@ static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
 {
     struct btcp_socket *bts = TOBTCP(s);
 
-    if (bts->conn.state != conn_state_initialized) {
+    if ((s->type == xcm_socket_type_conn &&
+	 bts->conn.state != conn_state_initialized) ||
+	(s->type == xcm_socket_type_server && bts->server.created)) {
 	errno = EACCES;
 	return -1;
     }
@@ -1189,12 +1193,12 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 		     set_ip_device_attr, get_ip_device_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_DEVICE, s, xcm_attr_type_str,
 		     set_dns_device_attr, get_dns_device_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_TIMEOUT, s, xcm_attr_type_double,
+		     set_dns_timeout_attr, get_dns_timeout_attr);
 }
 
 static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)
 {
-    ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_TIMEOUT, s, xcm_attr_type_double,
-		     set_dns_timeout_attr, get_dns_timeout_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_ALGORITHM, s, xcm_attr_type_str,
 		     set_dns_algorithm_attr, get_dns_algorithm_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_TCP_CONNECT_TIMEOUT, s,
