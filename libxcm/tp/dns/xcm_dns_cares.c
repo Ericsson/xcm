@@ -382,7 +382,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
 
 	if (query_rc == 1)
 	    break;
-	else if (query < 0 && errno != EAGAIN)
+	else if (query_rc < 0 && errno != EAGAIN)
 	    goto out_query_free;
     }
 

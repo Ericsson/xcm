@@ -229,6 +229,7 @@ int check_blocking(struct xcm_socket *s, bool expected);
 int ping_pong(const char *server_addr, int num_clients, int pings_per_client, int max_batch_size, enum server_type server_type, bool lazy_accept);
 int async_ping_pong_proto(const char *server_addr);
 int run_dns_test(const char *proto);
+int run_server_dns_non_existent(const char *proto);
 int run_dns_algorithm_smoke_test(const char *proto, const char *algorithm, const char *dns_name);
 int run_multiple_address_probe_test(const char *proto, const char *algorithm, bool force_server_ipv6, bool expect_ipv6_prio);
 int run_dns_timeout_test(const char *proto);

@@ -1027,8 +1027,19 @@ static int run_dns_immediate_close(const char *proto)
     return UTEST_SUCCESS;
 }
 
-int run_dns_test(const char *proto)
+int run_server_dns_non_existent(const char *proto)
 {
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:surelydoesnotexist.invalid:%d", proto,
+	     gen_tcp_port());
+
+    CHK(tu_server_a(addr, NULL) == NULL);
+    CHKERRNOEQ(ENOENT);
+
+    return UTEST_SUCCESS;
+}
+
+int run_dns_test(const char *proto){
     int rc;
 
     /* these test also makes sure that the syntax validation is not

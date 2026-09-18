@@ -68,6 +68,16 @@ TESTCASE_TIMEOUT_F(xcm_dns, dns_device_routing, 60.0, REQUIRE_PUBLIC_DNS)
 }
 #endif
 
+TESTCASE_TIMEOUT(xcm_dns, server_dns_non_existent, 30.0)
+{
+    int rc;
+
+    if ((rc = run_server_dns_non_existent("tcp")) != UTEST_SUCCESS)
+	return rc;
+
+    return run_server_dns_non_existent("btcp");
+}
+
 TESTCASE_SERIALIZED_F(xcm_dns, dns_algorithm_smoke_test,		      REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
 {
     int i;
