@@ -56,6 +56,7 @@ To build this software the system needs to have the following packages
 * libtool
 * python (3.x, including the cryptography module if TLS is enabled)
 * pytest
+* flake8
 * c-ares (1.16.0 or later)
 * openssl (1.1.1 or 3.x, if UTLS or TLS transports are enabled)
 * lttng-ust (including the dev and tools package) (if LTTng is enabled)
