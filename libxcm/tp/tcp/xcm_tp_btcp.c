@@ -51,6 +51,8 @@ struct btcp_socket
 
     struct ip_device ip_device;
 
+    struct dns_opts dns_opts;
+
     union {
 	struct {
 	    enum conn_state state;
@@ -66,7 +68,6 @@ struct btcp_socket
 	    /* for conn_state_connecting */
 	    struct tconnect *tconnect;
 
-	    struct dns_opts dns_opts;
 	    enum tconnect_algorithm dns_algorithm;
 	    double tcp_connect_timeout;
 	    struct tcp_opts tcp_opts;
@@ -217,20 +218,25 @@ static int btcp_init(struct xcm_socket *s, struct xcm_socket *parent)
     else
 	ip_device_init(&bts->ip_device);
 
+    dns_opts_init(&bts->dns_opts);
+
+    if (!xcm_dns_supports_timeout_param())
+	dns_opts_disable_timeout(&bts->dns_opts);
+
+    if (!xcm_dns_supports_device_param())
+	dns_opts_disable_device(&bts->dns_opts);
+
     if (s->type == xcm_socket_type_conn) {
 	bts->conn.state = conn_state_initialized;
 
 	bts->conn.bell_reg_id =
 	    xpoll_bell_reg_add(s->xpoll, false);
 
-	dns_opts_init(&bts->conn.dns_opts);
-
 	/* Connections spawned from a server socket never use DNS */
-	if (parent != NULL)
-	    dns_opts_disable_timeout(&bts->conn.dns_opts);
-
-	if (!xcm_dns_supports_timeout_param())
-	    dns_opts_disable_timeout(&bts->conn.dns_opts);
+	if (parent != NULL) {
+	    dns_opts_disable_timeout(&bts->dns_opts);
+	    dns_opts_disable_device(&bts->dns_opts);
+	}
 
 	bts->conn.tcp_connect_timeout = -1;
 	tcp_opts_init(&bts->conn.tcp_opts);
@@ -279,6 +285,13 @@ static int conf_scope(struct xcm_socket *s, int64_t *scope,
     return 0;
 }
 
+static const char *dns_device(struct xcm_socket *s)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    return dns_opts_get_device(&bts->dns_opts, &bts->ip_device);
+}
+
 static void try_finish_connect(struct xcm_socket *s);
 
 static void begin_connect(struct xcm_socket *s,
@@ -302,7 +315,7 @@ static void begin_connect(struct xcm_socket *s,
 	    goto err;
 	}
 
-	if (xcm_dns_resolve_sync(&local_host, s) < 0)
+	if (xcm_dns_resolve_sync(&local_host, dns_device(s), s) < 0)
 	    goto err;
 
 	local_ip = &local_ip_data;
@@ -462,7 +475,7 @@ static int btcp_connect(struct xcm_socket *s, const char *remote_addr)
 	BTCP_SET_STATE(s, conn_state_resolving);
 	bts->conn.query =
 	    xcm_dns_resolve(remote_host.name, s->xpoll,
-			    bts->conn.dns_opts.timeout, s);
+			    bts->dns_opts.timeout, dns_device(s), s);
 	if (bts->conn.query == NULL)
 	    goto err;
     } else {
@@ -500,7 +513,7 @@ static int btcp_server(struct xcm_socket *s, const char *local_addr)
 
     struct btcp_socket *bts = TOBTCP(s);
 
-    if (xcm_dns_resolve_sync(&host, s) < 0)
+    if (xcm_dns_resolve_sync(&host, dns_device(s), s) < 0)
 	goto err;
 
     bts->fd =
@@ -966,7 +979,7 @@ static int set_dns_timeout_attr(struct xcm_socket *s, void *context,
     double timeout;
     xcm_tp_set_double_attr(value, len, &timeout);
 
-    if (dns_opts_set_timeout(&bts->conn.dns_opts, timeout) < 0)
+    if (dns_opts_set_timeout(&bts->dns_opts, timeout) < 0)
 	return -1;
 
     return 0;
@@ -978,10 +991,38 @@ static int get_dns_timeout_attr(struct xcm_socket *s, void *context,
     struct btcp_socket *bts = TOBTCP(s);
 
     double timeout;
-    if (dns_opts_get_timeout(&bts->conn.dns_opts, &timeout) < 0)
+    if (dns_opts_get_timeout(&bts->dns_opts, &timeout) < 0)
 	return -1;
 
     return xcm_tp_get_double_attr(timeout, value, capacity);
+}
+
+static int set_dns_device_attr(struct xcm_socket *s, void *context,
+			       const void *value, size_t len)
+{
+    struct btcp_socket *bts = TOBTCP(s);
+
+    if ((s->type == xcm_socket_type_conn &&
+	 bts->conn.state != conn_state_initialized) ||
+	(s->type == xcm_socket_type_server && bts->server.created)) {
+	errno = EACCES;
+	return -1;
+    }
+
+    return dns_opts_set_device(&bts->dns_opts, value);
+}
+
+static int get_dns_device_attr(struct xcm_socket *s, void *context, void *value,
+			       size_t capacity)
+{
+    const char *name = dns_device(s);
+
+    if (name == NULL) {
+	errno = ENOENT;
+	return -1;
+    }
+
+    return xcm_tp_get_str_attr(name, value, capacity);
 }
 
 static int set_dns_algorithm_attr(struct xcm_socket *s, void *context,
@@ -1146,6 +1187,8 @@ static void populate_common(struct xcm_socket *s, struct attr_tree *tree)
 		     set_scope_attr, get_scope_attr);
     ATTR_TREE_ADD_RW(tree, XCM_ATTR_IP_DEVICE, s, xcm_attr_type_str,
 		     set_ip_device_attr, get_ip_device_attr);
+    ATTR_TREE_ADD_RW(tree, XCM_ATTR_DNS_DEVICE, s, xcm_attr_type_str,
+		     set_dns_device_attr, get_dns_device_attr);
 }
 
 static void populate_conn(struct xcm_socket *s, struct attr_tree *tree)

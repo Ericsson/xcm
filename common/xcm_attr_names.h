@@ -35,6 +35,7 @@
 
 #define XCM_ATTR_DNS_TIMEOUT "dns.timeout"
 #define XCM_ATTR_DNS_ALGORITHM "dns.algorithm"
+#define XCM_ATTR_DNS_DEVICE "dns.device"
 
 /* TCP-level attributes */
 

@@ -289,6 +289,14 @@ extern "C" {
  * Binding a socket to a Virtual Routing and Forwarding (VRF) device is
  * the means to confine a socket to a particular VRF.
  *
+ * Name resolution is by default performed in the same network device
+ * context as the IP transport layer uses, with SO_BINDTODEVICE being
+ * applied to the resolver's sockets. An application may override this
+ * by means of the "dns.device" attribute; in particular, setting it to
+ * the empty string leaves DNS queries in the default routing context,
+ * while the connection itself remains bound to the device denoted by
+ * "ip.device". See @ref dns_attr for details.
+ *
  * The SCTP transport does not support network device selection.
  *
  * @section dpd Dead Peer Detection
@@ -1108,6 +1116,7 @@ extern "C" {
  * ----------------|-------------|------------|------|------------
  * dns.algorithm   | Connection  | String     | RW   | The algorithm used for connecting to IP addresses retrieved from DNS. Must take on the value "single", "sequential", or "happy_eyeballs". See @ref dns_algorithm_attr for more information. Writable only at the time of the xcm_connect_a() call.
  * dns.timeout     | Connection  | Double     | RW   | The time (in s) until DNS resolution times out. Writable only at the time of the xcm_connect_a() call. The timeout covers the complete DNS resolution process (as opposed to a particular query-response transaction). Only available when the library is built with the c-ares DNS resolver.
+ * dns.device      | All         | String     | RW   | The name of the Linux network device (e.g., a VRF device) to which the sockets used for DNS queries are bound. Writable only at socket creation. If left unset, the value of "ip.device" is used. If set to the empty string, the queries are left in the default routing context of the network namespace, even though the IP transport layer may use a particular device. Only available when the library is built with the c-ares DNS resolver. See @ref net_device for more information.
  *
  * @subsubsection tcp_attr TCP Socket Attributes
  *

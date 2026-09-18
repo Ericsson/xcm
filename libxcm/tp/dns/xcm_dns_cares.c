@@ -5,6 +5,7 @@
 
 #include "xcm_dns.h"
 
+#include "ip_attr.h"
 #include "log_dns.h"
 #include "timer_mgr.h"
 #include "util.h"
@@ -176,8 +177,16 @@ static void query_cb(void *arg, int status, int timeouts,
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
 				      struct xpoll *xpoll,
-				      double timeout, void *log_ref)
+				      double timeout, const char *device,
+				      void *log_ref)
 {
+    /* c-ares ignores a failing SO_BINDTODEVICE, which would leave the
+       queries to be routed in the default context */
+    if (device != NULL && ip_device_check(device) < 0) {
+	LOG_DNS_DEVICE_UNUSABLE(log_ref, device, errno);
+	return NULL;
+    }
+
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
 
     if (timeout <= 0)
@@ -220,6 +229,11 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
 	goto err;
     } else if (rc != ARES_SUCCESS)
 	ut_mem_exhausted(); /* out of memory or failed to initialize library */
+
+    if (device != NULL) {
+	ares_set_local_dev(query->channel, device);
+	LOG_DNS_DEVICE(log_ref, device);
+    }
 
     LOG_DNS_RESOLUTION_ATTEMPT_TIMEOUT(log_ref, domain_name, timeout);
 
@@ -332,7 +346,8 @@ void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
     }
 }
 
-int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
+			 void *log_ref)
 {
     if (host->type == xcm_addr_type_ip)
 	return 0;
@@ -345,7 +360,7 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 	goto out;
 
     struct xcm_dns_query *query =
-	xcm_dns_resolve(host->name, xpoll, SYNC_DNS_TIMEOUT, log_ref);
+	xcm_dns_resolve(host->name, xpoll, SYNC_DNS_TIMEOUT, device, log_ref);
 
     if (query == NULL)
 	goto out_destroy_xpoll;
@@ -383,6 +398,11 @@ out:
 }
 
 bool xcm_dns_supports_timeout_param(void)
+{
+    return true;
+}
+
+bool xcm_dns_supports_device_param(void)
 {
     return true;
 }

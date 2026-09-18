@@ -35,6 +35,9 @@
 #define TEST_NS1_IP "10.42.42.2"
 #define TEST_VRF_NAME "xcmvrf0"
 #define TEST_VRF_TABLE (4242)
+#define DNS_DEVICE_TEST_NAME "example.com"
+#define DNS_DEVICE_TEST_DNS_TIMEOUT (1.0)
+#define DNS_DEVICE_TEST_TCP_TIMEOUT (0.5)
 #define REQUIRE_ROOT (1U << 0)
 #define REQUIRE_NOT_IN_VALGRIND (1U << 1)
 #define REQUIRE_PUBLIC_DNS (1U << 2)
@@ -258,6 +261,10 @@ bool ip_device_binding_permitted(void);
 int run_ip_device_attr(const char *proto);
 int run_ip_device_attr_conn(const char *proto);
 int run_ip_device_vrf(const char *proto);
+int run_dns_device_attr(const char *proto);
+#ifdef XCM_CARES
+int run_dns_device_routing(const char *proto);
+#endif
 void map_utls_to_ux(const char *utls_addr, char *ux_addr, size_t capacity);
 int handshake_files(const char *server_cert, const char *server_key, const char *server_tc, const char *client_cert, const char *client_key, const char *client_tc, bool success_expected);
 int handshake_attrs(const char *server_cert_dir, struct xcm_attr_map *extra_server_attrs, const char *client_cert_dir, struct xcm_attr_map *extra_client_attrs, bool success_expected);

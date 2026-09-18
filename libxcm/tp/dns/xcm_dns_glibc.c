@@ -148,7 +148,8 @@ static void try_retrieve_query_result(struct xcm_dns_query *query)
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
 				      struct xpoll *xpoll,
-				      double timeout, void *log_ref)
+				      double timeout, const char *device,
+				      void *log_ref)
 {
     struct xcm_dns_query *query = ut_malloc(sizeof(struct xcm_dns_query));
     query->request = ut_malloc(sizeof(struct gaicb));
@@ -276,7 +277,8 @@ void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
     }
 }
 
-int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
+			 void *log_ref)
 {
     char domain_name[strlen(host->name)+1];
     strcpy(domain_name, host->name);
@@ -309,6 +311,11 @@ int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref)
 }
 
 bool xcm_dns_supports_timeout_param(void)
+{
+    return false;
+}
+
+bool xcm_dns_supports_device_param(void)
 {
     return false;
 }

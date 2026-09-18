@@ -49,8 +49,26 @@ TESTCASE_SERIALIZED_F(xcm_dns, dns, REQUIRE_PUBLIC_DNS)
     return UTEST_SUCCESS;
 }
 
-TESTCASE_SERIALIZED_F(xcm_dns, dns_algorithm_smoke_test,
-		      REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
+TESTCASE(xcm_dns, dns_device_attr)
+{
+    size_t i;
+    for (i = 0; i < tcp_based_protos_len; i++) {
+	int rc = run_dns_device_attr(tcp_based_protos[i]);
+	if (rc != UTEST_SUCCESS)
+	    return rc;
+    }
+
+    return UTEST_SUCCESS;
+}
+
+#ifdef XCM_CARES
+TESTCASE_TIMEOUT_F(xcm_dns, dns_device_routing, 60.0, REQUIRE_PUBLIC_DNS)
+{
+    return run_dns_device_routing("tcp");
+}
+#endif
+
+TESTCASE_SERIALIZED_F(xcm_dns, dns_algorithm_smoke_test,		      REQUIRE_PUBLIC_DNS|REQUIRE_ROOT)
 {
     int i;
     for (i = 0; i < dns_supporting_transports_len; i++) {

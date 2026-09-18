@@ -331,6 +331,8 @@ static int check_dns_attrs(struct xcm_socket *server_sock,
 	return -1;
     if (tu_assure_non_existent_attr(accepted_sock, "dns.algorithm") < 0)
 	return -1;
+    if (tu_assure_non_existent_attr(accepted_sock, "dns.device") < 0)
+	return -1;
 
     if (tu_assure_str_attr(connect_sock, "dns.algorithm", "single") < 0)
 	return -1;
@@ -2804,6 +2806,322 @@ int run_ipv6_link_local(const char *proto)
 }
 
 
+/* Linux 5.7 and later allows SO_BINDTODEVICE also for processes
+   without the CAP_NET_RAW capability */
+bool ip_device_binding_permitted(void)
+{
+    return ip_device_check("lo") == 0;
+}
+
+static int establish_w_attrs(const char *addr,
+			     const struct xcm_attr_map *server_attrs,
+			     const struct xcm_attr_map *accept_attrs,
+			     const struct xcm_attr_map *connect_attrs,
+			     struct xcm_socket **server_sock,
+			     struct xcm_socket **accepted_sock,
+			     struct xcm_socket **conn_sock)
+{
+    *server_sock = tu_server_a(addr, server_attrs);
+    if (*server_sock == NULL)
+	return -1;
+
+    if (xcm_set_blocking(*server_sock, false) < 0)
+	return -1;
+
+    const char *actual_addr = xcm_local_addr(*server_sock);
+    if (actual_addr == NULL)
+	return -1;
+
+    char connect_addr[512];
+    strcpy(connect_addr, actual_addr);
+
+    *conn_sock = tu_connect_a(connect_addr, connect_attrs);
+    if (*conn_sock == NULL)
+	return -1;
+
+    *accepted_sock = NULL;
+
+    int i;
+    for (i = 0; i < SUCCESSFUL_CONNECT_RETRIES; i++) {
+	xcm_finish(*server_sock);
+	xcm_finish(*conn_sock);
+
+	*accepted_sock = xcm_accept_a(*server_sock, accept_attrs);
+
+	if (*accepted_sock != NULL)
+	    break;
+
+	if (errno != EAGAIN)
+	    return -1;
+
+	tu_msleep(1);
+    }
+
+    if (*accepted_sock == NULL)
+	return -1;
+
+    if (wait_until_finished(*conn_sock, SUCCESSFUL_CONNECT_RETRIES) < 0)
+	return -1;
+
+    return 0;
+}
+
+int run_dns_device_attr(const char *proto)
+{
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:127.0.0.1:0", proto);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, XCM_ATTR_XCM_BLOCKING, false);
+
+    struct xcm_socket *server_sock = tu_server_a(addr, attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(tu_assure_non_existent_attr(server_sock, XCM_ATTR_DNS_DEVICE));
+
+    char server_addr[512];
+    strcpy(server_addr, xcm_local_addr(server_sock));
+
+    CHKNOERR(xcm_close(server_sock));
+
+#ifndef XCM_CARES
+    xcm_attr_map_add_str(attrs, XCM_ATTR_DNS_DEVICE, "lo");
+
+    CHK(tu_server_a(addr, attrs) == NULL);
+    CHKERRNOEQ(ENOENT);
+
+    xcm_attr_map_destroy(attrs);
+
+    return UTEST_SUCCESS;
+#else
+    char too_long_name[IFNAMSIZ + 1];
+    memset(too_long_name, 'x', sizeof(too_long_name) - 1);
+    too_long_name[sizeof(too_long_name) - 1] = '\0';
+
+    struct xcm_attr_map *bad_attrs = xcm_attr_map_clone(attrs);
+    xcm_attr_map_add_str(bad_attrs, XCM_ATTR_DNS_DEVICE, too_long_name);
+
+    CHK(tu_server_a(addr, bad_attrs) == NULL);
+    CHKERRNOEQ(EINVAL);
+
+    xcm_attr_map_destroy(bad_attrs);
+
+    /* an unset DNS device defaults to the IP transport device */
+    struct xcm_attr_map *ip_attrs = xcm_attr_map_clone(attrs);
+    xcm_attr_map_add_str(ip_attrs, XCM_ATTR_IP_DEVICE, "lo");
+
+    server_sock = tu_server_a(addr, ip_attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(tu_assure_str_attr(server_sock, XCM_ATTR_DNS_DEVICE, "lo"));
+    CHKERRNO(xcm_attr_set_str(server_sock, XCM_ATTR_DNS_DEVICE, "lo"), EACCES);
+
+    CHKNOERR(xcm_close(server_sock));
+
+    /* an explicitly empty DNS device denotes the default routing
+       context, even though the IP transport layer uses a device */
+    struct xcm_attr_map *empty_attrs = xcm_attr_map_clone(ip_attrs);
+    xcm_attr_map_add_str(empty_attrs, XCM_ATTR_DNS_DEVICE, "");
+
+    server_sock = tu_server_a(addr, empty_attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(tu_assure_non_existent_attr(server_sock, XCM_ATTR_DNS_DEVICE));
+
+    CHKNOERR(xcm_close(server_sock));
+    xcm_attr_map_destroy(empty_attrs);
+
+    /* the DNS layer may use a different device than the IP transport
+       layer */
+    struct xcm_attr_map *other_attrs = xcm_attr_map_clone(ip_attrs);
+    xcm_attr_map_add_str(other_attrs, XCM_ATTR_DNS_DEVICE, "xcmnonexistent0");
+
+    server_sock = tu_server_a(addr, other_attrs);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(tu_assure_str_attr(server_sock, XCM_ATTR_DNS_DEVICE,
+				"xcmnonexistent0"));
+
+    CHKNOERR(xcm_close(server_sock));
+    xcm_attr_map_destroy(other_attrs);
+    xcm_attr_map_destroy(ip_attrs);
+
+    /* connection sockets spawned from a server socket never use DNS */
+    if (strcmp(proto, "utls") != 0) {
+	struct xcm_attr_map *accept_attrs = xcm_attr_map_clone(attrs);
+	xcm_attr_map_add_str(accept_attrs, XCM_ATTR_DNS_DEVICE, "lo");
+
+	server_sock = tu_server_a(addr, attrs);
+	CHK(server_sock != NULL);
+
+	struct xcm_socket *conn_sock =
+	    tu_connect_a(xcm_local_addr(server_sock), attrs);
+	CHK(conn_sock != NULL);
+
+	struct xcm_socket *accepted_sock;
+	do {
+	    xcm_finish(server_sock);
+	    xcm_finish(conn_sock);
+
+	    accepted_sock = xcm_accept_a(server_sock, accept_attrs);
+	} while (accepted_sock == NULL && errno == EAGAIN);
+
+	CHK(accepted_sock == NULL);
+	CHKERRNOEQ(ENOENT);
+
+	xcm_attr_map_destroy(accept_attrs);
+
+	do {
+	    xcm_finish(server_sock);
+	    xcm_finish(conn_sock);
+
+	    accepted_sock = xcm_accept_a(server_sock, attrs);
+	} while (accepted_sock == NULL && errno == EAGAIN);
+
+	CHK(accepted_sock != NULL);
+
+	CHKNOERR(tu_assure_non_existent_attr(accepted_sock,
+					     XCM_ATTR_DNS_DEVICE));
+
+	CHKNOERR(xcm_close(conn_sock));
+	CHKNOERR(xcm_close(accepted_sock));
+	CHKNOERR(xcm_close(server_sock));
+    }
+
+    xcm_attr_map_destroy(attrs);
+
+    return UTEST_SUCCESS;
+#endif
+}
+
+#ifdef XCM_CARES
+
+static int dns_device_connect_errno(const char *proto, const char *ip_device,
+				    const char *dns_device)
+{
+    char addr[512];
+    snprintf(addr, sizeof(addr), "%s:%s:%d", proto, DNS_DEVICE_TEST_NAME,
+	     gen_tcp_port());
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_bool(attrs, XCM_ATTR_XCM_BLOCKING, true);
+    xcm_attr_map_add_double(attrs, XCM_ATTR_DNS_TIMEOUT,
+			    DNS_DEVICE_TEST_DNS_TIMEOUT);
+    xcm_attr_map_add_double(attrs, XCM_ATTR_TCP_CONNECT_TIMEOUT,
+			    DNS_DEVICE_TEST_TCP_TIMEOUT);
+
+    if (ip_device != NULL)
+	xcm_attr_map_add_str(attrs, XCM_ATTR_IP_DEVICE, ip_device);
+
+    if (dns_device != NULL)
+	xcm_attr_map_add_str(attrs, XCM_ATTR_DNS_DEVICE, dns_device);
+
+    struct xcm_socket *conn = tu_connect_a(addr, attrs);
+
+    int conn_errno = conn == NULL ? errno : 0;
+
+    if (conn != NULL)
+	xcm_close(conn);
+
+    xcm_attr_map_destroy(attrs);
+
+    return conn_errno;
+}
+
+static bool dns_reachable_over(const char *proto, const char *device)
+{
+    return dns_device_connect_errno(proto, NULL, device) != ENOENT;
+}
+
+static char *first_non_loopback_device(void)
+{
+    struct if_nameindex *devices = if_nameindex();
+
+    if (devices == NULL)
+	return NULL;
+
+    char *name = NULL;
+
+    struct if_nameindex *device;
+    for (device = devices; device->if_index != 0; device++)
+	if (strcmp(device->if_name, "lo") != 0) {
+	    name = ut_strdup(device->if_name);
+	    break;
+	}
+
+    if_freenameindex(devices);
+
+    return name;
+}
+
+/* Determine one network device over which the configured name servers
+   are reachable, and one over which they are not. Which is which
+   depends on the host's resolver configuration. */
+static int dns_device_candidates(const char *proto, char **usable_device,
+				 char **unusable_device)
+{
+    *usable_device = NULL;
+    *unusable_device = NULL;
+
+    char *other = first_non_loopback_device();
+
+    if (other == NULL)
+	return -1;
+
+    char **lo_slot = dns_reachable_over(proto, "lo") ?
+	usable_device : unusable_device;
+    *lo_slot = ut_strdup("lo");
+
+    char **other_slot = dns_reachable_over(proto, other) ?
+	usable_device : unusable_device;
+
+    if (*other_slot != NULL) {
+	ut_free(other);
+	ut_free(*lo_slot);
+	*lo_slot = NULL;
+	return -1;
+    }
+
+    *other_slot = other;
+
+    return 0;
+}
+
+int run_dns_device_routing(const char *proto)
+{
+    if (!ip_device_binding_permitted())
+	return UTEST_NOT_RUN;
+
+    char *usable_device;
+    char *unusable_device;
+
+    if (dns_device_candidates(proto, &usable_device, &unusable_device) < 0)
+	return UTEST_NOT_RUN;
+
+    /* DNS queries are confined to the device configured, and thus fail
+       when the name servers are not reachable over that device */
+    CHKINTEQ(dns_device_connect_errno(proto, NULL, unusable_device), ENOENT);
+    CHK(dns_device_connect_errno(proto, NULL, usable_device) != ENOENT);
+
+    /* the DNS device defaults to the IP transport device */
+    CHKINTEQ(dns_device_connect_errno(proto, unusable_device, NULL), ENOENT);
+
+    /* an empty DNS device leaves name resolution in the default
+       routing context, while the connection remains bound to a device */
+    CHK(dns_device_connect_errno(proto, unusable_device, "") != ENOENT);
+
+    /* the DNS and IP transport layers may use different devices */
+    CHK(dns_device_connect_errno(proto, unusable_device, usable_device) !=
+	ENOENT);
+
+    ut_free(usable_device);
+    ut_free(unusable_device);
+
+    return UTEST_SUCCESS;
+}
+
+#endif
+
 int run_ip_device_vrf(const char *proto)
 {
     struct tnet *net = tnet_create();
@@ -2934,66 +3252,6 @@ int run_disallow_bind_on_accept(const char *client_proto,
     CHKNOERR(xcm_close(server_sock));
 
     return UTEST_SUCCESS;
-}
-
-/* Linux 5.7 and later allows SO_BINDTODEVICE also for processes
-   without the CAP_NET_RAW capability */
-bool ip_device_binding_permitted(void)
-{
-    return ip_device_check("lo") == 0;
-}
-
-static int establish_w_attrs(const char *addr,
-			     const struct xcm_attr_map *server_attrs,
-			     const struct xcm_attr_map *accept_attrs,
-			     const struct xcm_attr_map *connect_attrs,
-			     struct xcm_socket **server_sock,
-			     struct xcm_socket **accepted_sock,
-			     struct xcm_socket **conn_sock)
-{
-    *server_sock = tu_server_a(addr, server_attrs);
-    if (*server_sock == NULL)
-	return -1;
-
-    if (xcm_set_blocking(*server_sock, false) < 0)
-	return -1;
-
-    const char *actual_addr = xcm_local_addr(*server_sock);
-    if (actual_addr == NULL)
-	return -1;
-
-    char connect_addr[512];
-    strcpy(connect_addr, actual_addr);
-
-    *conn_sock = tu_connect_a(connect_addr, connect_attrs);
-    if (*conn_sock == NULL)
-	return -1;
-
-    *accepted_sock = NULL;
-
-    int i;
-    for (i = 0; i < SUCCESSFUL_CONNECT_RETRIES; i++) {
-	xcm_finish(*server_sock);
-	xcm_finish(*conn_sock);
-
-	*accepted_sock = xcm_accept_a(*server_sock, accept_attrs);
-
-	if (*accepted_sock != NULL)
-	    break;
-
-	if (errno != EAGAIN)
-	    return -1;
-
-	tu_msleep(1);
-    }
-
-    if (*accepted_sock == NULL)
-	return -1;
-
-    if (wait_until_finished(*conn_sock, SUCCESSFUL_CONNECT_RETRIES) < 0)
-	return -1;
-
-    return 0;
 }
 
 int run_ip_device_attr(const char *proto)
@@ -4443,6 +4701,7 @@ int shared_tc_basic(void)
 	if (is_tcp_based(laddr)) {
 	    CHKNOERR(tu_assure_str_attr(client_conn, "dns.algorithm", "single"));
 	    CHKNOERR(tu_assure_non_existent_attr(client_conn, "ip.device"));
+	    CHKNOERR(tu_assure_non_existent_attr(client_conn, "dns.device"));
 	}
 
 	if (is_utls(test_addr)) {

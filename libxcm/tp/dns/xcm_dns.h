@@ -18,7 +18,7 @@ struct xcm_dns_query;
 
 struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
 				      struct xpoll *xpoll, double timeout,
-				      void *log_ref);
+				      const char *device, void *log_ref);
 
 bool xcm_dns_query_completed(struct xcm_dns_query *query);
 
@@ -29,10 +29,13 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 
 void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner);
 
-int xcm_dns_resolve_sync(struct xcm_addr_host *host, void *log_ref);
+int xcm_dns_resolve_sync(struct xcm_addr_host *host, const char *device,
+			 void *log_ref);
 
 bool xcm_dns_is_valid_name(const char *name);
 
 bool xcm_dns_supports_timeout_param(void);
+
+bool xcm_dns_supports_device_param(void);
 
 #endif

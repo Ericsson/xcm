@@ -42,4 +42,12 @@
     log_debug_sock(s, "Early cancellation of asynchronous DNS resolution for " \
 		   "\"%s\". Likely triggered glic memory leak.", domain_name)
 
+#define LOG_DNS_DEVICE(s, device)					\
+    log_debug_sock(s, "Binding DNS queries to network device \"%s\".", device)
+
+#define LOG_DNS_DEVICE_UNUSABLE(s, device, reason_errno)		\
+    log_debug_sock(s, "Network device \"%s\" cannot be used for DNS "	\
+		   "queries; errno %d (%s).", device, reason_errno,	\
+		   strerror(reason_errno))
+
 #endif
