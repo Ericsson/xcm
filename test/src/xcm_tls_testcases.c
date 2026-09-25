@@ -2964,6 +2964,177 @@ TESTCASE(xcm_tls, garbled_tls_input)
 #endif
 
 #ifdef XCM_TLS
+
+TESTCASE_TIMEOUT(xcm_tls, btls_finish_completes_buffered_send, 60)
+{
+    char *tls_addr = gen_tls_addr();
+    char btls_addr[strlen(tls_addr) + 2];
+    snprintf(btls_addr, sizeof(btls_addr), "b%s", tls_addr);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "bytestream");
+
+    struct xcm_socket *server_sock = xcm_server_a(btls_addr, attrs);
+    CHK(server_sock != NULL);
+
+    pid_t pid = fork();
+    CHKNOERR(pid);
+
+    if (pid == 0) {
+	struct xcm_socket *conn = xcm_accept_a(server_sock, attrs);
+	if (conn == NULL)
+	    _exit(1);
+
+	/* read slowly, to keep the sender's transport full */
+	char buf[4096];
+	for (;;) {
+	    int rc = xcm_receive(conn, buf, sizeof(buf));
+	    if (rc == 0 || (rc < 0 && errno != EAGAIN))
+		break;
+	    tu_msleep(1);
+	}
+
+	xcm_close(conn);
+
+	_exit(0);
+    }
+
+    CHKNOERR(xcm_close(server_sock));
+
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+    struct xcm_socket *conn = xcm_connect_a(btls_addr, attrs);
+    CHK(conn != NULL);
+
+    while (xcm_finish(conn) < 0)
+	CHKERRNOEQ(EAGAIN);
+
+    char data[65536];
+    tu_randblk(data, sizeof(data));
+
+    /* fill the transport, leaving data buffered within XCM */
+    for (;;) {
+	int rc = xcm_send(conn, data, sizeof(data));
+	if (rc < 0) {
+	    CHKERRNOEQ(EAGAIN);
+	    break;
+	}
+    }
+
+    /* complete the send the way a blocking socket does */
+    int rc;
+    while ((rc = xcm_finish(conn)) < 0) {
+	CHKERRNOEQ(EAGAIN);
+
+	CHKNOERR(xcm_await(conn, 0));
+
+	struct pollfd pfd = {
+	    .fd = xcm_fd(conn),
+	    .events = POLLIN
+	};
+	CHKINTEQ(poll(&pfd, 1, -1), 1);
+    }
+
+    CHKNOERR(xcm_close(conn));
+
+    CHKNOERR(tu_wait(pid));
+
+    xcm_attr_map_destroy(attrs);
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+#endif
+
+#ifdef XCM_TLS
+
+/* The peer may well not send anything until it has received what is
+   still buffered, so a buffered send must be completed even while the
+   application only awaits incoming data. */
+TESTCASE_TIMEOUT(xcm_tls, btls_buffered_send_awaits_writability, 60)
+{
+    char *tls_addr = gen_tls_addr();
+    char btls_addr[strlen(tls_addr) + 2];
+    snprintf(btls_addr, sizeof(btls_addr), "b%s", tls_addr);
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    xcm_attr_map_add_str(attrs, "xcm.service", "bytestream");
+
+    struct xcm_socket *server_sock = xcm_server_a(btls_addr, attrs);
+    CHK(server_sock != NULL);
+
+    pid_t pid = fork();
+    CHKNOERR(pid);
+
+    if (pid == 0) {
+	struct xcm_socket *conn = xcm_accept_a(server_sock, attrs);
+	if (conn == NULL)
+	    _exit(1);
+
+	/* leave the sender's transport full for a while */
+	tu_msleep(500);
+
+	char buf[4096];
+	for (;;) {
+	    int rc = xcm_receive(conn, buf, sizeof(buf));
+	    if (rc == 0 || (rc < 0 && errno != EAGAIN))
+		break;
+	    tu_msleep(1);
+	}
+
+	xcm_close(conn);
+
+	_exit(0);
+    }
+
+    CHKNOERR(xcm_close(server_sock));
+
+    xcm_attr_map_add_bool(attrs, "xcm.blocking", false);
+
+    struct xcm_socket *conn = xcm_connect_a(btls_addr, attrs);
+    CHK(conn != NULL);
+
+    while (xcm_finish(conn) < 0)
+	CHKERRNOEQ(EAGAIN);
+
+    char data[65536];
+    tu_randblk(data, sizeof(data));
+
+    for (;;) {
+	int rc = xcm_send(conn, data, sizeof(data));
+	if (rc < 0) {
+	    CHKERRNOEQ(EAGAIN);
+	    break;
+	}
+    }
+
+    /* the last operation leaves the socket wanting to read */
+    char rbuf[64];
+    CHKERRNO(xcm_receive(conn, rbuf, sizeof(rbuf)), EAGAIN);
+
+    /* the peer sends nothing, so only XCM awaiting transport
+       writability can wake this up */
+    CHKNOERR(xcm_await(conn, XCM_SO_RECEIVABLE));
+
+    struct pollfd pfd = {
+	.fd = xcm_fd(conn),
+	.events = POLLIN
+    };
+    CHKINTEQ(poll(&pfd, 1, 5000), 1);
+
+    CHKNOERR(xcm_close(conn));
+
+    CHKNOERR(tu_wait(pid));
+
+    xcm_attr_map_destroy(attrs);
+    ut_free(tls_addr);
+
+    return UTEST_SUCCESS;
+}
+
+#endif
+#ifdef XCM_TLS
 TESTCASE(xcm_tls, tls_multi_record_message)
 {
     char *tls_addr = gen_tls_addr();

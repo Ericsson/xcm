@@ -117,6 +117,9 @@ struct btls_socket
 	    int ssl_condition;
 	    int ssl_wants;
 
+	    char *send_retry_buf;
+	    size_t send_retry_buf_len;
+
 	    char raddr[XCM_ADDR_MAX+1];
 
 	    int64_t cnts[XCM_TP_NUM_MESSAGING_CNTS];
@@ -419,6 +422,8 @@ static void conn_deinit(struct xcm_socket *s, bool owner)
     struct btls_socket *bts = TOBTLS(s);
 
     SSL_free(bts->conn.ssl);
+
+    ut_free(bts->conn.send_retry_buf);
 
     if (owner)
 	xpoll_bell_reg_del(s->xpoll, bts->conn.bell_reg_id);
@@ -1199,6 +1204,71 @@ err_deinit:
     return -1;
 }
 
+static void retry_buf_add(struct xcm_socket *s, const void *buf, size_t len)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    ut_assert(len <= SSL3_RT_MAX_PLAIN_LENGTH);
+    ut_assert(bts->conn.send_retry_buf == NULL);
+
+    bts->conn.send_retry_buf = ut_memdup(buf, len);
+    bts->conn.send_retry_buf_len = len;
+}
+
+static int do_ssl_write(struct xcm_socket *s, const void *buf, size_t len)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    bts->conn.ssl_condition = 0;
+    bts->conn.ssl_wants = 0;
+
+    ERR_clear_error();
+
+    UT_SAVE_ERRNO;
+    int rc = SSL_write(bts->conn.ssl, buf, len);
+    UT_RESTORE_ERRNO(write_errno);
+
+    if (rc > 0) {
+	LOG_LOWER_DELIVERED_PART(s, rc);
+	XCM_TP_CNT_BYTES_INC(bts->conn.cnts, to_lower, rc);
+
+	return rc;
+    }
+
+    if (rc == 0)
+	process_ssl_close(s);
+    else
+	process_ssl_event(s, XCM_SO_SENDABLE, rc, write_errno);
+
+    return rc;
+}
+
+/* OpenSSL requires an incomplete SSL_write() to be repeated unchanged */
+static int try_finish_send(struct xcm_socket *s)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    if (bts->conn.send_retry_buf_len == 0)
+	return 0;
+
+    int rc = do_ssl_write(s, bts->conn.send_retry_buf,
+			  bts->conn.send_retry_buf_len);
+
+    if (rc <= 0) {
+	errno = EAGAIN;
+	return -1;
+    }
+
+    /* the buffer holds at most one record, which OpenSSL accepts in full */
+    ut_assert((size_t)rc == bts->conn.send_retry_buf_len);
+
+    ut_free(bts->conn.send_retry_buf);
+    bts->conn.send_retry_buf = NULL;
+    bts->conn.send_retry_buf_len = 0;
+
+    return 0;
+}
+
 static int btls_send(struct xcm_socket *__restrict s,
 		     const void *__restrict buf, size_t len)
 {
@@ -1219,33 +1289,36 @@ static int btls_send(struct xcm_socket *__restrict s,
     if (len == 0)
 	return 0;
 
-    bts->conn.ssl_condition = 0;
-    bts->conn.ssl_wants = 0;
+    if (try_finish_send(s) < 0) {
+	TP_RET_ERR_IF_STATE(s, bts, conn_state_closed, EPIPE);
+	TP_RET_ERR_IF_STATE(s, bts, conn_state_bad, bts->conn.badness_reason);
+	errno = EAGAIN;
+	return -1;
+    }
 
-    ERR_clear_error();
-
-    UT_SAVE_ERRNO;
-    int rc = SSL_write(bts->conn.ssl, buf, len);
-    UT_RESTORE_ERRNO(write_errno);
+    int rc = do_ssl_write(s, buf, len);
 
     if (rc > 0) {
 	LOG_SEND_ACCEPTED(s, buf, (size_t)rc);
 	XCM_TP_CNT_BYTES_INC(bts->conn.cnts, from_app, rc);
 
-	LOG_LOWER_DELIVERED_PART(s, rc);
-	XCM_TP_CNT_BYTES_INC(bts->conn.cnts, to_lower, rc);
-
 	return rc;
     }
-
-    if (rc == 0)
-	process_ssl_close(s);
-    else
-	process_ssl_event(s, XCM_SO_SENDABLE, rc, write_errno);
 
     TP_RET_ERR_IF_STATE(s, bts, conn_state_closed, EPIPE);
 
     TP_RET_ERR_IF_STATE(s, bts, conn_state_bad, bts->conn.badness_reason);
+
+    if (bts->conn.ssl_wants != 0) {
+	size_t accepted = UT_MIN(len, SSL3_RT_MAX_PLAIN_LENGTH);
+
+	retry_buf_add(s, buf, accepted);
+
+	LOG_SEND_ACCEPTED(s, buf, accepted);
+	XCM_TP_CNT_BYTES_INC(bts->conn.cnts, from_app, accepted);
+
+	return accepted;
+    }
 
     errno = EAGAIN;
 
@@ -1268,6 +1341,11 @@ static int btls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
     TP_RET_IF_STATE(bts, conn_state_closed, 0);
 
     TP_RET_ERR_UNLESS_STATE(s, bts, conn_state_ready, EAGAIN);
+
+    try_finish_send(s);
+
+    TP_RET_ERR_IF_STATE(s, bts, conn_state_closed, EPIPE);
+    TP_RET_ERR_IF_STATE(s, bts, conn_state_bad, bts->conn.badness_reason);
 
     bts->conn.ssl_condition = 0;
     bts->conn.ssl_wants = 0;
@@ -1312,40 +1390,44 @@ static void conn_update(struct xcm_socket *s)
 	bts->btcp_socket->condition = bts->conn.ssl_wants;
 	break;
     case conn_state_ready:
-	if (s->condition == 0)
-	    break;
-	else if (s->condition&XCM_SO_RECEIVABLE &&
-		 SSL_has_pending(bts->conn.ssl))
-	    ready = true;
-	else if (bts->conn.ssl_condition == 0)
-	     /* No SSL_read()/write() issued */
-	    ready = true;
-	else if (s->condition == bts->conn.ssl_condition)
-	    bts->btcp_socket->condition = bts->conn.ssl_wants;
-	else if (s->condition == (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE)) {
-	    if (SSL_has_pending(bts->conn.ssl))
+	if (s->condition != 0) {
+	    if (s->condition&XCM_SO_RECEIVABLE &&
+		SSL_has_pending(bts->conn.ssl))
 		ready = true;
-	    else if (bts->conn.ssl_condition == XCM_SO_SENDABLE) {
-		/* SSL_write() has been attempted */
-		if (bts->conn.ssl_wants == XCM_SO_RECEIVABLE)
-		     /* reneg */
-		    bts->btcp_socket->condition = XCM_SO_RECEIVABLE;
-		else if (bts->conn.ssl_wants == XCM_SO_SENDABLE)
-		    /* backpressure */
+	    else if (bts->conn.ssl_condition == 0)
+		/* No SSL_read()/write() issued */
+		ready = true;
+	    else if (s->condition == bts->conn.ssl_condition)
+		bts->btcp_socket->condition = bts->conn.ssl_wants;
+	    else if (s->condition == (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE)) {
+		if (SSL_has_pending(bts->conn.ssl))
+		    ready = true;
+		else if (bts->conn.ssl_condition == XCM_SO_SENDABLE) {
+		    /* SSL_write() has been attempted */
+		    if (bts->conn.ssl_wants == XCM_SO_RECEIVABLE)
+			/* reneg */
+			bts->btcp_socket->condition = XCM_SO_RECEIVABLE;
+		    else if (bts->conn.ssl_wants == XCM_SO_SENDABLE)
+			/* backpressure */
+			bts->btcp_socket->condition =
+			    (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
+		} else {
+		    /* The TLS connection is waiting for some in-band
+		       signaling to occur, which shouldn't really happen
+		       since renegotiation is disabled. */
 		    bts->btcp_socket->condition =
 			(XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
-	    } else {
-		/* The TLS connection is waiting for some in-band
-		   signaling to occur, which shouldn't really happen
-		   since renegotiation is disabled. */
-		bts->btcp_socket->condition =
-		    (XCM_SO_SENDABLE|XCM_SO_RECEIVABLE);
-	    }
-	} else
-	    /* No overlap between what the user want to await for, and
-	       what operations SSL_read()/write operation has been
-	       issued */
-	    ready = true;
+		}
+	    } else
+		/* No overlap between what the user want to await for, and
+		   what operations SSL_read()/write operation has been
+		   issued */
+		ready = true;
+	}
+
+	/* A buffered send must complete, whatever the application awaits */
+	if (!ready && bts->conn.send_retry_buf_len > 0)
+	    bts->btcp_socket->condition |= XCM_SO_SENDABLE;
 	break;
     case conn_state_closed:
     case conn_state_bad:
@@ -1409,6 +1491,14 @@ static int btls_finish(struct xcm_socket *s)
 	LOG_FINISH_SAY_BUSY(s, bts->conn.state);
 	return -1;
     case conn_state_ready:
+	if (try_finish_send(s) < 0) {
+	    TP_RET_ERR_IF_STATE(s, bts, conn_state_closed, EPIPE);
+	    TP_RET_ERR_IF_STATE(s, bts, conn_state_bad,
+				bts->conn.badness_reason);
+	    LOG_FINISH_SAY_BUSY(s, bts->conn.state);
+	    errno = EAGAIN;
+	    return -1;
+	}
 	return xcm_tp_socket_finish(bts->btcp_socket);
     case conn_state_bad:
 	errno = bts->conn.badness_reason;
