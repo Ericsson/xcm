@@ -338,7 +338,7 @@ int tu_randint(int min, int max)
 
 int tu_randbool(void)
 {
-    return tu_randint(0, 1);
+    return tu_randint(0, 2);
 }
 
 void tu_randblk(void *buf, int len)

@@ -39,6 +39,7 @@ int tu_waitstatus(pid_t p, int *status);
 int tu_enter_ns(const char *ns_name);
 int tu_leave_ns(int old_ns);
 
+/* Returns a value in the range [min, max) */
 int tu_randint(int min, int max);
 int tu_randbool(void);
 void tu_randblk(void *buf, int len);
