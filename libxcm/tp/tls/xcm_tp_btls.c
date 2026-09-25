@@ -496,6 +496,7 @@ static void process_ssl_event(struct xcm_socket *s, int condition,
 	process_ssl_proto_error(s);
 	break;
     case SSL_ERROR_SYSCALL:
+	/* relies on the error queue being cleared before the operation */
 	if (ERR_peek_error() != 0)
 	    process_ssl_proto_error(s);
 	else {
@@ -604,6 +605,8 @@ static void try_finish_tls_handshake(struct xcm_socket *s)
     bts->conn.ssl_wants = 0;
 
     int (*handshake)(SSL *ssl) = bts->tls_client ? SSL_connect : SSL_accept;
+
+    ERR_clear_error();
 
     UT_SAVE_ERRNO;
     int rc = handshake(bts->conn.ssl);
@@ -1219,6 +1222,8 @@ static int btls_send(struct xcm_socket *__restrict s,
     bts->conn.ssl_condition = 0;
     bts->conn.ssl_wants = 0;
 
+    ERR_clear_error();
+
     UT_SAVE_ERRNO;
     int rc = SSL_write(bts->conn.ssl, buf, len);
     UT_RESTORE_ERRNO(write_errno);
@@ -1266,6 +1271,8 @@ static int btls_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 
     bts->conn.ssl_condition = 0;
     bts->conn.ssl_wants = 0;
+
+    ERR_clear_error();
 
     UT_SAVE_ERRNO;
     int rc = SSL_read(bts->conn.ssl, buf, capacity);
