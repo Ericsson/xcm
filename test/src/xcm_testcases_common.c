@@ -3971,11 +3971,19 @@ int run_invalid_credential_value(const char *attr_name)
     size_t data_len = tu_randint(1000, 100000);
     char data[data_len];
 
-    /* OK, so this random string may end up being a valid PEM file,
-       and even one that with the correct key/certificate/CA
-       bundle. If it does, you should take it as a strong indication
-       you live in a simulation. */
     tu_randblk(data, data_len);
+
+    /* Credential values are PEM, and thus must not contain NUL. A value
+       which does is rejected already as the attribute is set, while
+       NUL-free garbage is passed on, and rejected as it is parsed. */
+    size_t i;
+    for (i = 0; i < data_len; i++)
+	if (data[i] == '\0')
+	    data[i] = 1;
+
+    bool with_nul = tu_randint(0, 2) == 0;
+    if (with_nul)
+	data[tu_randint(0, data_len)] = '\0';
 
     struct xcm_attr_map *empty_attrs = xcm_attr_map_create();
 
@@ -3991,7 +3999,7 @@ int run_invalid_credential_value(const char *attr_name)
     unsigned int variant = tu_randint(0, 3);
     switch (variant) {
     case 0:
-	accept_attrs = invalid_attrs;
+	server_attrs = invalid_attrs;
 	break;
     case 1:
 	accept_attrs = invalid_attrs;
@@ -4003,7 +4011,7 @@ int run_invalid_credential_value(const char *attr_name)
 
     CHKNOERR(establish_xtls(tls_addr, server_attrs, accept_attrs,
 			    connect_attrs, false));
-    CHKERRNOEQ(EINVAL);
+    CHKERRNOEQ(with_nul ? EINVAL : EPROTO);
 
     xcm_attr_map_destroy(empty_attrs);
     xcm_attr_map_destroy(invalid_attrs);
