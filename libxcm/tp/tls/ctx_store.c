@@ -23,11 +23,6 @@
 #define SSL_OP_NO_RENEGOTIATION 0
 #endif
 
-/* Ignoring unexpected EOF requires OpenSSL 3.0 or later */
-#ifndef SSL_OP_IGNORE_UNEXPECTED_EOF
-#define SSL_OP_IGNORE_UNEXPECTED_EOF 0
-#endif
-
 #define TLS_OPT_SET					\
     (SSL_OP_NO_SSLv2|					\
      SSL_OP_NO_SSLv3|					\
@@ -37,7 +32,6 @@
      SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION|	\
      SSL_OP_NO_TICKET|					\
      SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS|		\
-     SSL_OP_IGNORE_UNEXPECTED_EOF|			\
      SSL_OP_NO_RENEGOTIATION)
 
 #define TLS_OPT_CLEAR					\
