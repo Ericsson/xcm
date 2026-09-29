@@ -109,6 +109,14 @@ static int set_default_attrs(struct xcm_socket *s, struct xcm_socket *parent_s,
 	    return -1;
     }
 
+    if (parent_s != NULL &&
+	(attrs == NULL ||
+	 !xcm_attr_map_exists(attrs, XCM_ATTR_XCM_BLOCKING))) {
+	if (xcm_attr_set_bool(s, XCM_ATTR_XCM_BLOCKING,
+			      parent_s->is_blocking) < 0)
+	    return -1;
+    }
+
     return 0;
 }
 
@@ -157,11 +165,10 @@ static int set_attrs(struct xcm_socket *s, struct xcm_socket *parent_s,
 }
 
 static struct xcm_socket *socket_create(const struct xcm_tp_proto *proto,
-					enum xcm_socket_type type,
-					bool is_blocking)
+					enum xcm_socket_type type)
 {
     struct xcm_socket *s =
-	xcm_tp_socket_create(proto, type, NULL, true, true, is_blocking);
+	xcm_tp_socket_create(proto, type, NULL, true, true, true);
 
     struct xpoll *xpoll = xpoll_create(s);
 
@@ -196,7 +203,7 @@ struct xcm_socket *xcm_connect_a(const char *remote_addr,
 	return NULL;
 
     struct xcm_socket *s =
-	socket_create(proto, xcm_socket_type_conn, true);
+	socket_create(proto, xcm_socket_type_conn);
     if (s == NULL)
 	goto err;
 
@@ -239,7 +246,7 @@ struct xcm_socket *xcm_server_a(const char *local_addr,
 	goto err;
 
     struct xcm_socket *s =
-	socket_create(proto, xcm_socket_type_server, true);
+	socket_create(proto, xcm_socket_type_server);
     if (s == NULL)
 	goto err;
 
@@ -289,16 +296,15 @@ struct xcm_socket *xcm_accept_a(struct xcm_socket *server_s,
 {
     TP_RET_ERR_RC_UNLESS_TYPE(server_s, xcm_socket_type_server, NULL);
 
-    bool is_blocking = server_s->is_blocking;
+    bool server_blocking = server_s->is_blocking;
     struct xcm_socket *conn_s;
 
 restart:
-    conn_s = socket_create(server_s->proto, xcm_socket_type_conn,
-			   server_s->is_blocking);
+    conn_s = socket_create(server_s->proto, xcm_socket_type_conn);
     if (conn_s == NULL)
 	goto err;
 
-    if (is_blocking && socket_wait(server_s, XCM_SO_ACCEPTABLE) < 0)
+    if (server_blocking && socket_wait(server_s, XCM_SO_ACCEPTABLE) < 0)
 	goto err_destroy;
 
     if (xcm_tp_socket_init(conn_s, server_s) < 0)
@@ -308,14 +314,15 @@ restart:
 	goto err_close;
 
     if (xcm_tp_socket_accept(conn_s, server_s) < 0) {
-	if (is_blocking && errno == EAGAIN) {
+	if (server_blocking && errno == EAGAIN) {
 	    socket_destroy(conn_s);
 	    goto restart;
 	}
 	goto err_destroy;
     }
 
-    if (is_blocking && socket_finish(conn_s) < 0)
+    /* Neither socket may be made to block the calling thread */
+    if (server_blocking && conn_s->is_blocking && socket_finish(conn_s) < 0)
 	goto err_close;
 
     return conn_s;

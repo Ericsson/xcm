@@ -555,6 +555,20 @@ TESTCASE(xcm, non_blocking_connect_lazy)
     return UTEST_SUCCESS;
 }
 
+TESTCASE(xcm, accept_blocking)
+{
+    int i;
+    for (i = 0; i < test_m_addrs_len; i++)
+	if (run_accept_blocking(test_m_addrs[i]) < 0)
+	    return UTEST_FAILED;
+
+    for (i = 0; i < test_b_addrs_len; i++)
+	if (run_accept_blocking(test_b_addrs[i]) < 0)
+	    return UTEST_FAILED;
+
+    return UTEST_SUCCESS;
+}
+
 TESTCASE(xcm, invalid_service)
 {
     int i;

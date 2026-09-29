@@ -415,12 +415,13 @@ extern "C" {
  * @subsubsection non_blocking_connect Non-blocking Connection Establishment
  *
  * In case the @ref XCM_NONBLOCK flag is set in the xcm_connect()
- * call, or in case the an XCM server socket is in non-blocking mode
- * at the time of an xcm_accept() call, the newly created XCM
- * connection returned to the application may be in a semi-operational
- * state, with some internal processing and/or signaling with the
- * remote peer still required before actual message transmission and
- * reception may occur.
+ * call, or in case the XCM server socket or the connection socket
+ * being created is in non-blocking mode at the time of an
+ * xcm_accept() call, the newly created XCM connection returned to
+ * the application may be in a semi-operational state, with some
+ * internal processing and/or signaling with the remote peer still
+ * required before actual message transmission and reception may
+ * occur.
  *
  * The application may attempt to send or receive messages on such
  * semi-operational connections.
@@ -1852,6 +1853,10 @@ struct xcm_socket *xcm_accept(struct xcm_socket *server_socket);
  *
  * Such attributes will override any value inherited from the server
  * socket.
+ *
+ * Setting "xcm.blocking" to true does not make the call block, in case
+ * the server socket is in non-blocking mode. See @ref
+ * non_blocking_connect.
  *
  * @param[in] server_socket The server socket on which to attempt to accept
  *                          one pending connection.

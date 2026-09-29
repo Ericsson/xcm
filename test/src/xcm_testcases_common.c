@@ -1860,6 +1860,78 @@ int run_via_tcp_relay(const char *proto)
 
 
 
+static int run_accept_blocking_op(const char *addr, bool server_blocking,
+				 int attr_value)
+{
+    struct xcm_socket *server_sock = tu_server(addr);
+    CHK(server_sock != NULL);
+
+    CHKNOERR(set_blocking(server_sock, server_blocking));
+
+    /* the peer is a separate process, so that a blocking accept may
+       complete the establishment of the connection */
+    pid_t client_pid = fork();
+    CHKNOERR(client_pid);
+    if (client_pid == 0) {
+	prctl(PR_SET_PDEATHSIG, SIGKILL);
+
+	struct xcm_socket *conn = tu_connect_retry(addr, 0);
+	if (conn == NULL)
+	    exit(EXIT_FAILURE);
+
+	/* await the accepting side's close */
+	char buf[64];
+	if (xcm_receive(conn, buf, sizeof(buf)) != 0)
+	    exit(EXIT_FAILURE);
+
+	exit(xcm_close(conn) < 0 ? EXIT_FAILURE : EXIT_SUCCESS);
+    }
+
+    struct xcm_attr_map *attrs = xcm_attr_map_create();
+    if (attr_value >= 0)
+	xcm_attr_map_add_bool(attrs, "xcm.blocking", attr_value > 0);
+
+    struct xcm_socket *conn_sock;
+    while ((conn_sock = xcm_accept_a(server_sock, attrs)) == NULL)
+	CHKERRNOEQ(EAGAIN);
+
+    xcm_attr_map_destroy(attrs);
+
+    bool expected = attr_value >= 0 ? attr_value > 0 : server_blocking;
+    CHKNOERR(tu_assure_bool_attr(conn_sock, "xcm.blocking", expected));
+
+    /* complete the establishment, so that the peer may return from its
+       blocking connect. xcm_finish() is only valid on a non-blocking
+       socket, hence the switch, which is done after the check above. */
+    CHKNOERR(set_blocking(conn_sock, false));
+
+    int rc;
+    while ((rc = xcm_finish(conn_sock)) < 0 && errno == EAGAIN)
+	;
+    CHKNOERR(rc);
+
+    CHKNOERR(xcm_close(conn_sock));
+    CHKNOERR(xcm_close(server_sock));
+
+    CHKNOERR(tu_wait(client_pid));
+
+    return UTEST_SUCCESS;
+}
+
+int run_accept_blocking(const char *addr)
+{
+    int i;
+    for (i = 0; i < 6; i++) {
+	bool server_blocking = i < 3;
+	int attr_value = i % 3 - 1;
+
+	if (run_accept_blocking_op(addr, server_blocking, attr_value) < 0)
+	    return UTEST_FAILED;
+    }
+
+    return UTEST_SUCCESS;
+}
+
 static int run_invalid_service(const char *addr, const char *invalid_service)
 {
     struct xcm_attr_map *attrs = xcm_attr_map_create();

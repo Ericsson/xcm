@@ -244,6 +244,7 @@ int wait_for_xcm(struct xcm_socket *conn_socket, int condition);
 int wait_until_finished(struct xcm_socket *s, int max_retries);
 int run_ops_on_closed_connections(bool blocking);
 int run_via_tcp_relay(const char *proto);
+int run_accept_blocking(const char *addr);
 int run_invalid_service_bytestream(const char *addr);
 int run_invalid_service_messaging(const char *addr);
 int run_invalid_net_address_test(const char *addr);
