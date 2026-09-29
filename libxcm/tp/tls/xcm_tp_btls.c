@@ -40,6 +40,11 @@
  * Byte-stream TLS XCM Transport
  */
 
+/* ERR_SYSTEM_ERROR() requires OpenSSL 3.0 or later */
+#ifndef ERR_SYSTEM_ERROR
+#define ERR_SYSTEM_ERROR(errcode) 0
+#endif
+
 #define TLS_CERT_ENV "XCM_TLS_CERT"
 
 #define TLS_12_CIPHERS "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
@@ -476,6 +481,32 @@ static void process_ssl_proto_error(struct xcm_socket *s)
     bts->conn.badness_reason = EPROTO;
 }
 
+static void process_syscall_failure(struct xcm_socket *s, int op_errno)
+{
+    struct btls_socket *bts = TOBTLS(s);
+
+    LOG_TLS_OPENSSL_SYSCALL_FAILURE(s, op_errno);
+
+    /* those should be SSL_ERROR_WANT_READ/WRITE */
+    ut_assert(op_errno != EAGAIN && op_errno != EWOULDBLOCK);
+
+    /* when using valgrind, you sometimes get EINPROGRESS for
+       TCP sockets already connected according to SO_ERROR */
+    if (op_errno == EINPROGRESS) {
+	LOG_TLS_SPURIOUS_EINPROGRESS(s);
+	/* we try again to see if we can finish TCP connect,
+	   even though we should have already */
+	bts->conn.ssl_wants = XCM_SO_RECEIVABLE;
+    } else if (op_errno == EPIPE || op_errno == 0) {
+	/* early close seems to yield errno == 0 */
+	LOG_TLS_REMOTE_CLOSED_CONN(s);
+	BTLS_SET_STATE(s, conn_state_closed);
+    } else {
+	BTLS_SET_STATE(s, conn_state_bad);
+	bts->conn.badness_reason = op_errno;
+    }
+}
+
 static void process_ssl_event(struct xcm_socket *s, int condition,
 			     int ssl_rc, int ssl_errno)
 {
@@ -498,33 +529,18 @@ static void process_ssl_event(struct xcm_socket *s, int condition,
 	process_ssl_close(s);
 	break;
     case SSL_ERROR_SSL:
-	process_ssl_proto_error(s);
-	break;
-    case SSL_ERROR_SYSCALL:
+    case SSL_ERROR_SYSCALL: {
 	/* relies on the error queue being cleared before the operation */
-	if (ERR_peek_error() != 0)
+	unsigned long err = ERR_peek_error();
+
+	if (ERR_SYSTEM_ERROR(err))
+	    process_syscall_failure(s, ERR_GET_REASON(err));
+	else if (err != 0 || ssl_err == SSL_ERROR_SSL)
 	    process_ssl_proto_error(s);
-	else {
-	    LOG_TLS_OPENSSL_SYSCALL_FAILURE(s, ssl_errno);
-	    /* those should be SSL_ERROR_WANT_READ/WRITE */
-	    ut_assert(ssl_errno != EAGAIN && ssl_errno != EWOULDBLOCK);
-	    /* when using valgrind, you sometimes get EINPROGRESS for
-	       TCP sockets already connected according to SO_ERROR */
-	    if (ssl_errno == EINPROGRESS) {
-		LOG_TLS_SPURIOUS_EINPROGRESS(s);
-		/* we try again to see if we can finish TCP connect,
-		   even though we should have already */
-		bts->conn.ssl_wants = XCM_SO_RECEIVABLE;
-	    } else if (ssl_errno == EPIPE || ssl_errno == 0) {
-		/* early close seems to yield errno == 0 */
-		LOG_TLS_REMOTE_CLOSED_CONN(s);
-		BTLS_SET_STATE(s, conn_state_closed);
-	    } else {
-		BTLS_SET_STATE(s, conn_state_bad);
-		bts->conn.badness_reason = ssl_errno;
-	    }
-	}
+	else
+	    process_syscall_failure(s, ssl_errno);
 	break;
+    }
     default:
 	ut_assert(0);
 	bts->conn.state = conn_state_bad;
