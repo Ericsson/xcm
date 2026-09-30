@@ -1,0 +1,11 @@
+var searchData=
+[
+  ['ready_20status_20semantics_0',['Ready Status Semantics',['../index.html#might_block',1,'']]],
+  ['receive_1',['Non-blocking Send and Receive',['../index.html#non_blocking_send_receive',1,'']]],
+  ['refused_2',['refused',['../index.html#nb_delayed_connection_refused',1,'Delayed Connection Refused'],['../index.html#nb_immediate_connection_refused',1,'Immediate Connection Refused']]],
+  ['resolution_3',['DNS Resolution',['../index.html#dns',1,'']]],
+  ['resolution_20and_20tcp_20connection_20establishment_4',['DNS Resolution and TCP Connection Establishment',['../index.html#dns_algorithm_attr',1,'']]],
+  ['revocation_20list_20checks_5',['Certification Revocation List Checks',['../index.html#crl_checks',1,'']]],
+  ['role_20configuration_6',['Role Configuration',['../index.html#tls_role',1,'']]],
+  ['runtime_20certificate_20file_20updates_7',['Runtime Certificate File Updates',['../index.html#cert_update',1,'']]]
+];
