@@ -341,6 +341,9 @@ extern "C" {
  * codes, applicable xcm_connect(), xcm_accept(), xcm_send() and
  * xcm_receive().
  *
+ * All errors except EAGAIN and EINTR are terminal, resulting in an
+ * unusable connection.
+ *
  * Also, for errors resulting in an unusable connection, repeated
  * calls will produce the same errno.
  *
