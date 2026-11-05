@@ -2061,13 +2061,12 @@ int xcm_fd(struct xcm_socket *socket);
  * calls xcm_send(), xcm_receive() or xcm_accept() on that socket. See
  * @ref outstanding_tasks for details.
  *
- * xcm_finish() may be called at any time.
+ * xcm_finish() may be called at any time on a non-blocking socket.
  *
  * @param[in] socket The connection or server socket.
  *
- * @return Returns 0 if the connection has been successfully been
- *         established, or -1 if it has not (in which case errno is
- *         set).
+ * @return Returns 0 if the socket is operational, or -1 otherwise
+ *         (in which case errno is set).
  *
  * These errno values are possible not only for xcm_finish(), but also
  * for xcm_connect(), xcm_accept(), xcm_send(), and xcm_receive().
