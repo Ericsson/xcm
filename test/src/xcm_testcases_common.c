@@ -1786,6 +1786,14 @@ int run_ops_on_closed_connections(bool blocking)
 
 	CHKINTEQ(xcm_receive(client_conn, &msg, sizeof(msg)), 0);
 
+	/* the connection closed state is sticky */
+	if (!blocking) {
+	    CHKERRNO(xcm_finish(client_conn), EPIPE);
+	    CHKERRNO(xcm_finish(client_conn), EPIPE);
+	}
+	CHKERRNO(xcm_send(client_conn, &msg, sizeof(msg)), EPIPE);
+	CHKINTEQ(xcm_receive(client_conn, &msg, sizeof(msg)), 0);
+
 	/* XCM shouldn't want anything for closed connections, since
 	   it wants to make the application do send/receive to
 	   communicate the 'error' condition. If we do get a fd, it

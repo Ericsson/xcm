@@ -23,12 +23,23 @@
  * UX and UXF UNIX Domain Socket Transports
  */
 
+enum conn_state {
+    conn_state_ready,
+    conn_state_closed,
+    conn_state_bad
+};
+
 struct ux_socket
 {
     int fd;
     int fd_reg_id;
 
     int max_msg_size;
+
+    struct {
+	enum conn_state state;
+	int badness_reason;
+    } conn;
 
     char raddr[UX_NAME_MAX+16];
     char laddr[UX_NAME_MAX+16];
@@ -39,6 +50,19 @@ struct ux_socket
 };
 
 #define TOUX(s) XCM_TP_GETPRIV(s, struct ux_socket)
+
+#define UX_SET_STATE(_s, _state)		\
+    TP_SET_STATE(_s, TOUX(_s), _state)
+
+static const char *state_name(enum conn_state state)
+{
+    switch (state) {
+    case conn_state_ready: return "ready";
+    case conn_state_closed: return "closed";
+    case conn_state_bad: return "bad";
+    default: return "unknown";
+    }
+}
 
 static int ux_init(struct xcm_socket *s, struct xcm_socket *parent);
 static int ux_connect(struct xcm_socket *s, const char *remote_addr);
@@ -116,6 +140,9 @@ static int ux_init(struct xcm_socket *s, struct xcm_socket *parent)
 
     us->fd = -1;
     us->fd_reg_id = -1;
+
+    if (s->type == xcm_socket_type_conn)
+	us->conn.state = conn_state_ready;
 
     LOG_INIT(s);
 
@@ -420,12 +447,23 @@ static int ux_send(struct xcm_socket *__restrict s,
 
     TP_GOTO_ON_INVALID_MSG_SIZE(len, us->max_msg_size, err);
 
+    TP_RET_ERR_IF_STATE(s, us, conn_state_bad, us->conn.badness_reason);
+
+    TP_RET_ERR_IF_STATE(s, us, conn_state_closed, EPIPE);
+
     int rc = send(us->fd, buf, len, MSG_NOSIGNAL|MSG_EOR);
 
     ut_assert(rc > 0 ? rc == len : true);
 
-    if (rc < 0)
+    if (rc < 0) {
+	if (errno == EPIPE)
+	    UX_SET_STATE(s, conn_state_closed);
+	else if (errno != EAGAIN && errno != EINTR) {
+	    UX_SET_STATE(s, conn_state_bad);
+	    us->conn.badness_reason = errno;
+	}
 	goto err;
+    }
 
     LOG_SEND_ACCEPTED(s, buf, len);
     XCM_TP_CNT_MSG_INC(us->cnts, from_app, len);
@@ -446,6 +484,10 @@ static int ux_receive(struct xcm_socket *__restrict s,
 
     LOG_RCV_REQ(s, buf, capacity);
 
+    TP_RET_ERR_IF_STATE(s, us, conn_state_bad, us->conn.badness_reason);
+
+    TP_RET_IF_STATE(us, conn_state_closed, 0);
+
     int rc = recv(us->fd, buf, capacity, MSG_TRUNC);
 
     if (rc > 0) {
@@ -456,9 +498,14 @@ static int ux_receive(struct xcm_socket *__restrict s,
 	return UT_MIN(rc, capacity);
     } else if (rc == 0) {
 	LOG_RCV_EOF(s);
+	UX_SET_STATE(s, conn_state_closed);
 	return 0;
     } else {
 	LOG_RCV_FAILED(s, errno);
+	if (errno != EAGAIN && errno != EINTR) {
+	    UX_SET_STATE(s, conn_state_bad);
+	    us->conn.badness_reason = errno;
+	}
 	return -1;
     }
 }
@@ -502,7 +549,27 @@ static void ux_update(struct xcm_socket *s)
 
 static int ux_finish(struct xcm_socket *s)
 {
+    struct ux_socket *us = TOUX(s);
+
     LOG_FINISH_REQ(s);
+
+    if (s->type == xcm_socket_type_conn) {
+	switch (us->conn.state) {
+	case conn_state_bad:
+	    LOG_FINISH_SAY_BAD(s, us->conn.badness_reason);
+	    errno = us->conn.badness_reason;
+	    return -1;
+	case conn_state_closed:
+	    LOG_FINISH_SAY_CLOSED(s);
+	    errno = EPIPE;
+	    return -1;
+	case conn_state_ready:
+	    break;
+	}
+    }
+
+    LOG_FINISH_SAY_FREE(s);
+
     return 0;
 }
 
