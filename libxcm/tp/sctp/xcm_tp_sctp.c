@@ -670,7 +670,7 @@ static int sctp_receive(struct xcm_socket *__restrict s, void *__restrict buf,
 	/* Truncate too large message */
 	ss->conn.receive_buf_len = UT_MIN(ss->conn.receive_buf_len, capacity);
 
-	LOG_RCV_MSG(s, ss->conn.receive_buf_len);
+	LOG_RCV_MSG(s, (size_t)ss->conn.receive_buf_len);
 	XCM_TP_CNT_MSG_INC(ss->conn.cnts, from_lower, ss->conn.receive_buf_len);
 	LOG_APP_DELIVERED(s, ss->conn.receive_buf_len);
 	XCM_TP_CNT_MSG_INC(ss->conn.cnts, to_app, ss->conn.receive_buf_len);
