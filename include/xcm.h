@@ -1880,6 +1880,10 @@ struct xcm_socket *xcm_accept_a(struct xcm_socket *server_socket,
  * The xcm_send() function is used to send a message (or a sequence of
  * bytes, for byte stream transports) out on a connection socket.
  *
+ * In case xcm_send() on a socket in blocking mode returns -1 and sets
+ * errno to EINTR, the message (or some or all of the data, for byte
+ * stream transports) may or may not have been sent.
+ *
  * @param[in] conn_socket The connection socket the data will be sent on.
  * @param[in] buf A pointer to the data buffer.
  * @param[in] len The length of the buffer in bytes. Zero-length buffers are not allowed for messaging type transports.
