@@ -30,6 +30,14 @@ enum query_state {
     query_state_successful
 };
 
+struct channel_fd
+{
+    int fd;
+    int reg_id;
+    bool readable;
+    bool writable;
+};
+
 struct xcm_dns_query
 {
     char *domain_name;
@@ -39,9 +47,9 @@ struct xcm_dns_query
     struct xpoll *xpoll;
 
     ares_channel channel;
-    int channel_fds[ARES_GETSOCK_MAXNUM];
-    int channel_fd_reg_ids[ARES_GETSOCK_MAXNUM];
-    int channel_fd_mask;
+    struct channel_fd *channel_fds;
+    size_t num_channel_fds;
+    bool channel_fds_detached;
 
     struct timer_mgr *timer_mgr;
     int64_t ares_timer_id;
@@ -65,52 +73,113 @@ clear_ares_timer(struct xcm_dns_query *query)
     timer_mgr_cancel(query->timer_mgr, &query->ares_timer_id);
 }
 
-static void unreg_all_channel_fds(struct xcm_dns_query *query)
+static int channel_fd_event(const struct channel_fd *channel_fd)
 {
-    int i;
+    int event = 0;
 
-    for (i = 0; i < ARES_GETSOCK_MAXNUM; i++) {
-	int *reg_id = &query->channel_fd_reg_ids[i];
+    if (channel_fd->readable)
+	event |= EPOLLIN;
+    if (channel_fd->writable)
+	event |= EPOLLOUT;
 
-	if (*reg_id >= 0) {
-	    xpoll_fd_reg_del(query->xpoll, *reg_id);
-	    *reg_id = -1;
-	}
+    return event;
+}
+
+static struct channel_fd *find_channel_fd(struct xcm_dns_query *query, int fd)
+{
+    size_t i;
+
+    for (i = 0; i < query->num_channel_fds; i++)
+	if (query->channel_fds[i].fd == fd)
+	    return &query->channel_fds[i];
+
+    return NULL;
+}
+
+static void remove_channel_fd(struct xcm_dns_query *query,
+			      struct channel_fd *channel_fd)
+{
+    xpoll_fd_reg_del(query->xpoll, channel_fd->reg_id);
+
+    size_t idx = channel_fd - query->channel_fds;
+
+    query->num_channel_fds--;
+    query->channel_fds[idx] = query->channel_fds[query->num_channel_fds];
+}
+
+static void sock_state_cb(void *data, ares_socket_t fd, int readable,
+			  int writable)
+{
+    struct xcm_dns_query *query = data;
+
+    if (query->channel_fds_detached)
+	return;
+
+    struct channel_fd *channel_fd = find_channel_fd(query, fd);
+
+    if (!readable && !writable) {
+	if (channel_fd != NULL)
+	    remove_channel_fd(query, channel_fd);
+	return;
     }
+
+    if (channel_fd == NULL) {
+	query->channel_fds =
+	    ut_realloc(query->channel_fds, sizeof(struct channel_fd) *
+		       (query->num_channel_fds + 1));
+
+	channel_fd = &query->channel_fds[query->num_channel_fds];
+	query->num_channel_fds++;
+
+	*channel_fd = (struct channel_fd) {
+	    .fd = fd,
+	    .readable = readable,
+	    .writable = writable
+	};
+
+	channel_fd->reg_id = xpoll_fd_reg_add(query->xpoll, fd,
+					      channel_fd_event(channel_fd));
+    } else {
+	channel_fd->readable = readable;
+	channel_fd->writable = writable;
+
+	xpoll_fd_reg_mod(query->xpoll, channel_fd->reg_id,
+			 channel_fd_event(channel_fd));
+    }
+}
+
+static void detach_channel_fds(struct xcm_dns_query *query, bool owner)
+{
+    if (query->channel_fds_detached)
+	return;
+
+    if (owner) {
+	size_t i;
+	for (i = 0; i < query->num_channel_fds; i++)
+	    xpoll_fd_reg_del(query->xpoll, query->channel_fds[i].reg_id);
+    }
+
+    ut_free(query->channel_fds);
+    query->channel_fds = NULL;
+    query->num_channel_fds = 0;
+
+    query->channel_fds_detached = true;
 }
 
 static void
 update_xpoll(struct xcm_dns_query *query)
 {
-    unreg_all_channel_fds(query);
-
     if (query->state == query_state_in_progress) {
-	query->channel_fd_mask =
-	    ares_getsock(query->channel, query->channel_fds,
-			 ARES_GETSOCK_MAXNUM);
-
-	int i;
-	for (i = 0; i < ARES_GETSOCK_MAXNUM; i++) {
-	    int event = 0;
-	    if (ARES_GETSOCK_READABLE(query->channel_fd_mask, i))
-		event |= EPOLLIN;
-	    if (ARES_GETSOCK_WRITABLE(query->channel_fd_mask, i))
-		event |= EPOLLOUT;
-
-	    if (event != 0)
-		query->channel_fd_reg_ids[i] =
-		    xpoll_fd_reg_add(query->xpoll, query->channel_fds[i],
-				     event);
-	}
-
 	struct timeval max_wait;
 	struct timeval *timeout =
 	    ares_timeout(query->channel, NULL, &max_wait);
 
 	if (timeout != NULL)
 	    update_ares_timer(query, ut_timeval_to_f(timeout), query->log_ref);
-    } else
+    } else {
+	detach_channel_fds(query, true);
 	update_ares_timer(query, 0, query->log_ref);
+    }
 }
 
 static void get_ip(const char *domain_name, struct ares_addrinfo_node *node,
@@ -206,12 +275,12 @@ struct xcm_dns_query *xcm_dns_resolve(const char *domain_name,
     query->overall_timer_id =
 	timer_mgr_schedule(query->timer_mgr, timeout);
 
-    int i;
-    for (i = 0; i < ARES_GETSOCK_MAXNUM; i++)
-	query->channel_fd_reg_ids[i] = -1;
-
     struct ares_options opts = {};
     int opts_mask = 0;
+
+    opts.sock_state_cb = sock_state_cb;
+    opts.sock_state_cb_data = query;
+    opts_mask |= ARES_OPT_SOCK_STATE_CB;
 
     opts.timeout = PER_QUERY_TIMEOUT * 1000;
     opts_mask |= ARES_OPT_TIMEOUTMS;
@@ -258,24 +327,27 @@ static void process_in_progress(struct xcm_dns_query *query)
 {
     clear_ares_timer(query);
 
-    int i;
-    for (i = 0; i < ARES_GETSOCK_MAXNUM; i++) {
-	int fd = query->channel_fds[i];
-	int rfd = ARES_SOCKET_BAD;
-	int wfd = ARES_SOCKET_BAD;
+    /* the socket state callback may modify the channel fds */
+    size_t num_fds = query->num_channel_fds;
+    struct channel_fd *fds = NULL;
 
-	if (ARES_GETSOCK_READABLE(query->channel_fd_mask, i))
-	    rfd = fd;
-	if (ARES_GETSOCK_WRITABLE(query->channel_fd_mask, i))
-	    wfd = fd;
-	if (rfd == ARES_SOCKET_BAD && wfd == ARES_SOCKET_BAD)
-	    continue;
+    if (num_fds > 0) {
+	fds = ut_malloc(sizeof(struct channel_fd) * num_fds);
+	memcpy(fds, query->channel_fds, sizeof(struct channel_fd) * num_fds);
+    }
+
+    size_t i;
+    for (i = 0; i < num_fds; i++) {
+	int rfd = fds[i].readable ? fds[i].fd : ARES_SOCKET_BAD;
+	int wfd = fds[i].writable ? fds[i].fd : ARES_SOCKET_BAD;
 
 	ares_process_fd(query->channel, rfd, wfd);
     }
 
+    ut_free(fds);
+
     /* to process timeouts */
-    ares_process(query->channel, NULL, NULL);
+    ares_process_fd(query->channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
 
     if (query->state != query_state_successful &&
 	timer_mgr_has_expired(query->timer_mgr, query->overall_timer_id)) {
@@ -317,7 +389,7 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 
 	memcpy(ips, query->ips, sizeof(struct xcm_addr_ip) * len);
 
-	unreg_all_channel_fds(query);
+	detach_channel_fds(query, true);
 
 	return len;
     }
@@ -330,8 +402,7 @@ int xcm_dns_query_result(struct xcm_dns_query *query,
 void xcm_dns_query_destroy(struct xcm_dns_query *query, bool owner)
 {
     if (query != NULL) {
-	if (owner)
-	    unreg_all_channel_fds(query);
+	detach_channel_fds(query, owner);
 
 	/* Note: destroying the channel will trigger the query
 	   callbacks, which in turn will access various query struct
