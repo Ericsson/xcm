@@ -450,7 +450,7 @@ static int sctp_connect(struct xcm_socket *s, const char *remote_addr)
 	SCTP_SET_STATE(s, conn_state_resolving);
 	ss->conn.query =
 	    xcm_dns_resolve(ss->conn.remote_host.name, s->xpoll,
-			    XCM_DEFAULT_DNS_TIMEOUT, s);
+			    XCM_DEFAULT_DNS_TIMEOUT, NULL, s);
 	if (!ss->conn.query)
 	    goto err;
     } else {
@@ -492,7 +492,7 @@ static int sctp_server(struct xcm_socket *s, const char *local_addr)
 
     struct sctp_socket *ss = TOSCTP(s);
 
-    if (xcm_dns_resolve_sync(&host, s) < 0)
+    if (xcm_dns_resolve_sync(&host, XCM_DEFAULT_DNS_TIMEOUT, NULL, s) < 0)
 	goto err;
 
     if (create_socket(s, &ss->fd, host.ip.family) < 0)
