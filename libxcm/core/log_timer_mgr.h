@@ -10,6 +10,7 @@
 
 #include "timer_mgr.h"
 
+#include <inttypes.h>
 #include <string.h>
 
 #define LOG_TIMER_MGR_CREATED(s, timer_fd)				\
