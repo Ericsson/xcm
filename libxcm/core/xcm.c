@@ -6,6 +6,8 @@
 #include "xcm.h"
 
 #include "attr_path.h"
+#include "common_tp.h"
+#include "log_tp.h"
 #include "util.h"
 #include "xcm_attr_names.h"
 #include "xcm_tp.h"
